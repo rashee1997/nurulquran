@@ -18,6 +18,11 @@ export interface UserProfile {
   unlockedLevels?: number[]; // Explicitly unlocked level tiers (e.g. from Tajweed Placement Exam)
   tajweedCertifiedLevel?: number; // Advanced Tajweed certification tier (e.g. 10)
   placementExamPassedAt?: string;
+  // Gemini Live AI Tajweed Teacher Preferences
+  aiVoiceId?: 'Kore' | 'Zephyr' | 'Puck' | 'Fenrir' | 'Charon' | string;
+  aiTeacherPersona?: 'gentle' | 'balanced' | 'strict';
+  aiFeedbackLanguage?: 'both' | 'en' | 'ta';
+  aiSpeechRate?: number;
 }
 
 export interface VerseProgress {
@@ -127,6 +132,10 @@ export async function initializeDatabase(): Promise<UserProfile> {
       tajweedColorsEnabled: true,
       arabicFontSize: 28,
       reciterId: 'ar.alafasy',
+      aiVoiceId: 'Kore',
+      aiTeacherPersona: 'balanced',
+      aiFeedbackLanguage: 'both',
+      aiSpeechRate: 1.0,
     };
   }
 
@@ -145,14 +154,33 @@ export async function initializeDatabase(): Promise<UserProfile> {
       tajweedColorsEnabled: true,
       arabicFontSize: 28,
       reciterId: 'ar.alafasy',
+      aiVoiceId: 'Kore',
+      aiTeacherPersona: 'balanced',
+      aiFeedbackLanguage: 'both',
+      aiSpeechRate: 1.0,
     };
     await db.userProfile.put(profile);
-  } else if (profile.totalXp === 50) {
-    // Migration: reset legacy default seeded 50 XP so new accounts start at 0 XP / 0%
-    const historyCount = await db.lessonHistory.count();
-    if (historyCount === 0) {
-      profile.totalXp = 0;
-      await db.userProfile.update('default_user', { totalXp: 0 });
+  } else {
+    // Ensure AI voice preferences exist on existing profiles
+    if (!profile.aiVoiceId) {
+      profile.aiVoiceId = 'Kore';
+      profile.aiTeacherPersona = 'balanced';
+      profile.aiFeedbackLanguage = 'both';
+      profile.aiSpeechRate = 1.0;
+      await db.userProfile.update('default_user', {
+        aiVoiceId: 'Kore',
+        aiTeacherPersona: 'balanced',
+        aiFeedbackLanguage: 'both',
+        aiSpeechRate: 1.0,
+      });
+    }
+    if (profile.totalXp === 50) {
+      // Migration: reset legacy default seeded 50 XP so new accounts start at 0 XP / 0%
+      const historyCount = await db.lessonHistory.count();
+      if (historyCount === 0) {
+        profile.totalXp = 0;
+        await db.userProfile.update('default_user', { totalXp: 0 });
+      }
     }
   }
 

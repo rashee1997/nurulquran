@@ -11,28 +11,37 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  MessageSquare,
   HelpCircle,
   RotateCcw,
+  Zap,
+  Maximize2,
+  Minimize2,
+  Languages,
 } from 'lucide-react';
+import { useLiveTajweed, TajweedLiveFeedback } from '@/hooks/use-live-tajweed';
+import { playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
 
 interface LiveTajweedCoachProps {
   currentLessonTitle?: string;
   currentActivityTitle?: string;
   promptArabic?: string;
   targetRule?: string;
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  variant?: 'modal' | 'embedded';
+  onExpandModal?: () => void;
 }
 
-interface CoachMessage {
+interface CoachChatMessage {
   id: string;
   sender: 'user' | 'coach';
   textEn: string;
   textTa?: string;
   makhrajTip?: string;
+  makhrajTipTa?: string;
   accuracyRating?: string;
   timestamp: string;
+  latencyMs?: number;
 }
 
 export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
@@ -40,171 +49,79 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   currentActivityTitle = 'Letter Pronunciation',
   promptArabic,
   targetRule,
-  isOpen,
+  isOpen = true,
   onClose,
+  variant = 'modal',
+  onExpandModal,
 }) => {
-  const [messages, setMessages] = useState<CoachMessage[]>(() => [
+  const [messages, setMessages] = useState<CoachChatMessage[]>(() => [
     {
       id: 'm-init',
       sender: 'coach',
-      textEn: `As-salamu alaykum! I am your live Gemini Tajweed Coach for "${currentLessonTitle}". Ask questions or tap the microphone to recite "${promptArabic || 'this lesson'}" aloud for instant pronunciation analysis.`,
-      textTa: `அஸ்ஸலாமு அலைக்கும்! நான் உங்கள் நேரலை தஜ்வீத் ஆசிரியர். ஏதேனும் கேள்விகள் கேட்கலாம் அல்லது மைக்ரோஃபோன் மூலம் ஓதி உங்கள் உச்சரிப்பை சரிபார்க்கலாம்.`,
+      textEn: `As-salamu alaykum! I am your live Gemini Tajweed Coach for "${currentLessonTitle}". Tap the microphone to recite "${promptArabic || 'the exercise'}" aloud for real-time Makhraj and Tajweed analysis.`,
+      textTa: `அஸ்ஸலாமு அலைக்கும்! நான் உங்கள் நேரலை தஜ்வீத் ஆசிரியர். மைக்ரோஃபோனை அழுத்தி ஓதி உங்கள் உச்சரிப்பை சரிபார்க்கலாம்.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
   const [inputQuery, setInputQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Audio Recording State
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [audioLevel, setAudioLevel] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isTypingLoading, setIsTypingLoading] = useState(false);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+
+  // Hook for Web Audio 16kHz PCM streaming and Gemini live evaluation
+  const {
+    status,
+    audioLevel,
+    latencyMs,
+    errorMessage,
+    latestFeedback,
+    micPermissionState,
+    recordingSeconds,
+    userProfile,
+    startRecording,
+    stopRecording,
+    reset,
+  } = useLiveTajweed({
+    currentLessonTitle,
+    currentActivityTitle,
+    promptArabic,
+    targetRule,
+    onFeedbackReceived: (fb: TajweedLiveFeedback) => {
+      const coachMsg: CoachChatMessage = {
+        id: 'c-' + Date.now(),
+        sender: 'coach',
+        textEn: fb.coachResponseEn,
+        textTa: fb.coachResponseTa,
+        makhrajTip: fb.makhrajTip,
+        makhrajTipTa: fb.makhrajTipTa,
+        accuracyRating: fb.accuracyRating,
+        latencyMs: fb.latencyMs,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, coachMsg]);
+    },
+  });
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages, status, isTypingLoading]);
 
-  const stopVoiceRecording = () => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close().catch(() => {});
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const startVoiceRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      const chunks: BlobPart[] = [];
-
-      // Setup Web Audio API Analyzer for VAD and live waveform
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      audioContextRef.current = audioCtx;
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      let hasStartedSpeaking = false;
-
-      const checkVolume = () => {
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
-        }
-        const avg = sum / bufferLength;
-        const normalized = Math.min(100, Math.round((avg / 128) * 100));
-        setAudioLevel(normalized);
-
-        // VAD: If volume rises above 15, student has started reciting
-        if (normalized > 15) {
-          hasStartedSpeaking = true;
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-        } else if (hasStartedSpeaking && normalized <= 10) {
-          // If silence detected after speaking, schedule auto-stop in 1.5s
-          if (!silenceTimerRef.current) {
-            silenceTimerRef.current = setTimeout(() => {
-              stopVoiceRecording();
-            }, 1500);
-          }
-        }
-
-        if (mediaRecorder.state === 'recording') {
-          animFrameRef.current = requestAnimationFrame(checkVolume);
-        }
-      };
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      mediaRecorder.onstop = () => {
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          sendToCoach({ audioBase64: base64, query: 'Student recited with microphone' });
-        };
-        reader.readAsDataURL(blob);
-        stream.getTracks().forEach((t) => t.stop());
-        setAudioLevel(0);
-      };
-
-      setRecordingSeconds(0);
-      mediaRecorder.start(250);
-      setIsRecording(true);
-      animFrameRef.current = requestAnimationFrame(checkVolume);
-    } catch (err) {
-      console.warn('Microphone permission denied:', err);
-      alert('Microphone access is unavailable or denied. You can type your questions below.');
-    }
-  };
-
-  // Recording Timer
-  useEffect(() => {
-    if (isRecording) {
-      timerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => {
-          if (prev >= 15) {
-            if (mediaRecorderRef.current) {
-              mediaRecorderRef.current.stop();
-              setIsRecording(false);
-            }
-            return 15;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRecording]);
-
-  const sendToCoach = async ({
-    query,
-    audioBase64,
-  }: {
-    query?: string;
-    audioBase64?: string;
-  }) => {
-    const text = query || inputQuery.trim();
-    if (!text && !audioBase64) return;
+  // Send typed query to coach
+  const sendTypedQuery = async (queryText?: string) => {
+    const text = queryText || inputQuery.trim();
+    if (!text || isTypingLoading) return;
 
     const userMsgId = 'u-' + Date.now();
-    const newMsg: CoachMessage = {
-      id: userMsgId,
-      sender: 'user',
-      textEn: audioBase64 ? '🎙️ [Live Voice Recitation Submitted]' : text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: userMsgId,
+        sender: 'user',
+        textEn: text,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
     setInputQuery('');
-    setIsLoading(true);
+    setIsTypingLoading(true);
 
     try {
       const res = await fetch('/api/tajweed/live-coach', {
@@ -212,28 +129,33 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userQuery: text,
-          audioBase64,
-          audioMimeType: 'audio/webm',
           currentLessonTitle,
           currentActivityTitle,
           promptArabic,
           targetRule,
+          voiceId: userProfile?.aiVoiceId || 'Kore',
+          teacherPersona: userProfile?.aiTeacherPersona || 'balanced',
+          language: userProfile?.aiFeedbackLanguage || 'both',
         }),
       });
 
       const data = await res.json();
-      const coachMsg: CoachMessage = {
-        id: 'c-' + Date.now(),
-        sender: 'coach',
-        textEn: data.coachResponseEn || 'Keep reciting with steady makhraj and focused breath.',
-        textTa: data.coachResponseTa,
-        makhrajTip: data.makhrajTip,
-        accuracyRating: data.accuracyRating,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, coachMsg]);
-    } catch (e) {
-      console.error('Coach communication error:', e);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: 'c-' + Date.now(),
+          sender: 'coach',
+          textEn: data.coachResponseEn || 'Keep reciting with steady makhraj and focused breath.',
+          textTa: data.coachResponseTa,
+          makhrajTip: data.makhrajTip,
+          makhrajTipTa: data.makhrajTipTa,
+          accuracyRating: data.accuracyRating,
+          latencyMs: data.latencyMs,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        },
+      ]);
+    } catch (err) {
+      console.error('Coach communication error:', err);
       setMessages((prev) => [
         ...prev,
         {
@@ -245,15 +167,169 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         },
       ]);
     } finally {
-      setIsLoading(false);
+      setIsTypingLoading(false);
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen && variant === 'modal') return null;
 
+  /* =========================================================================
+     VARIANT: EMBEDDED DOCKED BAR (Inline directly under the recitation card)
+     ========================================================================= */
+  if (variant === 'embedded') {
+    return (
+      <div
+        id="embedded-live-tajweed-coach"
+        className="rounded-2xl border border-primary/25 bg-card shadow-xs overflow-hidden transition-all"
+      >
+        {/* Docked Control Header */}
+        <div className="p-3 bg-surface border-b border-border flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-primary-subtle text-primary flex items-center justify-center">
+              <Sparkles className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-foreground">AI Tajweed Live Coach</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-primary-subtle text-primary-strong">
+                  {userProfile?.aiVoiceId || 'Kore'} • {userProfile?.aiTeacherPersona || 'balanced'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {latencyMs && (
+              <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+                <Zap className="w-3 h-3 text-secondary" />
+                <span>{latencyMs}ms</span>
+              </span>
+            )}
+            {onExpandModal && (
+              <button
+                type="button"
+                onClick={onExpandModal}
+                className="p-1 rounded-lg hover:bg-surface-muted text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center gap-1 transition-colors"
+                title="Expand to Full AI Coach Dialog"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[10px]">Expand</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Live Audio Recitation Bar */}
+        <div className="p-3 sm:p-4 space-y-3">
+          {/* Error notice if mic permission denied */}
+          {errorMessage && (
+            <div className="p-2.5 rounded-xl bg-destructive-subtle border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span className="text-[11px] leading-tight">{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Recording or Active State */}
+          <div className="flex items-center justify-between gap-3">
+            {status === 'listening' ? (
+              <div className="flex-1 flex items-center justify-between px-3 py-2 rounded-xl bg-destructive-subtle border border-destructive/30">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-ping" />
+                  <span className="text-xs font-bold text-destructive">
+                    Reciting ({recordingSeconds}s)...
+                  </span>
+                </div>
+
+                {/* Animated waveform bars */}
+                <div className="flex items-center gap-1 h-5">
+                  {[0.4, 0.9, 1.3, 0.7, 1.5, 0.8, 0.5, 1.2].map((factor, idx) => {
+                    const barHeight = Math.max(3, Math.min(18, (audioLevel * factor) / 4));
+                    return (
+                      <div
+                        key={idx}
+                        className="w-1 bg-destructive rounded-full transition-all duration-75"
+                        style={{ height: `${barHeight}px` }}
+                      />
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="px-2.5 py-1 rounded-lg bg-destructive text-destructive-foreground text-xs font-bold shadow-xs active:scale-95"
+                >
+                  Evaluate
+                </button>
+              </div>
+            ) : status === 'analyzing' ? (
+              <div className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface-muted border border-border text-xs text-muted-foreground animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <span>Evaluating Makhraj and Tajweed timing...</span>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground leading-tight">
+                  Tap microphone to recite <span className="font-arabic font-bold text-foreground text-sm">{promptArabic || 'this verse'}</span> aloud.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold flex items-center gap-1.5 shadow-xs active:scale-95 transition-all shrink-0"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Recite Aloud</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Latest Coach Feedback Card */}
+          {latestFeedback && (
+            <div className="p-3 rounded-xl bg-surface border border-border space-y-2 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+                  <span className="text-[11px] font-bold text-foreground">
+                    Teacher Feedback ({latestFeedback.tajweedRuleName})
+                  </span>
+                </div>
+                {latestFeedback.accuracyRating && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary-subtle text-secondary-strong">
+                    {latestFeedback.accuracyRating}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-foreground leading-relaxed">{latestFeedback.coachResponseEn}</p>
+
+              {latestFeedback.coachResponseTa && (
+                <p className="font-tamil text-[11px] text-muted-foreground pt-1 border-t border-border leading-relaxed">
+                  <span className="font-sans font-bold text-primary-strong text-[10px] mr-1">தமிழ்:</span>
+                  {latestFeedback.coachResponseTa}
+                </p>
+              )}
+
+              {latestFeedback.makhrajTip && (
+                <div className="p-2 rounded-lg bg-secondary-subtle border border-secondary/30 text-secondary-strong text-[11px] flex items-start gap-1.5">
+                  <span className="shrink-0">💡</span>
+                  <span>{latestFeedback.makhrajTip}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  /* =========================================================================
+     VARIANT: MODAL DIALOG (Full-featured chat & deep diagnostic consultation)
+     ========================================================================= */
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in">
-      <div className="bg-card rounded-3xl w-full max-w-lg h-[620px] max-h-[90vh] flex flex-col border border-border shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+      <div className="bg-card rounded-3xl w-full max-w-lg h-[640px] max-h-[90vh] flex flex-col border border-border shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="p-4 sm:p-5 bg-hero-bg text-hero-fg border-b border-hero-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -263,8 +339,8 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold">Gemini Live Tajweed Coach</h3>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg">
-                  AI Live
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg">
+                  Voice: {userProfile?.aiVoiceId || 'Kore'}
                 </span>
               </div>
               <p className="text-[11px] text-hero-muted truncate max-w-[260px]">
@@ -273,21 +349,35 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-hero-card-bg text-hero-muted hover:text-hero-fg transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {latencyMs && (
+              <span className="text-[10px] font-mono text-hero-muted hidden sm:inline flex items-center gap-0.5">
+                <Zap className="w-3 h-3 text-secondary" />
+                <span>{latencyMs}ms</span>
+              </span>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-xl hover:bg-hero-card-bg text-hero-muted hover:text-hero-fg transition-colors"
+                title="Close Coach"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Current Prompt Context Banner */}
         {promptArabic && (
-          <div className="px-4 py-2 bg-primary-subtle border-b border-primary/20 flex items-center justify-between text-xs shrink-0">
-            <span className="text-[11px] font-semibold text-primary-strong">
-              Current Target:
-            </span>
-            <span className="font-arabic text-xl font-bold text-foreground select-text">
+          <div className="px-4 py-2.5 bg-primary-subtle border-b border-primary/20 flex items-center justify-between text-xs shrink-0">
+            <div className="space-y-0.5">
+              <span className="text-[10px] font-bold text-primary-strong uppercase tracking-wider block">
+                Target Passage:
+              </span>
+              <span className="text-[11px] text-muted-foreground">{targetRule || 'Tajweed & Makharij'}</span>
+            </div>
+            <span className="font-arabic text-2xl font-bold text-foreground select-text leading-tight">
               {promptArabic}
             </span>
           </div>
@@ -319,7 +409,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                   {m.textTa && (
                     <p className="font-tamil text-foreground pt-1 border-t border-border">
                       <span className="font-sans font-bold text-primary-strong text-[10px] block mb-0.5">
-                        தமிழ் வழிகாட்டல்:
+                        தமிழ் விளக்கம்:
                       </span>
                       {m.textTa}
                     </p>
@@ -328,28 +418,40 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                   {m.makhrajTip && (
                     <div className="p-2 rounded-lg bg-secondary-subtle border border-secondary/30 text-secondary-strong text-[11px] flex items-start gap-1.5">
                       <span className="shrink-0">💡</span>
-                      <span>{m.makhrajTip}</span>
+                      <div>
+                        <span className="font-bold block text-[10px] uppercase">Makhraj Alignment:</span>
+                        <span>{m.makhrajTip}</span>
+                      </div>
                     </div>
                   )}
 
-                  <span
-                    className={`text-[9px] block text-right opacity-60 ${
-                      isCoach ? 'text-muted-foreground' : 'text-primary-foreground'
-                    }`}
-                  >
-                    {m.timestamp}
-                  </span>
+                  <div className="flex items-center justify-between pt-1 text-[9px] opacity-65">
+                    {m.accuracyRating && (
+                      <span className="font-bold uppercase tracking-wider text-primary-strong">
+                        Rating: {m.accuracyRating}
+                      </span>
+                    )}
+                    <span className="ml-auto">{m.timestamp}</span>
+                  </div>
                 </div>
               </div>
             );
           })}
 
-          {isLoading && (
+          {(status === 'analyzing' || isTypingLoading) && (
             <div className="flex gap-2.5 items-center text-xs text-muted-foreground animate-pulse">
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
-              <span>Gemini is analyzing pronunciation & Tajweed rules...</span>
+              <span>Gemini is evaluating Makhraj, Harakat, and Tajweed rules...</span>
             </div>
           )}
+
+          {errorMessage && (
+            <div className="p-3 rounded-2xl bg-destructive-subtle border border-destructive/30 text-destructive text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           <div ref={chatBottomRef} />
         </div>
 
@@ -357,15 +459,15 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto no-scrollbar shrink-0">
           <button
             onClick={() =>
-              sendToCoach({ query: 'How do I pronounce this correctly from its makhraj?' })
+              sendTypedQuery('How do I articulate this clearly from its primary Makhraj point?')
             }
             className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
           >
-            How to pronounce?
+            How to articulate?
           </button>
           <button
             onClick={() =>
-              sendToCoach({ query: 'Explain this Tajweed rule in Tamil (தமிழ் விளக்கம்).' })
+              sendTypedQuery('Explain this Tajweed rule and vowel timing in Tamil (தமிழ் விளக்கம்).')
             }
             className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors font-tamil"
           >
@@ -373,7 +475,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           </button>
           <button
             onClick={() =>
-              sendToCoach({ query: 'What common mistakes should I avoid on this letter or rule?' })
+              sendTypedQuery('What common mistakes do students make with this letter or rule?')
             }
             className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
           >
@@ -383,16 +485,16 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
         {/* Input & Voice Controls */}
         <div className="p-3 sm:p-4 bg-surface border-t border-border flex flex-col gap-2 shrink-0">
-          {/* Audio volume level meter when recording */}
-          {isRecording && (
-            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-danger-subtle border border-danger/30 text-xs">
+          {/* Active Audio Waveform when recording */}
+          {status === 'listening' && (
+            <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-destructive-subtle border border-destructive/30 text-xs">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-danger animate-ping" />
-                <span className="font-bold text-danger-strong">
-                  Listening... ({recordingSeconds}s)
+                <span className="w-2.5 h-2.5 rounded-full bg-destructive animate-ping" />
+                <span className="font-bold text-destructive">
+                  Listening to recitation ({recordingSeconds}s)...
                 </span>
                 <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                  (Auto-submits when you pause)
+                  (Auto-evaluates upon pause)
                 </span>
               </div>
 
@@ -403,7 +505,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                   return (
                     <div
                       key={idx}
-                      className="w-1 bg-danger rounded-full transition-all duration-75"
+                      className="w-1 bg-destructive rounded-full transition-all duration-75"
                       style={{ height: `${barHeight}px` }}
                     />
                   );
@@ -413,18 +515,20 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           )}
 
           <div className="flex items-center gap-2">
-            {!isRecording ? (
+            {status !== 'listening' ? (
               <button
-                onClick={startVoiceRecording}
-                className="p-3 rounded-2xl bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20 active:scale-95 transition-all"
-                title="Record recitation to get live AI feedback"
+                type="button"
+                onClick={startRecording}
+                className="p-3 rounded-2xl bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 active:scale-95 transition-all shadow-xs"
+                title="Tap to speak or recite aloud"
               >
                 <Mic className="w-4 h-4" />
               </button>
             ) : (
               <button
-                onClick={stopVoiceRecording}
-                className="px-3 py-2.5 rounded-2xl bg-danger text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md"
+                type="button"
+                onClick={stopRecording}
+                className="px-3 py-2.5 rounded-2xl bg-destructive text-destructive-foreground font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md"
                 title="Stop recording"
               >
                 <Square className="w-3.5 h-3.5" />
@@ -439,16 +543,17 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  sendToCoach({});
+                  sendTypedQuery();
                 }
               }}
-              placeholder="Ask AI coach or tap mic to recite..."
+              placeholder="Ask a question or tap mic to recite..."
               className="flex-1 bg-card border border-border rounded-2xl px-3.5 py-2.5 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
             />
 
             <button
-              onClick={() => sendToCoach({})}
-              disabled={!inputQuery.trim() || isLoading}
+              type="button"
+              onClick={() => sendTypedQuery()}
+              disabled={!inputQuery.trim() || isTypingLoading}
               className="p-2.5 rounded-2xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground transition-all shadow-xs active:scale-95"
             >
               <Send className="w-4 h-4" />

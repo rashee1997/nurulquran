@@ -238,30 +238,42 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
 
         {/* Visual Arabic prompt if present */}
         {currentActivity.promptArabic && (
-          <div className="text-center py-6 bg-surface rounded-2xl border border-border space-y-3">
-            <p className="text-5xl font-arabic text-foreground select-none py-2">
-              {currentActivity.promptArabic}
-            </p>
-            <button
-              onClick={() => playAudio(currentActivity.promptArabic, currentActivity.promptAudioUrl)}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                isPlayingAudio
-                  ? 'bg-secondary text-secondary-foreground shadow-md animate-pulse ring-2 ring-secondary/40'
-                  : 'bg-primary-subtle text-primary-strong hover:bg-primary-subtle/80'
-              }`}
-            >
-              {isPlayingAudio ? (
-                <>
-                  <Volume2 className="w-4 h-4 animate-bounce" />
-                  <span>Playing Authentic Audio...</span>
-                </>
-              ) : (
-                <>
-                  <Volume2 className="w-4 h-4" />
-                  <span>Hear Pronunciation</span>
-                </>
-              )}
-            </button>
+          <div className="space-y-4">
+            <div className="text-center py-6 px-4 bg-surface rounded-2xl border border-border space-y-3">
+              <p className="text-5xl sm:text-6xl font-arabic text-foreground select-none py-2 leading-[2.2] tracking-normal">
+                {currentActivity.promptArabic}
+              </p>
+              <button
+                onClick={() => playAudio(currentActivity.promptArabic, currentActivity.promptAudioUrl)}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
+                  isPlayingAudio
+                    ? 'bg-secondary text-secondary-foreground shadow-md animate-pulse ring-2 ring-secondary/40'
+                    : 'bg-primary-subtle text-primary-strong hover:bg-primary-subtle/80'
+                }`}
+              >
+                {isPlayingAudio ? (
+                  <>
+                    <Volume2 className="w-4 h-4 animate-bounce" />
+                    <span>Playing Authentic Audio...</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-4 h-4" />
+                    <span>Hear Pronunciation</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Embedded Live Tajweed Coach Bar */}
+            <LiveTajweedCoach
+              variant="embedded"
+              currentLessonTitle={lesson.title}
+              currentActivityTitle={currentActivity?.title}
+              promptArabic={currentActivity?.promptArabic}
+              targetRule={currentActivity?.instruction}
+              onExpandModal={() => setIsCoachOpen(true)}
+            />
           </div>
         )}
 
@@ -411,6 +423,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
 
       {/* Live Gemini Tajweed Coach Modal */}
       <LiveTajweedCoach
+        variant="modal"
         isOpen={isCoachOpen}
         onClose={() => setIsCoachOpen(false)}
         currentLessonTitle={lesson.title}

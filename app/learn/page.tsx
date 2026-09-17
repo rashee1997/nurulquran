@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { CURRICULUM_LEVELS } from '@/lib/learning/curriculum';
 import { db, UserProfile } from '@/lib/db';
-import { checkLevelUnlockStatus, LEVEL_REQUIRED_XP } from '@/lib/learning/xp-engine';
+import { checkLevelUnlockStatus } from '@/lib/learning/xp-engine';
 import {
   BookOpen,
   CheckCircle2,
@@ -14,19 +14,22 @@ import {
   Lock,
   Unlock,
   Award,
-  ShieldCheck,
   Zap,
+  Volume2,
+  GraduationCap,
+  Layers,
 } from 'lucide-react';
 
 export default function CurriculumMapPage() {
   const [completedLessonIds, setCompletedLessonIds] = useState<Set<string>>(new Set());
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [selectedStage, setSelectedStage] = useState<'all' | 'stage1' | 'stage2' | 'stage3'>('all');
 
   useEffect(() => {
     async function loadData() {
       if (typeof window !== 'undefined') {
         const history = await db.lessonHistory.toArray();
-        const set = new Set(history.map(h => h.lessonId));
+        const set = new Set(history.map((h) => h.lessonId));
         setCompletedLessonIds(set);
 
         const user = await db.userProfile.get('default_user');
@@ -41,96 +44,168 @@ export default function CurriculumMapPage() {
   const totalUserXp = profile?.totalXp || 0;
   const isCertified = (profile?.tajweedCertifiedLevel || 0) >= 10;
 
+  // Calculate total curriculum completion percentage
+  const allLessons = CURRICULUM_LEVELS.flatMap((l) => l.lessons);
+  const completedTotal = allLessons.filter((l) => completedLessonIds.has(l.id)).length;
+  const completionPercentage = Math.round((completedTotal / (allLessons.length || 1)) * 100);
+
+  // Filter levels based on pedagogical stage
+  const filteredLevels = CURRICULUM_LEVELS.filter((lvl) => {
+    if (selectedStage === 'stage1') return lvl.level >= 1 && lvl.level <= 3;
+    if (selectedStage === 'stage2') return lvl.level >= 4 && lvl.level <= 7;
+    if (selectedStage === 'stage3') return lvl.level >= 8 && lvl.level <= 10;
+    return true;
+  });
+
   return (
-    <div id="curriculum-map-page" className="space-y-8 animate-in fade-in duration-300 pb-12">
-      {/* Header */}
-      <div className="bg-card rounded-3xl p-6 sm:p-8 text-foreground border border-border space-y-3 shadow-xs">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-subtle text-primary text-xs font-semibold">
-          <BookOpen className="w-3.5 h-3.5" />
-          <span>Curriculum Map • Levels 1 to 10</span>
-        </div>
+    <div id="curriculum-map-page" className="space-y-6 animate-in fade-in duration-300 pb-16">
+      {/* Header & Overall Progress Banner */}
+      <div className="bg-card rounded-3xl p-6 sm:p-7 border border-border shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[11px] font-bold">
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Quranic Pedagogy • 10 Stepped Levels</span>
+            </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-              Quranic Reading & Hifz Pedagogy
+              Tajweed & Hifz Curriculum
             </h1>
-            <p className="text-muted-foreground text-xs sm:text-sm max-w-2xl mt-1">
-              Strict XP-progression pathway from Arabic alphabet recognition and Tajweed phonetics to full Juz 30 memorization.
+            <p className="text-xs sm:text-sm text-muted-foreground max-w-xl">
+              From Arabic phonetics and articulation points (Makharij) to advanced Sifaat, Ghunnah, and Juz 30 mastery.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 bg-surface p-3 rounded-2xl border border-border shrink-0">
-            <Zap className="w-5 h-5 text-secondary" />
-            <div>
-              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Your Progress</p>
-              <p className="text-lg font-black text-secondary">{totalUserXp} XP</p>
+          <div className="flex items-center gap-3">
+            <div className="bg-surface p-3 sm:px-4 rounded-2xl border border-border flex items-center gap-3">
+              <Zap className="w-5 h-5 text-secondary shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Earned XP</p>
+                <p className="text-base font-black text-secondary">{totalUserXp} XP</p>
+              </div>
+            </div>
+
+            <div className="bg-surface p-3 sm:px-4 rounded-2xl border border-border flex items-center gap-3">
+              <GraduationCap className="w-5 h-5 text-primary shrink-0" />
+              <div>
+                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Curriculum</p>
+                <p className="text-base font-black text-foreground">
+                  {completionPercentage}% <span className="text-xs font-normal text-muted-foreground">({completedTotal}/{allLessons.length})</span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Global Progress Bar */}
+        <div className="w-full bg-surface-muted h-2 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-500 rounded-full"
+            style={{ width: `${Math.max(2, completionPercentage)}%` }}
+          />
+        </div>
       </div>
 
-      {/* Gemini Live Placement Exam Banner (Allows Skipping XP Gating) */}
-      <div className="p-6 rounded-3xl bg-card border border-border text-foreground shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative overflow-hidden">
-        <div className="space-y-2 z-10 max-w-xl">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary-subtle text-secondary-strong border border-secondary/30 text-[11px] font-bold">
-            <Sparkles className="w-3.5 h-3.5 text-secondary" />
-            <span>Gemini Live AI Tajweed Placement Exam</span>
-          </div>
-          <h2 className="text-lg sm:text-xl font-bold text-foreground">
-            Already know Tajweed rules? Skip directly to advanced levels
-          </h2>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Levels are locked until you reach required XP thresholds. However, taking the Gemini Live Tajweed oral exam tests your recitation in real time and unlocks all levels up to Level 10 immediately upon passing!
-          </p>
-          {isCertified && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-success-subtle text-success-strong border border-success/40 text-xs font-semibold">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Certified via Gemini Live AI • All 10 Levels Unlocked</span>
+      {/* Accelerated Learning Hub: 2-Column Responsive Tray */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Placement Exam Card */}
+        <div className="p-5 rounded-3xl bg-card border border-border flex flex-col justify-between gap-3 shadow-xs">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary-subtle text-secondary-strong border border-secondary/30 text-[10px] font-bold">
+                <Sparkles className="w-3 h-3 text-secondary" />
+                <span>Gemini Live Oral Exam</span>
+              </div>
+              {isCertified && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-success-subtle text-success-strong">
+                  Certified • All Levels Open
+                </span>
+              )}
             </div>
-          )}
-        </div>
-
-        <Link
-          href="/learn/placement-test"
-          className="inline-flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-secondary hover:bg-secondary-hover text-secondary-foreground font-bold text-xs shadow-md active:scale-95 transition-transform shrink-0 z-10"
-        >
-          <Award className="w-4 h-4" />
-          <span>{isCertified ? 'Review Placement Exam' : 'Take Tajweed Placement Exam'}</span>
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </div>
-
-      {/* Direct Alphabet Audio Studio Card */}
-      <div className="p-6 rounded-3xl bg-card border border-border shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-        <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary text-[11px] font-bold">
-            <Sparkles className="w-3 h-3" />
-            <span>Interactive Audio & Makharij</span>
+            <h2 className="text-sm sm:text-base font-bold text-foreground">
+              Tajweed Placement & Level Bypass
+            </h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Already know Quranic reading? Recite live to the AI Tajweed examiner to test out of lower levels immediately.
+            </p>
           </div>
-          <h2 className="text-lg sm:text-xl font-bold text-foreground">
-            Arabic Alphabet Pronunciation Studio
-          </h2>
-          <p className="text-xs text-muted-foreground max-w-xl leading-relaxed">
-            Listen to authentic recordings of all 28 Arabic letters with Harakat (Fatha, Kasra, Damma), Tamil transliteration, throat/tongue makharij points, and an interactive ear-training quiz.
-          </p>
+
+          <Link
+            href="/learn/placement-test"
+            className="inline-flex items-center justify-between px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground font-bold text-xs shadow-xs active:scale-98 transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <Award className="w-4 h-4" />
+              <span>{isCertified ? 'Review Placement Results' : 'Take Oral Placement Exam'}</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        <Link
-          href="/learn/alphabet"
-          className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-transform shrink-0"
-        >
-          <span>Open Alphabet Audio Studio</span>
-          <ArrowRight className="w-4 h-4" />
-        </Link>
+        {/* Alphabet Pronunciation Studio Card */}
+        <div className="p-5 rounded-3xl bg-card border border-border flex flex-col justify-between gap-3 shadow-xs">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[10px] font-bold">
+              <Volume2 className="w-3 h-3 text-primary" />
+              <span>Phonetics & Ear Trainer</span>
+            </div>
+            <h2 className="text-sm sm:text-base font-bold text-foreground">
+              Arabic Alphabet Pronunciation Studio
+            </h2>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              All 28 Arabic letters with authentic human audio, throat & tongue Makharij diagrams, and Tamil transliteration.
+            </p>
+          </div>
+
+          <Link
+            href="/learn/alphabet"
+            className="inline-flex items-center justify-between px-4 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-xs active:scale-98 transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <Volume2 className="w-4 h-4" />
+              <span>Open Alphabet Audio Studio</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       </div>
 
-      {/* Levels list with XP Gating */}
-      <div className="space-y-8">
-        {CURRICULUM_LEVELS.map((level) => {
+      {/* Pedagogical Stage Filter Tabs */}
+      <div className="flex items-center justify-between flex-wrap gap-2 pt-2">
+        <div className="flex items-center gap-1.5 p-1 bg-surface rounded-2xl border border-border overflow-x-auto">
+          {[
+            { id: 'all', label: 'All Levels (1–10)' },
+            { id: 'stage1', label: 'Stage 1: Foundations (1–3)' },
+            { id: 'stage2', label: 'Stage 2: Core Tajweed (4–7)' },
+            { id: 'stage3', label: 'Stage 3: Hifz & Recitation (8–10)' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedStage(tab.id as typeof selectedStage)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                selectedStage === tab.id
+                  ? 'bg-card text-foreground shadow-xs border border-border'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-xs text-muted-foreground">
+          Showing {filteredLevels.length} of {CURRICULUM_LEVELS.length} levels
+        </span>
+      </div>
+
+      {/* Stepped Curriculum Levels List */}
+      <div className="space-y-6">
+        {filteredLevels.map((level) => {
           const totalLessons = level.lessons.length;
-          const completedCount = level.lessons.filter(l => completedLessonIds.has(l.id)).length;
+          const completedCount = level.lessons.filter((l) => completedLessonIds.has(l.id)).length;
           const unlockStatus = checkLevelUnlockStatus(level.level, profile);
           const isUnlocked = unlockStatus.unlocked;
+          const levelPercent = Math.round((completedCount / (totalLessons || 1)) * 100);
 
           return (
             <div
@@ -138,17 +213,17 @@ export default function CurriculumMapPage() {
               className={`p-6 rounded-3xl border transition-all space-y-5 ${
                 isUnlocked
                   ? 'bg-card border-border shadow-xs'
-                  : 'bg-surface border-border opacity-90'
+                  : 'bg-surface/80 border-border opacity-85'
               }`}
             >
-              {/* Level header */}
+              {/* Level Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span
                       className={`text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
                         isUnlocked
-                          ? 'bg-primary-subtle text-primary'
+                          ? 'bg-primary-subtle text-primary-strong'
                           : 'bg-surface border border-border text-muted-foreground'
                       }`}
                     >
@@ -160,13 +235,13 @@ export default function CurriculumMapPage() {
                       <span>Level {level.level}</span>
                     </span>
 
-                    <span className="font-arabic text-lg text-primary">
+                    <span className="font-arabic text-xl font-bold text-primary">
                       {level.titleArabic}
                     </span>
 
                     {unlockStatus.unlockedByCertification && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-secondary-subtle text-secondary-strong border border-secondary/30">
-                        Tajweed Bypass
+                        Exam Bypass
                       </span>
                     )}
                   </div>
@@ -179,11 +254,13 @@ export default function CurriculumMapPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-center">
+                <div className="flex items-center gap-3 self-start sm:self-center">
                   {isUnlocked ? (
-                    <span className="text-xs font-semibold px-3 py-1 rounded-full bg-surface border border-border text-muted-foreground">
-                      {completedCount} / {totalLessons} completed
-                    </span>
+                    <div className="text-right">
+                      <span className="text-xs font-semibold px-3 py-1 rounded-full bg-surface border border-border text-muted-foreground inline-block">
+                        {completedCount} / {totalLessons} completed ({levelPercent}%)
+                      </span>
+                    </div>
                   ) : (
                     <div className="text-right">
                       <span className="text-xs font-bold text-secondary-strong bg-secondary-subtle px-3 py-1 rounded-full border border-secondary/30 flex items-center gap-1.5">
@@ -198,13 +275,13 @@ export default function CurriculumMapPage() {
                 </div>
               </div>
 
-              {/* Locked Warning Banner */}
+              {/* Locked Notice */}
               {!isUnlocked && (
-                <div className="p-4 rounded-2xl bg-secondary-subtle border border-secondary/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2 text-secondary-strong">
                     <Lock className="w-4 h-4 shrink-0 text-secondary" />
                     <span>
-                      Earn <strong>{unlockStatus.remainingXp} more XP</strong> in prior lessons to unlock, or bypass instantly via the Gemini Live Placement Exam.
+                      Earn <strong>{unlockStatus.remainingXp} more XP</strong> in earlier lessons, or bypass instantly via the Gemini Live Placement Exam.
                     </span>
                   </div>
                   <Link
@@ -217,7 +294,7 @@ export default function CurriculumMapPage() {
               )}
 
               {/* Lessons Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                 {level.lessons.map((lesson) => {
                   const isDone = completedLessonIds.has(lesson.id);
 
@@ -273,7 +350,7 @@ export default function CurriculumMapPage() {
                             className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold bg-surface border border-border text-muted-foreground hover:bg-secondary-subtle hover:text-secondary-strong transition-colors"
                           >
                             <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span>Locked • Take Test to Unlock</span>
+                            <span>Locked • Take Test</span>
                           </Link>
                         )}
                       </div>
@@ -288,4 +365,3 @@ export default function CurriculumMapPage() {
     </div>
   );
 }
-

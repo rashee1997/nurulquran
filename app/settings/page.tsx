@@ -4,8 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS } from '@/components/quran/AudioBar';
-import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor } from 'lucide-react';
+import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
+import { AI_TEACHER_VOICES, playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
 
 export default function SettingsPage() {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
@@ -15,6 +16,8 @@ export default function SettingsPage() {
   const [showTamil, setShowTamil] = useState(true);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
+  const [preferenceSavedNotice, setPreferenceSavedNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -69,6 +72,47 @@ export default function SettingsPage() {
       if (p) setProfile(p);
       setImportStatus('Database reset to defaults.');
       setTimeout(() => setImportStatus(null), 3000);
+    }
+  };
+
+  const handleVoiceChange = async (voiceId: string) => {
+    if (!profile) return;
+    const updated = { ...profile, aiVoiceId: voiceId };
+    setProfile(updated);
+    await db.userProfile.update('default_user', { aiVoiceId: voiceId });
+    setPreferenceSavedNotice(`AI Teacher voice updated to ${voiceId}`);
+    setTimeout(() => setPreferenceSavedNotice(null), 3000);
+  };
+
+  const handlePersonaChange = async (persona: 'gentle' | 'balanced' | 'strict') => {
+    if (!profile) return;
+    const updated = { ...profile, aiTeacherPersona: persona };
+    setProfile(updated);
+    await db.userProfile.update('default_user', { aiTeacherPersona: persona });
+    setPreferenceSavedNotice(`Teaching style set to ${persona}`);
+    setTimeout(() => setPreferenceSavedNotice(null), 3000);
+  };
+
+  const handleLanguageChange = async (lang: 'both' | 'en' | 'ta') => {
+    if (!profile) return;
+    const updated = { ...profile, aiFeedbackLanguage: lang };
+    setProfile(updated);
+    await db.userProfile.update('default_user', { aiFeedbackLanguage: lang });
+    setPreferenceSavedNotice(`Feedback language set to ${lang === 'both' ? 'English & Tamil' : lang === 'ta' ? 'Tamil Only' : 'English Only'}`);
+    setTimeout(() => setPreferenceSavedNotice(null), 3000);
+  };
+
+  const handlePlayVoicePreview = async (e: React.MouseEvent, voiceId: string) => {
+    e.stopPropagation();
+    try {
+      setPreviewVoiceId(voiceId);
+      await playVoiceHarmonicPreview(voiceId);
+      setTimeout(() => {
+        setPreviewVoiceId((current) => (current === voiceId ? null : current));
+      }, 1600);
+    } catch (err) {
+      console.warn('Voice preview playback error:', err);
+      setPreviewVoiceId(null);
     }
   };
 
@@ -179,6 +223,187 @@ export default function SettingsPage() {
               <div className="text-[10px] text-muted-foreground">Sync with OS theme</div>
             </div>
           </button>
+        </div>
+      </div>
+
+      {/* AI Tajweed Teacher & Voice Preferences Section */}
+      <div id="ai-teacher-voice-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[11px] font-bold">
+              <Sparkles className="w-3.5 h-3.5 text-secondary" />
+              <span>Gemini Live Tajweed Coach</span>
+            </div>
+            <h3 className="text-base font-bold text-foreground">
+              AI Tajweed Teacher & Voice Settings
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Customize your oral Tajweed coach&apos;s voice tone, teaching rigor, and bilingual language feedback.
+            </p>
+          </div>
+
+          {preferenceSavedNotice && (
+            <div className="px-3 py-1.5 rounded-xl bg-success-subtle border border-success/30 text-success-strong text-xs font-semibold flex items-center gap-1.5 animate-in fade-in shrink-0">
+              <Check className="w-3.5 h-3.5 text-success" />
+              <span>{preferenceSavedNotice}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Voice Selection Cards */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              1. Teacher Voice Timbre ({AI_TEACHER_VOICES.length} Options)
+            </h4>
+            <span className="text-[11px] text-muted-foreground">Click card to select • Tap preview to listen</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {AI_TEACHER_VOICES.map((v) => {
+              const isSelected = (profile?.aiVoiceId || 'Kore') === v.id;
+              const isPlaying = previewVoiceId === v.id;
+
+              return (
+                <div
+                  key={v.id}
+                  onClick={() => handleVoiceChange(v.id)}
+                  className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-3 ${
+                    isSelected
+                      ? 'border-primary bg-primary-subtle ring-2 ring-primary/20 shadow-xs'
+                      : 'border-border bg-surface hover:bg-surface-hover'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-foreground">{v.name}</span>
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          v.gender === 'female'
+                            ? 'bg-secondary-subtle text-secondary-strong'
+                            : 'bg-info-subtle text-info-strong'
+                        }`}
+                      >
+                        {v.gender === 'female' ? 'Female' : 'Male'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => handlePlayVoicePreview(e, v.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
+                          isPlaying
+                            ? 'bg-primary text-primary-foreground animate-pulse'
+                            : 'bg-surface-muted hover:bg-card border border-border text-foreground'
+                        }`}
+                        title={`Listen to sample of ${v.name}`}
+                      >
+                        <Volume2 className={`w-3.5 h-3.5 ${isPlaying ? 'animate-bounce' : 'text-primary'}`} />
+                        <span>{isPlaying ? 'Playing...' : 'Preview'}</span>
+                      </button>
+
+                      {isSelected && (
+                        <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                          <Check className="w-3.5 h-3.5" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs text-foreground font-medium leading-snug">{v.toneEn}</p>
+                    <p className="font-tamil text-[11px] text-muted-foreground leading-snug">{v.toneTa}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Teaching Persona & Style */}
+        <div className="space-y-3 pt-2 border-t border-border">
+          <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
+            2. Pedagogical Style & Rigor
+          </h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              {
+                id: 'gentle',
+                name: 'Gentle Encourager',
+                desc: 'Focuses on building confidence. Overlooks minor acoustic nuances for beginners.',
+              },
+              {
+                id: 'balanced',
+                name: 'Balanced Mentor',
+                desc: 'Recommended. Evaluates Makhraj accuracy, vowel counts, and common reciting slips.',
+              },
+              {
+                id: 'strict',
+                name: 'Strict Qari / Hafiz',
+                desc: 'Hafs standard. Enforces exact Ghunnah counts, precise Sifaat, and crisp stops.',
+              },
+            ].map((p) => {
+              const isSelected = (profile?.aiTeacherPersona || 'balanced') === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handlePersonaChange(p.id as 'gentle' | 'balanced' | 'strict')}
+                  className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 ${
+                    isSelected
+                      ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                      : 'border-border bg-surface hover:bg-surface-hover'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-xs font-bold text-foreground">{p.name}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{p.desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Feedback Language */}
+        <div className="space-y-3 pt-2 border-t border-border">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
+              3. Feedback Language Preference
+            </h4>
+            <span className="text-[11px] text-muted-foreground">Select oral & written instruction language</span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { id: 'both', label: 'English & Tamil (இருமொழி)', sub: 'Complete bilingual explanations' },
+              { id: 'en', label: 'English Only', sub: 'Standard international English' },
+              { id: 'ta', label: 'Tamil Only (தமிழ் மட்டும்)', sub: 'முழுமையான தமிழ் விளக்கம்' },
+            ].map((lang) => {
+              const isSelected = (profile?.aiFeedbackLanguage || 'both') === lang.id;
+              return (
+                <button
+                  key={lang.id}
+                  type="button"
+                  onClick={() => handleLanguageChange(lang.id as 'both' | 'en' | 'ta')}
+                  className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1 ${
+                    isSelected
+                      ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                      : 'border-border bg-surface hover:bg-surface-hover'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-xs font-bold text-foreground">{lang.label}</span>
+                    {isSelected && <Check className="w-3.5 h-3.5 text-primary" />}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{lang.sub}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
