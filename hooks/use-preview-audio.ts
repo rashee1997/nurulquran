@@ -10,9 +10,16 @@ export interface PreviewAudioApi {
   isPlaying: (key: string) => boolean;
   /**
    * Plays a recorded recitation URL, superseding any current preview.
-   * Resolves `false` when the clip could not be played, so callers can fall back.
+   * Pass several interchangeable URLs to try them in order — a word's clip is mirrored on
+   * more than one host, so failing over is what keeps a single 404 from ending in silence.
+   * Resolves `false` when no URL could be played, so callers can fall back.
    */
-  playUrl: (key: string, url: string) => Promise<boolean>;
+  playUrl: (key: string, url: string | readonly string[]) => Promise<boolean>;
+  /**
+   * Plays a sequence of clips back to back, one URL-candidate group per item — used to
+   * recite a run of words. Resolves `false` when nothing could be played at all.
+   */
+  playSequence: (key: string, groups: readonly (string | readonly string[])[]) => Promise<boolean>;
   /**
    * Speaks text through the platform synthesizer.
    * Resolves `false` when no usable voice exists, so callers can fall back.
@@ -41,12 +48,20 @@ export function usePreviewAudio(): PreviewAudioApi {
   useEffect(() => () => previewAudio.stop(), []);
 
   const isPlaying = useCallback((key: string) => playingKey === key, [playingKey]);
-  const playUrl = useCallback((key: string, url: string) => previewAudio.play(key, url), []);
+  const playUrl = useCallback(
+    (key: string, url: string | readonly string[]) => previewAudio.play(key, url),
+    []
+  );
+  const playSequence = useCallback(
+    (key: string, groups: readonly (string | readonly string[])[]) =>
+      previewAudio.playSequence(key, groups),
+    []
+  );
   const speak = useCallback(
     (key: string, text: string, lang?: string) => previewAudio.speak(key, text, lang),
     []
   );
   const stop = useCallback(() => previewAudio.stop(), []);
 
-  return { playingKey, isPlaying, playUrl, speak, stop };
+  return { playingKey, isPlaying, playUrl, playSequence, speak, stop };
 }

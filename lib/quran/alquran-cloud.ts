@@ -9,7 +9,7 @@ import {
   Translation,
   Verse,
 } from './types';
-import { getChapterMetadata } from './surahs';
+import { getChapterMetadata, hasSeparateBasmala } from './surahs';
 import { analyzeTajweed } from './tajweed';
 import { containsNormalized, normalizeForSearch } from './arabic-text';
 import {
@@ -17,6 +17,7 @@ import {
   VERIFIED_OFFLINE_VERSES,
   VerifiedVerseRecord,
 } from './verified-offline-corpus';
+import { wordAudioUrl } from './word-audio';
 import { db } from '../db';
 
 /**
@@ -163,6 +164,70 @@ function stripAyahMarker(token: string): string {
   return token.replace(/[\u06DD\u06DE][\u0660-\u0669\u06F0-\u06F9]*/g, '').trim();
 }
 
+/** Standalone Quranic pause (waqf) and annotation marks. */
+const PAUSE_AND_ANNOTATION_MARKS = /[\u0610-\u061A\u06D6-\u06ED]/g;
+
+/**
+ * True for a token that carries no letters at all — only pause or annotation marks.
+ *
+ * The text edition emits these as their own whitespace-separated tokens: Ayat al-Kursi
+ * (2:255) carries eight of them. They are not words, and counting them as words made the
+ * list eight entries too long. A word's position in that list is what addresses its
+ * recitation clip, so every word after the first pause mark played a different word's audio
+ * (and the tail of the ayah played nothing). The marks remain in `textUthmani`, which is the
+ * text a learner reads and recites; they are excluded only from the word list.
+ */
+function isMarkOnlyToken(token: string): boolean {
+  return token.replace(PAUSE_AND_ANNOTATION_MARKS, '').length === 0;
+}
+
+/**
+ * Removes the decoration that makes two spellings of the same word differ: Quranic
+ * diacritics, annotation signs, tatweel, and the alef forms the two text sources disagree on
+ * (`ٱ` alef wasla versus plain `ا`). Comparison only — never used for display or recitation.
+ */
+function normaliseArabicForCompare(token: string): string {
+  return token
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u0640\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627');
+}
+
+/** The basmala's four words, normalised once so a spelling variant still matches. */
+const BASMALA_COMPARISON = ['بسم', 'الله', 'الرحمن', 'الرحيم'].map(normaliseArabicForCompare);
+
+/**
+ * Separates the basmala that the text edition prefixes onto ayah 1.
+ *
+ * `quran-uthmani` (via alquran.cloud) delivers the first ayah of every surah except
+ * Al-Fatihah and At-Tawbah with the basmala glued to the front — 112:1 arrives as
+ * "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ قُلْ هُوَ ٱللَّهُ أَحَدٌ". Left in place that caused three
+ * separate defects:
+ *
+ *  - The reader renders the basmala as its own ornament above the surah, so it was shown twice.
+ *  - Ayah 1's word list was four words too long. A word's index is exactly what addresses its
+ *    recitation clip, so tapping a word in ayah 1 played a *different* word's audio, and the
+ *    last four words of the list played nothing at all.
+ *  - The translation editions do not include the basmala, so the Arabic and its own
+ *    translation described different text — 2:1 read "Alif, Lam, Meem." beside five words.
+ *
+ * The verified offline corpus already stores ayah 1 without it, so this also makes the two
+ * sources agree with each other.
+ */
+function stripLeadingBasmala(textUthmani: string, surah: number, ayah: number): string {
+  if (ayah !== 1 || !hasSeparateBasmala(surah)) return textUthmani;
+
+  const tokens = textUthmani.replace(/^\uFEFF/, '').trim().split(/\s+/);
+  // Guard against ever emptying an ayah, even though no surah with a separate basmala has
+  // an ayah 1 that consists of nothing else.
+  if (tokens.length <= BASMALA_COMPARISON.length) return textUthmani;
+
+  const head = tokens.slice(0, BASMALA_COMPARISON.length).map(normaliseArabicForCompare);
+  if (head.join(' ') !== BASMALA_COMPARISON.join(' ')) return textUthmani;
+
+  return tokens.slice(BASMALA_COMPARISON.length).join(' ');
+}
+
 /**
  * Shape check for a cached verse.
  *
@@ -179,6 +244,9 @@ function isCachedVerseFor(payload: unknown, surah: number, ayah: number): payloa
     candidate.ayah === ayah &&
     typeof candidate.textUthmani === 'string' &&
     candidate.textUthmani.trim().length > 0 &&
+    // A verse cached before the basmala was separated from ayah 1 is stale: its words are
+    // shifted against their recitation clips. Discard it and re-fetch rather than render it.
+    stripLeadingBasmala(candidate.textUthmani, surah, ayah) === candidate.textUthmani &&
     typeof candidate.globalNumber === 'number' &&
     Number.isInteger(candidate.globalNumber) &&
     candidate.globalNumber > 0 &&
@@ -262,7 +330,7 @@ export class AlQuranCloudProvider implements QuranProvider {
       .trim()
       .split(/\s+/)
       .map((raw) => stripAyahMarker(raw))
-      .filter((token) => token.length > 0)
+      .filter((token) => token.length > 0 && !isMarkOnlyToken(token))
       .map((wordStr, index) => {
         const wordIndex = index + 1;
         const key = `${surah}:${ayah}:${wordIndex}`;
@@ -278,6 +346,10 @@ export class AlQuranCloudProvider implements QuranProvider {
           translationTa: morphology?.ta ?? '',
           root: morphology?.root,
           morphology: morphology?.morphology,
+          // The field existed but was never filled, so every "pronounce this word" control
+          // fell through to the browser's Arabic-less speech synthesizer and played
+          // nothing. This is the audited word-by-word recitation clip for this exact word.
+          audioUrl: wordAudioUrl(surah, ayah, wordIndex),
         } satisfies QuranWord;
       });
   }
@@ -294,7 +366,11 @@ export class AlQuranCloudProvider implements QuranProvider {
     page?: number;
     provenance: Verse['provenance'];
   }): Verse {
-    const { surah, ayah, textUthmani } = input;
+    const { surah, ayah } = input;
+    // Everything below — the displayed text, its plain variant, the word list the reader
+    // indexes, and the Tajweed segments — must describe the ayah itself, not the ayah plus
+    // the basmala the edition glued to it.
+    const textUthmani = stripLeadingBasmala(input.textUthmani, surah, ayah);
     return {
       surah,
       ayah,

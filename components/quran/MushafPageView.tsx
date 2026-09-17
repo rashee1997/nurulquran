@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Verse, Chapter } from '@/lib/quran/types';
+import { QuranWord, Verse, Chapter } from '@/lib/quran/types';
+import { wordAudioCandidates } from '@/lib/quran/word-audio';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import { 
   Eye, 
   EyeOff, 
@@ -13,9 +15,15 @@ import {
   Sparkles,
   Bookmark
 } from 'lucide-react';
-import { TajweedSpan } from './TajweedSpan';
 import { db } from '@/lib/db';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
+
+/** One rendered word of a mushaf line, kept paired with its verse for recitation. */
+interface MushafToken {
+  word: QuranWord;
+  verse: Verse;
+  isAyahEnd: boolean;
+}
 
 interface MushafPageViewProps {
   chapter: Chapter;
@@ -37,29 +45,37 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [maskMode, setMaskMode] = useState<'none' | 'all' | 'alternate' | 'random'>('none');
   const [unmaskedLines, setUnmaskedLines] = useState<Record<number, boolean>>({});
-  const [activeLineAudio, setActiveLineAudio] = useState<number | null>(null);
+
+  // Line recitation is a single shared resource, so the playing state is read from the
+  // shared player instead of a local flag that could claim a line is sounding after it
+  // has finished — and so tapping a word elsewhere never leaves two things speaking.
+  const { playingKey, playSequence } = usePreviewAudio();
 
   // Divide chapter verses into simulated 15-line pages.
   // Standard 15-line page holds roughly 8 to 15 verses depending on length.
   // We compute realistic line-wrapped segments of 15 lines per page.
   const pages = useMemo(() => {
     const linesPerPage = 15;
-    // Flatten verses into words and assemble lines approximately 6-10 words per line
-    const allWordsWithVerse: { text: string; verse: Verse; isAyahEnd: boolean }[] = [];
+    // Flatten verses into words and assemble lines approximately 6-10 words per line.
+    //
+    // The words are taken from the verse's own normalised `words` rather than by splitting
+    // `textUthmani` again. A raw split keeps the end-of-ayah marker as a token, which both
+    // renders an artefact and shifts every later word's index by one — and the word index
+    // is exactly what addresses that word's recitation clip.
+    const allWordsWithVerse: MushafToken[] = [];
 
     verses.forEach((v) => {
-      const words = v.textUthmani.trim().split(/\s+/);
-      words.forEach((w, idx) => {
+      v.words.forEach((word, idx) => {
         allWordsWithVerse.push({
-          text: w,
+          word,
           verse: v,
-          isAyahEnd: idx === words.length - 1,
+          isAyahEnd: idx === v.words.length - 1,
         });
       });
     });
 
     const wordsPerLine = 7;
-    const allLines: { id: number; tokens: { text: string; verse: Verse; isAyahEnd: boolean }[] }[] = [];
+    const allLines: { id: number; tokens: MushafToken[] }[] = [];
     for (let i = 0; i < allWordsWithVerse.length; i += wordsPerLine) {
       allLines.push({
         id: allLines.length + 1,
@@ -97,18 +113,21 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
     return false;
   };
 
-  const playLineAudio = (lineTokens: { text: string; verse: Verse }[], lineIdx: number) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setActiveLineAudio(lineIdx);
-      const textToRecite = lineTokens.map((t) => t.text).join(' ');
-      const u = new SpeechSynthesisUtterance(textToRecite);
-      u.lang = 'ar-SA';
-      u.rate = 0.85;
-      u.onend = () => setActiveLineAudio(null);
-      u.onerror = () => setActiveLineAudio(null);
-      window.speechSynthesis.speak(u);
-    }
+  const linePlaybackKey = (lineIdx: number): string =>
+    `mushaf-line:${chapter.id}:${currentPage}:${lineIdx}`;
+
+  /**
+   * Recites a line by playing its words one after another from the word-by-word corpus.
+   *
+   * This previously handed the whole line to `speechSynthesis`, which has no Arabic voice
+   * on most systems and therefore recited nothing at all. Playing the verified clips also
+   * means a partially revealed line sounds exactly like the words shown.
+   */
+  const playLineAudio = (lineTokens: MushafToken[], lineIdx: number): void => {
+    const groups = lineTokens.map((token) =>
+      wordAudioCandidates(token.verse.surah, token.verse.ayah, token.word.wordIndex)
+    );
+    void playSequence(linePlaybackKey(lineIdx), groups);
   };
 
   return (
@@ -251,8 +270,9 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
                             e.stopPropagation();
                             if (onSelectVerse) onSelectVerse(token.verse);
                           }}
+                          title={token.word.transliteration || undefined}
                         >
-                          {token.text}
+                          {token.word.arabic}
                           {token.isAyahEnd && (
                             <span className="text-primary text-xs font-sans mx-1.5 select-none inline-block align-middle font-bold px-1.5 py-0.5 rounded-full bg-primary-subtle">
                               ۝{token.verse.ayah}
@@ -271,11 +291,12 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
                       e.stopPropagation();
                       playLineAudio(line.tokens, lIdx);
                     }}
-                    className={`p-1 rounded-lg transition-colors opacity-0 group-hover:opacity-100 ${
-                      activeLineAudio === lIdx
+                    className={`p-1 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ${
+                      playingKey === linePlaybackKey(lIdx)
                         ? 'opacity-100 bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground'
                     }`}
+                    aria-label={`Recite line ${lIdx + 1} word by word`}
                     title="Listen to Line"
                   >
                     <Volume2 className="w-3.5 h-3.5" />

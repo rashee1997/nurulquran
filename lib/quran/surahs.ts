@@ -124,3 +124,15 @@ export function getChapterMetadata(id: number): Chapter {
   }
   return found;
 }
+
+/**
+ * True when the basmala precedes this surah but is not itself an ayah of it.
+ *
+ * Only Al-Fatihah (where the basmala *is* ayah 1) and At-Tawbah (which has none) are false.
+ * Text providers prefix the basmala onto ayah 1 whenever this is true, so the provider uses
+ * this same flag to know that the prefix has to be separated before the verse is indexed —
+ * keeping the ornament the reader renders and the word indices it plays from one source.
+ */
+export function hasSeparateBasmala(surah: number): boolean {
+  return SURAHS.find(chapter => chapter.id === surah)?.bismillahPre ?? false;
+}

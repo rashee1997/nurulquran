@@ -401,7 +401,15 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         <MutashabihatModal entry={activeMutashabih} onClose={() => setActiveMutashabih(null)} />
       )}
 
-      {selectedWord && <WordPopover word={selectedWord} onClose={() => setSelectedWord(null)} />}
+      {/* Keyed by word so opening a second word starts from a clean sheet: a playback
+          failure or a "Saved!" badge from the previous word must not carry over. */}
+      {selectedWord && (
+        <WordPopover
+          key={selectedWord.id}
+          word={selectedWord}
+          onClose={() => setSelectedWord(null)}
+        />
+      )}
 
       <AudioBar
         surahNumber={chapter.id}

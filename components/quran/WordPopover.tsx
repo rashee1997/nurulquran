@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2, Check, Bookmark, X } from 'lucide-react';
 import { QuranWord } from '@/lib/quran/types';
+import { wordAudioCandidates } from '@/lib/quran/word-audio';
 import { db } from '@/lib/db';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 
@@ -14,6 +15,8 @@ interface WordPopoverProps {
 
 export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, position }) => {
   const [isSaved, setIsSaved] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [pronounceFailed, setPronounceFailed] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -38,17 +41,35 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
   }, [onClose]);
 
   /**
-   * Plays the word: the recorded clip when one exists, otherwise the Arabic
-   * synthesizer. Both go through the shared player, so a previous word never keeps
-   * sounding underneath the new one.
+   * Plays the word: the recorded recitation of that exact word when it can be reached,
+   * otherwise the Arabic synthesizer. Both go through the shared player, so a previous
+   * word never keeps sounding underneath the new one.
+   *
+   * This used to attempt the record's single `audioUrl` and then hand over to the
+   * synthesizer, and it discarded the result of both — so a learner on a machine with no
+   * Arabic voice tapped "Pronounce" and heard nothing, with nothing to explain it. Every
+   * outcome now either plays audio or reports that it could not.
    */
   const playAudio = useCallback(async (): Promise<void> => {
-    if (word.audioUrl) {
-      const played = await playUrl(playbackKey, word.audioUrl);
-      if (played) return;
+    setIsPreparing(true);
+    setPronounceFailed(false);
+    try {
+      // Candidates first, keeping any explicit URL the record itself carries at the front.
+      const candidates = wordAudioCandidates(word.surah, word.ayah, word.wordIndex);
+      if (word.audioUrl && !candidates.includes(word.audioUrl)) {
+        candidates.unshift(word.audioUrl);
+      }
+      if (await playUrl(playbackKey, candidates)) return;
+
+      // Offline, or the clip host is unreachable: the platform synthesizer is all that is
+      // left, and it only works where an Arabic voice is installed.
+      if (await speak(playbackKey, word.arabic, 'ar-SA')) return;
+
+      setPronounceFailed(true);
+    } finally {
+      setIsPreparing(false);
     }
-    await speak(playbackKey, word.arabic, 'ar-SA');
-  }, [playbackKey, playUrl, speak, word.arabic, word.audioUrl]);
+  }, [playbackKey, playUrl, speak, word]);
 
   const handleSaveWord = useCallback(async (): Promise<void> => {
     try {
@@ -151,10 +172,12 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
           <button
             type="button"
             onClick={() => void playAudio()}
-            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-semibold transition-colors"
+            disabled={isPreparing}
+            aria-busy={isPreparing}
+            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-semibold transition-colors disabled:opacity-70"
           >
             <Volume2 className={`w-4 h-4 text-primary ${isPlaying ? 'animate-bounce' : ''}`} aria-hidden="true" />
-            <span>{isPlaying ? 'Playing…' : 'Pronounce'}</span>
+            <span>{isPlaying ? 'Playing…' : isPreparing ? 'Loading…' : 'Pronounce'}</span>
           </button>
 
           <button
@@ -180,6 +203,16 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
             )}
           </button>
         </div>
+
+        {pronounceFailed && (
+          <p
+            role="status"
+            aria-live="polite"
+            className="text-[11px] font-medium text-danger-strong bg-danger-subtle border border-danger/30 rounded-lg px-2.5 py-1.5"
+          >
+            Pronunciation audio could not be played. Check your connection and try again.
+          </p>
+        )}
       </div>
     </div>
   );
