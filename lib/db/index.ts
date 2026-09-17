@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { GameSessionResult } from './schemas/streak-schema';
+import type { ArabicLabProgress } from '../arabic/types';
 
 export type SrsState = 'new' | 'learning' | 'familiar' | 'memorized' | 'review' | 'weak' | 'mastered';
 export type HifzTier = 'sabaq' | 'sabqi' | 'manzil';
@@ -96,6 +97,7 @@ export class NurulQuranDatabase extends Dexie {
   aiConversations!: Table<AIConversationRecord, string>;
   quranCache!: Table<QuranCacheRecord, string>;
   gameSessions!: Table<GameSessionResult, string>;
+  arabicLabProgress!: Table<ArabicLabProgress, string>;
 
   constructor() {
     super('NurulQuranDB');
@@ -110,6 +112,10 @@ export class NurulQuranDatabase extends Dexie {
     });
     this.version(2).stores({
       gameSessions: 'sessionId, gameId, surahNumber, timestamp',
+    });
+    // Arabic Lab (dual-track Quranic + spoken Arabic). Additive: v1/v2 tables untouched.
+    this.version(3).stores({
+      arabicLabProgress: 'id',
     });
   }
 }

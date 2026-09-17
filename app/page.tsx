@@ -15,7 +15,8 @@ import {
   Compass,
   Play,
   Gamepad2,
-  Radar
+  Radar,
+  Languages
 } from 'lucide-react';
 import { db, UserProfile } from '@/lib/db';
 import { calculateLevel } from '@/lib/learning/xp-engine';
@@ -188,6 +189,36 @@ export default function DashboardPage() {
             >
               <Brain className="w-4 h-4" />
               <span>Launch 10 Hifz Modes</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Arabic Lab Dual-Track Card */}
+        <div className="p-6 rounded-3xl bg-card border border-border shadow-xs flex flex-col justify-between space-y-4 hover:border-primary transition-colors">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-primary-strong bg-primary-subtle px-2.5 py-1 rounded-lg">
+                New &bull; Classical &#8596; Spoken
+              </span>
+              <span className="text-xs text-muted-foreground font-medium">A1&Acirc;&ndash;A8</span>
+            </div>
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Languages className="w-4 h-4 text-primary" />
+              Arabic Lab
+            </h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Trace letters on the Arabic baseline, parse Uthmani i&#8217;r&#257;b, then say the same idea in
+              everyday Modern Standard Arabic &#8212; every rule taught as a classical &#8596; spoken pair.
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <Link
+              href="/arabic-lab"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-98"
+            >
+              <span>Open Arabic Lab</span>
+              <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         </div>

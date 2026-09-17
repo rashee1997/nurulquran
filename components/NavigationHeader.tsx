@@ -18,7 +18,8 @@ import {
   Gamepad2,
   ChevronDown,
   Check,
-  LayoutGrid
+  LayoutGrid,
+  Languages
 } from 'lucide-react';
 import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
@@ -48,6 +49,7 @@ const NAV_CATEGORIES: NavCategory[] = [
       { href: '/dashboard', label: 'Dashboard', desc: 'Overview, daily streaks & activity heatmap', icon: Compass },
       { href: '/quran', label: 'Quran Reader', desc: 'Medina Mushaf with audio, word morphology & tafsir', icon: BookOpen },
       { href: '/learn', label: 'Curriculum', desc: 'Interactive Tajweed & Arabic lessons syllabus', icon: BookOpen },
+      { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Dual-track Quranic + spoken Arabic, writing & iʿrāb', icon: Languages, badge: 'New' },
     ],
   },
   {
@@ -154,6 +156,9 @@ export const NavigationHeader: React.FC = () => {
     }
     if (pathname.startsWith('/quran')) {
       return ALL_NAV_ITEMS.find((i) => i.href === '/quran') || ALL_NAV_ITEMS[0];
+    }
+    if (pathname.startsWith('/arabic-lab')) {
+      return ALL_NAV_ITEMS.find((i) => i.href === '/arabic-lab') || ALL_NAV_ITEMS[0];
     }
     if (pathname.startsWith('/learn')) {
       return ALL_NAV_ITEMS.find((i) => i.href === '/learn') || ALL_NAV_ITEMS[0];
