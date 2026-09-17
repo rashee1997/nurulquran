@@ -140,7 +140,9 @@ export const AyahAssemblyCanvas: React.FC = () => {
       const width = container.clientWidth || 800;
       const height = 460;
 
-      const { ctx } = CanvasEngine.setupHiDPI(canvas, width, height);
+      const setup = CanvasEngine.setupHiDPI(canvas, width, height);
+      if (!setup) return;
+      const { ctx } = setup;
 
       // 1. Draw Celestial Background
       ctx.clearRect(0, 0, width, height);

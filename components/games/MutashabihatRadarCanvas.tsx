@@ -55,7 +55,9 @@ export const MutashabihatRadarCanvas: React.FC = () => {
       if (!isRunning) return;
       const width = container.clientWidth || 800;
       const height = 400;
-      const { ctx } = CanvasEngine.setupHiDPI(canvas, width, height);
+      const setup = CanvasEngine.setupHiDPI(canvas, width, height);
+      if (!setup) return;
+      const { ctx } = setup;
 
       const centerX = width / 2;
       const centerY = height / 2;

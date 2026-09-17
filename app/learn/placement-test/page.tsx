@@ -1,24 +1,20 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { db, UserProfile } from '@/lib/db';
 import {
   Sparkles,
   Mic,
   Square,
-  Volume2,
   CheckCircle2,
-  XCircle,
   Award,
   ArrowRight,
   RotateCcw,
   Loader2,
-  Lock,
   Unlock,
   ShieldCheck,
-  BookOpen,
+  AlertCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { isEnglishEnabled, isTamilEnabled, normalizeFeedbackLanguage } from '@/lib/i18n/language';
@@ -53,8 +49,8 @@ const DIAGNOSTIC_QUESTIONS: DiagnosticQuestion[] = [
   {
     id: 'q2',
     category: 'Ahkam al-Madd',
-    question: 'How many counts of prolongation are required for Madd Lazim Kalimi Muthaqqal (e.g. "وَلَا ٱلضَّآلِّينَ")?',
-    arabicExample: 'وَلَا ٱلضَّآلِّينَ',
+    question: 'How many counts of prolongation are required for Madd Lazim Kalimi Muthaqqal (e.g. "وَلَا ٱلضَّآلِّينَ")?',
+    arabicExample: 'وَلَا ٱلضَّآلِّينَ',
     options: ['6 Harakat (Compulsory)', '2 Harakat (Natural)', '4 Harakat', '1 Harakat'],
     correctIndex: 0,
     ruleExplanationEn: 'Madd Lazim must be held for 6 complete counts due to the following Shaddah.',
@@ -87,185 +83,328 @@ const DIAGNOSTIC_QUESTIONS: DiagnosticQuestion[] = [
   },
 ];
 
+/** Response contract of `POST /api/tajweed/evaluate`. */
+interface PlacementEvaluation {
+  score: number;
+  passed: boolean;
+  accuracyPercent: number;
+  feedbackEn: string;
+  feedbackTa: string;
+  tajweedRulesObserved: string[];
+  makhrajTipsEn: string;
+  makhrajTipsTa: string;
+  strengths: string[];
+  areasForImprovement: string[];
+  unlockedLevel: number;
+  bonusXp: number;
+}
+
+interface ApiErrorPayload {
+  error?: string;
+  code?: string;
+}
+
+const RECORDING_LIMIT_SECONDS = 20;
+
+function isPlacementEvaluation(value: unknown): value is PlacementEvaluation {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.score === 'number' &&
+    typeof candidate.passed === 'boolean' &&
+    Array.isArray(candidate.tajweedRulesObserved) &&
+    (typeof candidate.feedbackEn === 'string' || typeof candidate.feedbackTa === 'string')
+  );
+}
+
 export default function TajweedPlacementExamPage() {
-  const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [step, setStep] = useState<'intro' | 'quiz' | 'recitation' | 'evaluating' | 'result'>('intro');
 
-  // Diagnostic Quiz State
   const [currentQIndex, setCurrentQIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
 
-  // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioBase64, setAudioBase64] = useState<string | null>(null);
+  const [audioMimeType, setAudioMimeType] = useState('audio/webm');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [micError, setMicError] = useState<string | null>(null);
 
-  // Evaluation Result State
-  const [evalResult, setEvalResult] = useState<any>(null);
+  const [evalResult, setEvalResult] = useState<PlacementEvaluation | null>(null);
+  const [evalError, setEvalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
-    async function loadUser() {
-      const user = await db.userProfile.get('default_user');
-      if (user) setProfile(user);
-    }
-    loadUser();
+    isMountedRef.current = true;
+    let active = true;
+    db.userProfile
+      .get('default_user')
+      .then((user) => {
+        if (active && user) setProfile(user);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      isMountedRef.current = false;
+    };
   }, []);
 
-  // Exam feedback follows the same saved feedback-language preference as the coach
+  const releaseMicrophone = useCallback((): void => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    mediaRecorderRef.current = null;
+  }, []);
+
+  // Every path out of the page releases the microphone. The previous version only
+  // stopped the tracks inside `onstop`, so abandoning the exam mid-recording left
+  // the browser's recording indicator on.
+  useEffect(() => {
+    return () => {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.onstop = null;
+        recorder.ondataavailable = null;
+        try {
+          recorder.stop();
+        } catch {
+          // Already stopped.
+        }
+      }
+      releaseMicrophone();
+    };
+  }, [releaseMicrophone]);
+
   const feedbackLanguage = normalizeFeedbackLanguage(profile?.aiFeedbackLanguage);
   const showEnglishFeedback = isEnglishEnabled(feedbackLanguage);
   const showTamilFeedback = isTamilEnabled(feedbackLanguage);
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
+  const diagnosticScore = useMemo(
+    () =>
+      DIAGNOSTIC_QUESTIONS.reduce(
+        (total, question) => (selectedAnswers[question.id] === question.correctIndex ? total + 1 : total),
+        0
+      ),
+    [selectedAnswers]
+  );
 
-  const startRecording = async () => {
+  const stopRecording = useCallback((): void => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      setIsRecording(false);
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch (error) {
+      console.warn('Recorder could not be stopped cleanly:', error);
+    }
+    setIsRecording(false);
+  }, []);
+
+  const startRecording = useCallback(async (): Promise<void> => {
+    setMicError(null);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setMicError('This browser does not expose microphone recording.');
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      const chunks: BlobPart[] = [];
+      if (!isMountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
       };
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
+      recorder.onstop = () => {
+        const mimeType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        chunksRef.current = [];
+        if (!isMountedRef.current) return;
+
         setAudioBlob(blob);
+        setAudioMimeType(mimeType);
+
         const reader = new FileReader();
         reader.onloadend = () => {
-          setAudioBase64(reader.result as string);
+          if (isMountedRef.current && typeof reader.result === 'string') {
+            setAudioBase64(reader.result);
+          }
+        };
+        reader.onerror = () => {
+          if (isMountedRef.current) {
+            setMicError('The recording could not be read. Please record again.');
+          }
         };
         reader.readAsDataURL(blob);
-        stream.getTracks().forEach((track) => track.stop());
+        releaseMicrophone();
+      };
+
+      recorder.onerror = () => {
+        if (isMountedRef.current) {
+          setMicError('Recording failed. Please try again.');
+          setIsRecording(false);
+        }
+        releaseMicrophone();
       };
 
       setRecordingSeconds(0);
-      mediaRecorder.start();
+      setAudioBlob(null);
+      setAudioBase64(null);
+      recorder.start();
       setIsRecording(true);
-    } catch (err) {
-      console.warn('Microphone permission denied or unavailable:', err);
-      alert('Microphone access is unavailable or denied. You can proceed with written Tajweed evaluation.');
+    } catch (error) {
+      console.warn('Microphone permission denied or unavailable:', error);
+      setMicError(
+        'Microphone access is unavailable or was denied. A recitation recording is required before the exam can be assessed.'
+      );
+      releaseMicrophone();
     }
-  };
+  }, [releaseMicrophone]);
 
-  // Timer for audio recording
+  // Countdown timer for the recording window.
   useEffect(() => {
-    if (isRecording) {
-      timerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => {
-          if (prev >= 20) {
-            if (mediaRecorderRef.current) {
-              mediaRecorderRef.current.stop();
-              setIsRecording(false);
-            }
-            return 20;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
+    if (!isRecording) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
     }
+
+    timerRef.current = setInterval(() => {
+      setRecordingSeconds((previous) => Math.min(RECORDING_LIMIT_SECONDS, previous + 1));
+    }, 1000);
+
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, [isRecording]);
 
-  const handleSelectAnswer = (qId: string, optIndex: number) => {
-    setSelectedAnswers((prev) => ({ ...prev, [qId]: optIndex }));
-  };
+  // Auto-stop at the limit — done in an effect rather than inside a state updater,
+  // where calling `recorder.stop()` was a side effect in a reducer.
+  useEffect(() => {
+    if (isRecording && recordingSeconds >= RECORDING_LIMIT_SECONDS) {
+      stopRecording();
+    }
+  }, [isRecording, recordingSeconds, stopRecording]);
 
-  const submitForGeminiEvaluation = async () => {
+  const submitForEvaluation = useCallback(async (): Promise<void> => {
     setStep('evaluating');
     setIsSubmitting(true);
+    setEvalError(null);
+    setEvalResult(null);
 
     try {
+      const answers = Object.fromEntries(
+        Object.entries(selectedAnswers).map(([questionId, optionIndex]) => {
+          const question = DIAGNOSTIC_QUESTIONS.find((q) => q.id === questionId);
+          return [questionId, question?.options[optionIndex] ?? `${optionIndex}`];
+        })
+      );
+
       const res = await fetch('/api/tajweed/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           audioBase64,
-          audioMimeType: 'audio/webm',
-          targetVerseArabic: 'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ • غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ',
+          audioMimeType,
+          targetVerseArabic: 'بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ • غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ',
           targetRule: 'Makharij, Noon Sakinah, Madd Lazim, Tarqeeq/Tafkheem',
-          answers: selectedAnswers,
+          answers,
+          examType: 'placement',
           userLevel: profile?.level || 1,
           language: feedbackLanguage,
         }),
       });
 
-      const data = await res.json();
-      setEvalResult(data);
+      const payload: unknown = await res.json().catch(() => null);
 
-      if (data.passed) {
-        // Unlock all levels in IndexedDB
-        const bonus = data.bonusXp || 150;
-        await db.userProfile.update('default_user', {
-          tajweedCertifiedLevel: 10,
-          unlockedLevels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-          placementExamPassedAt: new Date().toISOString(),
-          totalXp: (profile?.totalXp || 0) + bonus,
-        });
-
-        // Trigger celebratory confetti
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-        });
+      if (!res.ok) {
+        const message = (payload as ApiErrorPayload | null)?.error;
+        throw new Error(message || 'The evaluation service rejected this submission.');
       }
 
-      setStep('result');
-    } catch (e) {
-      console.error('Evaluation error:', e);
-      // Fallback passing
-      setEvalResult({
-        score: 85,
-        passed: true,
-        feedbackEn: 'Recitation verified with correct Tajweed rules. Advanced levels unlocked.',
-        feedbackTa: 'தஜ்வீத் விதிகளுடன் கூடிய ஓதுதல் சரிபார்க்கப்பட்டது. மேம்பட்ட நிலைகள் திறக்கப்பட்டுள்ளன.',
-        tajweedRulesObserved: ['Izhar', 'Qalqalah', 'Madd Lazim 6 Harakat'],
-        makhrajTipsEn: 'Focus on clear separation between Dhaad and Zhaa.',
-        makhrajTipsTa: 'ளாதுக்கும் ழாவுக்கும் இடையே உள்ள உச்சரிப்பு வித்தியாசத்தை கவனிக்கவும்.',
-        bonusXp: 150,
-      });
+      if (!isPlacementEvaluation(payload)) {
+        throw new Error('The evaluation service returned an unusable result.');
+      }
 
-      await db.userProfile.update('default_user', {
-        tajweedCertifiedLevel: 10,
-        unlockedLevels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        placementExamPassedAt: new Date().toISOString(),
-        totalXp: (profile?.totalXp || 0) + 150,
-      });
-      setStep('result');
+      setEvalResult(payload);
+
+      // Rewards are applied only when the server has actually graded the recitation
+      // and passed it. Previously any error path (missing key, network failure,
+      // unparsable response) issued a Level-10 certificate and 150 XP.
+      if (payload.passed) {
+        const unlockedLevels = Array.from({ length: payload.unlockedLevel }, (_, index) => index + 1);
+        await db.userProfile.update('default_user', {
+          tajweedCertifiedLevel: payload.unlockedLevel,
+          unlockedLevels,
+          placementExamPassedAt: new Date().toISOString(),
+          totalXp: (profile?.totalXp || 0) + payload.bonusXp,
+        });
+
+        try {
+          confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+        } catch (error) {
+          console.warn('Celebration effect unavailable:', error);
+        }
+      }
+    } catch (error) {
+      setEvalError(
+        error instanceof Error
+          ? error.message
+          : 'The recitation could not be assessed. Nothing was graded — please try again.'
+      );
     } finally {
-      setIsSubmitting(false);
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+        setStep('result');
+      }
     }
-  };
+  }, [audioBase64, audioMimeType, feedbackLanguage, profile, selectedAnswers]);
+
+  const resetExam = useCallback((): void => {
+    setStep('intro');
+    setAudioBlob(null);
+    setAudioBase64(null);
+    setEvalResult(null);
+    setEvalError(null);
+    setSelectedAnswers({});
+    setCurrentQIndex(0);
+    setRecordingSeconds(0);
+  }, []);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-300 pb-12">
-      {/* Top Banner */}
+    <div id="placement-exam" className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-300 pb-12">
       <div className="bg-card rounded-3xl p-6 sm:p-8 text-foreground border border-border shadow-xs space-y-3">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-subtle text-primary text-xs font-semibold">
-          <Award className="w-3.5 h-3.5 text-secondary" />
+          <Award className="w-3.5 h-3.5 text-secondary" aria-hidden="true" />
           <span>Oral assessment</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
           Place a Level by Reciting
         </h1>
         <p className="text-muted-foreground text-xs sm:text-sm max-w-xl leading-relaxed">
-          Already know the letters and Tajweed rules? Recite aloud to be placed above the introductory levels.
+          Already know the letters and Tajweed rules? Recite aloud to be placed above the introductory
+          levels.
         </p>
       </div>
 
@@ -274,41 +413,39 @@ export default function TajweedPlacementExamPage() {
         <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border space-y-6 shadow-xs">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
-              <ShieldCheck className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-bold text-foreground">Fixed rule set</h3>
+              <ShieldCheck className="w-5 h-5 text-primary" aria-hidden="true" />
+              <h2 className="text-sm font-bold text-foreground">Fixed rule set</h2>
               <p className="text-xs text-muted-foreground">
                 Evaluation is limited to the rules of the Hafs &apos;an &apos;Asim reading.
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
-              <Mic className="w-5 h-5 text-secondary" />
-              <h3 className="text-sm font-bold text-foreground">Recorded recitation</h3>
+              <Mic className="w-5 h-5 text-secondary" aria-hidden="true" />
+              <h2 className="text-sm font-bold text-foreground">Recorded recitation</h2>
               <p className="text-xs text-muted-foreground">
                 Your microphone audio is assessed for makharij, vowels and ghunnah.
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
-              <Unlock className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-bold text-foreground">Levels opened by assessment</h3>
+              <Unlock className="w-5 h-5 text-primary" aria-hidden="true" />
+              <h2 className="text-sm font-bold text-foreground">Levels opened by assessment</h2>
               <p className="text-xs text-muted-foreground">
-                Score 75% or higher to place into Levels 2–10 and gain 150 XP.
+                A graded pass of 75% or higher places you into the advanced levels and grants 150 XP.
               </p>
             </div>
           </div>
 
           <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-border">
-            <Link
-              href="/learn"
-              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
-            >
+            <Link href="/learn" className="text-xs font-semibold text-muted-foreground hover:text-foreground">
               ← Back to Curriculum Map
             </Link>
             <button
+              type="button"
               onClick={() => setStep('quiz')}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-sm shadow-md active:scale-95 transition-all"
             >
               <span>Begin Placement Exam</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -317,11 +454,12 @@ export default function TajweedPlacementExamPage() {
       {/* STEP 2: DIAGNOSTIC QUIZ */}
       {step === 'quiz' && (
         <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border space-y-6 shadow-xs">
-          {/* Progress bar */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center text-xs font-bold text-muted-foreground">
               <span>Section 1 of 2: Tajweed Diagnostic Rules</span>
-              <span>Question {currentQIndex + 1} of {DIAGNOSTIC_QUESTIONS.length}</span>
+              <span>
+                Question {currentQIndex + 1} of {DIAGNOSTIC_QUESTIONS.length}
+              </span>
             </div>
             <div className="w-full bg-surface border border-border h-2 rounded-full overflow-hidden">
               <div
@@ -331,45 +469,47 @@ export default function TajweedPlacementExamPage() {
             </div>
           </div>
 
-          {/* Question Card */}
           {(() => {
-            const q = DIAGNOSTIC_QUESTIONS[currentQIndex];
-            const isSelected = selectedAnswers[q.id] !== undefined;
+            const question = DIAGNOSTIC_QUESTIONS[currentQIndex];
+            if (!question) return null;
 
             return (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary">
-                    {q.category}
+                    {question.category}
                   </span>
-                  <h3 className="text-base sm:text-lg font-bold text-foreground leading-snug">
-                    {q.question}
-                  </h3>
-                  {q.arabicExample && (
+                  <h2 className="text-base sm:text-lg font-bold text-foreground leading-snug">
+                    {question.question}
+                  </h2>
+                  {question.arabicExample && (
                     <div className="p-3 rounded-xl bg-surface border border-border text-center">
-                      <span className="font-arabic text-2xl text-foreground select-text">
-                        {q.arabicExample}
+                      <span className="font-arabic text-2xl text-foreground select-text" dir="rtl" lang="ar">
+                        {question.arabicExample}
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* Options */}
                 <div className="space-y-2 pt-2">
-                  {q.options.map((opt, idx) => {
-                    const isChosen = selectedAnswers[q.id] === idx;
+                  {question.options.map((option, optionIndex) => {
+                    const isChosen = selectedAnswers[question.id] === optionIndex;
                     return (
                       <button
-                        key={idx}
-                        onClick={() => handleSelectAnswer(q.id, idx)}
+                        type="button"
+                        key={`${question.id}-${optionIndex}`}
+                        onClick={() =>
+                          setSelectedAnswers((previous) => ({ ...previous, [question.id]: optionIndex }))
+                        }
+                        aria-pressed={isChosen}
                         className={`w-full p-3.5 rounded-xl border text-left text-xs font-semibold transition-all flex items-center justify-between ${
                           isChosen
                             ? 'bg-primary-subtle border-primary text-primary-strong ring-2 ring-primary/20'
                             : 'bg-surface border-border hover:bg-surface-hover text-foreground'
                         }`}
                       >
-                        <span>{opt}</span>
-                        {isChosen && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+                        <span>{option}</span>
+                        {isChosen && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" aria-hidden="true" />}
                       </button>
                     );
                   })}
@@ -378,9 +518,9 @@ export default function TajweedPlacementExamPage() {
             );
           })()}
 
-          {/* Navigation Buttons */}
           <div className="flex items-center justify-between pt-4 border-t border-border">
             <button
+              type="button"
               onClick={() => {
                 if (currentQIndex > 0) setCurrentQIndex(currentQIndex - 1);
                 else setStep('intro');
@@ -392,21 +532,23 @@ export default function TajweedPlacementExamPage() {
 
             {currentQIndex < DIAGNOSTIC_QUESTIONS.length - 1 ? (
               <button
+                type="button"
                 onClick={() => setCurrentQIndex(currentQIndex + 1)}
                 disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex].id] === undefined}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-xs font-bold transition-all shadow-xs"
               >
                 <span>Next Question</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             ) : (
               <button
+                type="button"
                 onClick={() => setStep('recitation')}
                 disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex].id] === undefined}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95"
               >
                 <span>Proceed to Oral Recitation</span>
-                <Mic className="w-3.5 h-3.5" />
+                <Mic className="w-3.5 h-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -418,223 +560,248 @@ export default function TajweedPlacementExamPage() {
         <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border space-y-6 shadow-xs">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary-subtle text-secondary-strong text-xs font-bold">
-              <Mic className="w-3 h-3" />
+              <Mic className="w-3 h-3" aria-hidden="true" />
               <span>Section 2 of 2: Recitation</span>
             </div>
-            <h2 className="text-lg sm:text-xl font-bold text-foreground">
-              Recite the Test Passage Aloud
-            </h2>
+            <h2 className="text-lg sm:text-xl font-bold text-foreground">Recite the Test Passage Aloud</h2>
             <p className="text-xs text-muted-foreground">
-              Press Record, recite the verse below into your microphone, then press Stop. Makharij, Madd and Tajweed are then assessed.
+              Press Record, recite the verse below into your microphone, then press Stop. Makharij, Madd
+              and Tajweed are then assessed.
             </p>
           </div>
 
-          {/* Passage to recite */}
           <div className="p-6 rounded-2xl bg-surface border border-border text-center space-y-3">
             <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
               Surah Al-Fatihah • Verses 1 & 7
             </p>
-            <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose select-text" dir="rtl">
-              بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ
+            <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose select-text" dir="rtl" lang="ar">
+              بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ
             </p>
-            <p className="font-arabic text-2xl sm:text-3xl text-primary font-bold leading-loose select-text" dir="rtl">
-              غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ
+            <p
+              className="font-arabic text-2xl sm:text-3xl text-primary font-bold leading-loose select-text"
+              dir="rtl"
+              lang="ar"
+            >
+              غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ
             </p>
             <div className="text-[11px] text-muted-foreground pt-2 border-t border-border">
-              Key checks: Light Laam in Bismillah, clean Dhaad articulation, 6-count Madd Lazim on Walad-Daaalleen.
+              Key checks: light Laam in Bismillah, clean Dhaad articulation, 6-count Madd Lazim on
+              Walad-Daaalleen.
             </div>
           </div>
 
-          {/* Recording Controls */}
           <div className="flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-surface border border-border">
             {!isRecording ? (
               <button
-                onClick={startRecording}
-                className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-danger hover:bg-danger text-white font-bold text-sm shadow-md active:scale-95 transition-all"
+                type="button"
+                onClick={() => void startRecording()}
+                className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-danger hover:bg-danger-hover text-danger-foreground font-bold text-sm shadow-md active:scale-95 transition-all"
               >
-                <Mic className="w-5 h-5 animate-pulse" />
-                <span>Start Voice Recording</span>
+                <Mic className="w-5 h-5" aria-hidden="true" />
+                <span>{audioBlob ? 'Record Again' : 'Start Voice Recording'}</span>
               </button>
             ) : (
               <div className="flex flex-col items-center gap-3">
                 <div className="flex items-center gap-3">
-                  <span className="w-3 h-3 rounded-full bg-danger animate-ping" />
-                  <span className="text-sm font-bold text-danger">
-                    Recording: {recordingSeconds}s / 20s
+                  <span className="w-3 h-3 rounded-full bg-danger animate-ping" aria-hidden="true" />
+                  <span role="status" className="text-sm font-bold text-danger-strong">
+                    Recording: {recordingSeconds}s / {RECORDING_LIMIT_SECONDS}s
                   </span>
                 </div>
                 <button
+                  type="button"
                   onClick={stopRecording}
                   className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-card border border-border hover:bg-surface-hover text-foreground font-bold text-sm shadow-md active:scale-95 transition-all"
                 >
-                  <Square className="w-4 h-4 text-danger" />
-                  <span>Stop & Review Recording</span>
+                  <Square className="w-4 h-4 text-danger" aria-hidden="true" />
+                  <span>Stop &amp; Review Recording</span>
                 </button>
               </div>
             )}
 
             {audioBlob && !isRecording && (
-              <div className="pt-2 text-center space-y-2">
-                <div className="flex items-center gap-2 text-xs font-semibold text-success-strong">
-                  <CheckCircle2 className="w-4 h-4 text-success" />
-                  <span>Audio recording captured successfully!</span>
-                </div>
-                <button
-                  onClick={startRecording}
-                  className="text-[11px] font-bold text-muted-foreground hover:text-foreground underline"
-                >
-                  Re-record voice
-                </button>
-              </div>
+              <p className="pt-2 text-xs font-semibold text-success-strong flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-success" aria-hidden="true" />
+                <span>Recording captured — it will be assessed when you submit.</span>
+              </p>
+            )}
+
+            {micError && (
+              <p role="alert" className="text-xs font-semibold text-danger-strong bg-danger-subtle rounded-xl px-3 py-2">
+                {micError}
+              </p>
             )}
           </div>
 
-          {/* Submission / Skip Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
             <button
+              type="button"
               onClick={() => setStep('quiz')}
               className="text-xs font-bold text-muted-foreground hover:text-foreground"
             >
               ← Back to Diagnostic Questions
             </button>
 
-            <button
-              onClick={submitForGeminiEvaluation}
-              disabled={isSubmitting}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-all"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Evaluating Tajweed...</span>
-                </>
-              ) : (
-                <>
-                  <Award className="w-4 h-4 text-secondary" />
-                  <span>Submit for assessment</span>
-                </>
+            <div className="w-full sm:w-auto flex flex-col items-stretch sm:items-end gap-2">
+              <button
+                type="button"
+                onClick={() => void submitForEvaluation()}
+                disabled={isSubmitting || !audioBase64}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:pointer-events-none text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-all"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                    <span>Evaluating Tajweed…</span>
+                  </>
+                ) : (
+                  <>
+                    <Award className="w-4 h-4 text-secondary" aria-hidden="true" />
+                    <span>Submit for assessment</span>
+                  </>
+                )}
+              </button>
+              {!audioBase64 && (
+                <p className="text-[11px] text-muted-foreground text-center sm:text-right">
+                  A recording is required — the exam cannot be graded without hearing your recitation.
+                </p>
               )}
-            </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* STEP 4: EVALUATING SCREEN */}
+      {/* STEP 4: EVALUATING */}
       {step === 'evaluating' && (
         <div className="bg-card rounded-3xl p-12 border border-border text-center space-y-4 shadow-xs">
-          <div className="w-16 h-16 rounded-full bg-primary-subtle flex items-center justify-center mx-auto text-primary animate-spin">
-            <Sparkles className="w-8 h-8 text-primary" />
-          </div>
-          <h2 className="text-xl font-bold text-foreground">
-            Analyzing recitation and rules…
-          </h2>
+          <Loader2 className="w-8 h-8 mx-auto text-primary animate-spin" aria-hidden="true" />
+          <h2 className="text-xl font-bold text-foreground">Assessing your recitation…</h2>
           <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-            Checking articulation points, Noon Sakinah nasalization and Madd length.
+            Checking articulation points, Noon Sakinah nasalisation and Madd length. This can take up to
+            a minute.
           </p>
         </div>
       )}
 
-      {/* STEP 5: RESULTS SCREEN */}
-      {step === 'result' && evalResult && (
-        <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border space-y-6 shadow-xs animate-in zoom-in-95 duration-300">
-          {/* Pass/Fail Header */}
-          <div
-            className={`p-6 rounded-2xl text-center space-y-2 border ${
-              evalResult.passed
-                ? 'bg-success-subtle border-success/40 text-success-strong'
-                : 'bg-secondary-subtle border-secondary/40 text-secondary-strong'
-            }`}
-          >
-            <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-card shadow-xs">
-              {evalResult.passed ? (
-                <Award className="w-6 h-6 text-success" />
-              ) : (
-                <RotateCcw className="w-6 h-6 text-secondary" />
+      {/* STEP 5: RESULT */}
+      {step === 'result' && (
+        <div className="bg-card rounded-3xl p-6 sm:p-8 border border-border space-y-6 shadow-xs">
+          {evalError ? (
+            <div className="p-6 rounded-2xl text-center space-y-3 bg-danger-subtle border border-danger/40">
+              <AlertCircle className="w-8 h-8 mx-auto text-danger-strong" aria-hidden="true" />
+              <h2 className="text-lg font-bold text-danger-strong">Assessment not completed</h2>
+              <p role="alert" className="text-xs text-danger-strong max-w-lg mx-auto">
+                {evalError}
+              </p>
+              <p className="text-[11px] text-muted-foreground max-w-lg mx-auto">
+                No level was unlocked and no XP was awarded, because your recitation was not graded.
+              </p>
+            </div>
+          ) : evalResult ? (
+            <>
+              <div
+                className={`p-6 rounded-2xl text-center space-y-2 border ${
+                  evalResult.passed
+                    ? 'bg-success-subtle border-success/40 text-success-strong'
+                    : 'bg-secondary-subtle border-secondary/40 text-secondary-strong'
+                }`}
+              >
+                <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-card shadow-xs">
+                  {evalResult.passed ? (
+                    <Award className="w-6 h-6 text-success" aria-hidden="true" />
+                  ) : (
+                    <RotateCcw className="w-6 h-6 text-secondary" aria-hidden="true" />
+                  )}
+                </div>
+                <h2 className="text-xl sm:text-2xl font-extrabold">
+                  {evalResult.passed ? 'Placement complete' : 'Not placed yet'}
+                </h2>
+                <p className="text-xs opacity-90 max-w-lg mx-auto">
+                  {evalResult.passed
+                    ? `You scored ${evalResult.score}/100. Levels 2–${evalResult.unlockedLevel} are now open and ${evalResult.bonusXp} XP was added.`
+                    : `You scored ${evalResult.score}/100. We recommend starting with Level 1 or 2 to reinforce makharij foundations.`}
+                </p>
+                <p className="text-[11px] opacity-80">
+                  Written diagnostic: {diagnosticScore}/{DIAGNOSTIC_QUESTIONS.length} correct.
+                </p>
+              </div>
+
+              <div
+                className={`grid grid-cols-1 gap-4 ${
+                  showEnglishFeedback && showTamilFeedback ? 'md:grid-cols-2' : ''
+                }`}
+              >
+                {showEnglishFeedback && evalResult.feedbackEn && (
+                  <div className="p-4 rounded-2xl bg-surface border border-border space-y-2">
+                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      English feedback &amp; Makhraj tips
+                    </h3>
+                    <p className="text-xs text-foreground leading-relaxed">{evalResult.feedbackEn}</p>
+                    {evalResult.makhrajTipsEn && (
+                      <p className="text-[11px] text-primary-strong font-medium pt-1">
+                        Tip: {evalResult.makhrajTipsEn}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {showTamilFeedback && evalResult.feedbackTa && (
+                  <div className="p-4 rounded-2xl bg-surface border border-border space-y-2 font-tamil">
+                    <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-sans">
+                      தமிழ் மதிப்பீடு மற்றும் வழிகாட்டல்
+                    </h3>
+                    <p className="text-xs text-foreground leading-relaxed">{evalResult.feedbackTa}</p>
+                    {evalResult.makhrajTipsTa && (
+                      <p className="text-[11px] text-primary-strong font-medium pt-1">
+                        உச்சரிப்பு குறிப்பு: {evalResult.makhrajTipsTa}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {evalResult.tajweedRulesObserved.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    Tajweed disciplines observed
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {evalResult.tajweedRulesObserved.map((rule) => (
+                      <span
+                        key={rule}
+                        className="text-xs font-semibold px-3 py-1 rounded-full bg-primary-subtle text-primary-strong flex items-center gap-1.5"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+                        {rule}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
-            </div>
-            <h2 className="text-xl sm:text-2xl font-extrabold">
-              {evalResult.passed
-                ? 'Placement complete'
-                : 'Not placed yet'}
-            </h2>
-            <p className="text-xs opacity-90 max-w-lg mx-auto">
-              {evalResult.passed
-                ? `You scored ${evalResult.score}/100. Levels 2–10 are now open.`
-                : `You scored ${evalResult.score}/100. We recommend starting with Level 1 or 2 to reinforce makharij foundations.`}
-            </p>
-          </div>
 
-          {/* Feedback & Tajweed Rules — rendered in the learner's selected language(s) */}
-          <div
-            className={`grid grid-cols-1 gap-4 ${
-              showEnglishFeedback && showTamilFeedback ? 'md:grid-cols-2' : ''
-            }`}
-          >
-            {showEnglishFeedback && (
-              <div className="p-4 rounded-2xl bg-surface border border-border space-y-2">
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  English feedback & Makhraj tips
-                </h4>
-                <p className="text-xs text-foreground leading-relaxed">
-                  {evalResult.feedbackEn}
-                </p>
-                {evalResult.makhrajTipsEn && (
-                  <p className="text-[11px] text-primary-strong font-medium pt-1">
-                    Tip: {evalResult.makhrajTipsEn}
-                  </p>
-                )}
-              </div>
-            )}
+              {evalResult.areasForImprovement.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                    Areas to improve
+                  </h3>
+                  <ul className="text-xs text-foreground space-y-1 list-disc pl-4">
+                    {evalResult.areasForImprovement.map((area) => (
+                      <li key={area}>{area}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : null}
 
-            {showTamilFeedback && (
-              <div className="p-4 rounded-2xl bg-surface border border-border space-y-2 font-tamil">
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-sans">
-                  தமிழ் மதிப்பீடு மற்றும் வழிகாட்டல்
-                </h4>
-                <p className="text-xs text-foreground leading-relaxed">
-                  {evalResult.feedbackTa}
-                </p>
-                {evalResult.makhrajTipsTa && (
-                  <p className="text-[11px] text-primary-strong font-medium pt-1">
-                    💡 உச்சரிப்பு குறிப்பு: {evalResult.makhrajTipsTa}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Rules Observed */}
-          {evalResult.tajweedRulesObserved?.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Tajweed Disciplines Mastered:
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                {evalResult.tajweedRulesObserved.map((rule: string, i: number) => (
-                  <span
-                    key={i}
-                    className="text-xs font-semibold px-3 py-1 rounded-full bg-primary-subtle text-primary-strong flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-                    {rule}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Action buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border">
             <button
-              onClick={() => {
-                setStep('intro');
-                setAudioBlob(null);
-                setAudioBase64(null);
-              }}
+              type="button"
+              onClick={resetExam}
               className="text-xs font-bold text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Retake assessment</span>
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{evalError ? 'Start over' : 'Retake assessment'}</span>
             </button>
 
             <Link
@@ -642,7 +809,7 @@ export default function TajweedPlacementExamPage() {
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-all"
             >
               <span>Open the curriculum</span>
-              <ArrowRight className="w-4 h-4" />
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>
           </div>
         </div>

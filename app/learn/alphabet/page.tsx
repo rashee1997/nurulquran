@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { 
   Volume2, 
@@ -17,8 +17,11 @@ import {
   Sliders
 } from 'lucide-react';
 import { ARABIC_ALPHABET, ArabicLetterMeta, playLetterAudio } from '@/lib/audio/alphabet-audio';
+import { previewAudio } from '@/lib/audio/preview-audio';
 import { db } from '@/lib/db';
 import { evaluateStreak } from '@/lib/learning/xp-engine';
+import { localDayKey } from '@/lib/time/day';
+import { shuffle } from '@/lib/utils';
 import confetti from 'canvas-confetti';
 
 type VowelMode = 'isolated' | 'fatha' | 'kasra' | 'damma' | 'tanween' | 'sukoon';
@@ -39,13 +42,25 @@ export default function AlphabetStudioPage() {
     isCorrect: boolean | null;
   } | null>(null);
 
+  // Leaving the studio releases the shared player, so a letter cannot keep sounding
+  // over the page the learner navigates to next.
+  useEffect(() => () => previewAudio.stop(), []);
+
   const handlePlaySound = async (letter: ArabicLetterMeta) => {
     setActivePlayingId(letter.id);
-    await playLetterAudio(letter, (state) => {
+    const clearIfStillActive = (state: 'playing' | 'ended' | 'error'): void => {
       if (state === 'ended' || state === 'error') {
-        setActivePlayingId(null);
+        // Only clear the indicator if this letter is still the one highlighted;
+        // tapping a second letter used to be cancelled by the first one finishing.
+        setActivePlayingId((previous) => (previous === letter.id ? null : previous));
       }
-    });
+    };
+
+    try {
+      await playLetterAudio(letter, clearIfStillActive);
+    } finally {
+      clearIfStillActive('ended');
+    }
   };
 
   const getVowelGlyph = (baseLetter: string, mode: VowelMode) => {
@@ -104,10 +119,8 @@ export default function AlphabetStudioPage() {
 
   const generateNextQuestion = () => {
     const target = ARABIC_ALPHABET[Math.floor(Math.random() * ARABIC_ALPHABET.length)];
-    const distractors = ARABIC_ALPHABET.filter((l) => l.id !== target.id)
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 3);
-    const options = [target, ...distractors].sort(() => 0.5 - Math.random());
+    const distractors = shuffle(ARABIC_ALPHABET.filter((l) => l.id !== target.id)).slice(0, 3);
+    const options = shuffle([target, ...distractors]);
 
     setQuizQuestion({
       target,
@@ -142,7 +155,7 @@ export default function AlphabetStudioPage() {
           await db.userProfile.update('default_user', {
             totalXp: profile.totalXp + 10,
             streakCount: streakEval.newStreak,
-            lastActiveDate: new Date().toISOString().split('T')[0],
+            lastActiveDate: localDayKey(),
           });
         }
       } catch (e) {

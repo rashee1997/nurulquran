@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Volume2, BookOpen, CheckCircle2, FileText, HelpCircle } from 'lucide-react';
+import React from 'react';
+import { Volume2, BookOpen, FileText } from 'lucide-react';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
 
 export interface ToolInvocationProps {
   toolName: string;
@@ -11,14 +12,16 @@ export interface ToolInvocationProps {
 }
 
 export const VerseCard: React.FC<{ result: Record<string, unknown> }> = ({ result }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+  const { playingKey, playUrl } = usePreviewAudio();
+  const playbackKey = `verse-card:${String(result.surah)}:${String(result.ayah)}`;
+  // The shared player is the source of truth, so the button state cannot drift and
+  // the clip is released when the card unmounts.
+  const isPlaying = playingKey === playbackKey;
 
-  const playAudio = () => {
-    if (result.audioUrl) {
-      const audio = new Audio(result.audioUrl as string);
-      setIsPlaying(true);
-      audio.play().finally(() => setIsPlaying(false));
-    }
+  const playAudio = (): void => {
+    const audioUrl = typeof result.audioUrl === 'string' ? result.audioUrl : undefined;
+    if (!audioUrl) return;
+    void playUrl(playbackKey, audioUrl);
   };
 
   return (

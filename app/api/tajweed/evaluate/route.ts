@@ -1,175 +1,238 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import {
+  apiError,
+  guardRequest,
+  NOT_CONFIGURED,
+  RATE_LIMITED,
+  UPSTREAM_UNAVAILABLE,
+} from '@/lib/api/http';
+import { callerKey, checkRateLimit } from '@/lib/api/rate-limit';
+import {
+  PLACEMENT_BONUS_XP,
+  PLACEMENT_PASS_SCORE,
+  parseWithSchema,
+  tajweedEvaluationModelResponseSchema,
+  tajweedEvaluationRequestSchema,
+  type FeedbackLanguagePayload,
+  type TajweedEvaluationModelResponse,
+} from '@/lib/api/schemas';
+import { resolveServerGeminiModel } from '@/lib/ai/models';
+import { serverGeminiApiKey } from '@/lib/ai/resolver';
 
 export const maxDuration = 60;
 
-type FeedbackLanguage = 'both' | 'en' | 'ta';
+const RATE_LIMIT = { limit: 10, windowMs: 60_000 };
 
-/** Blank out the language the learner did not ask for, so results stay truly single-language. */
-function alignFeedbackWithLanguage(
-  payload: Record<string, any>,
-  language: FeedbackLanguage
-): Record<string, any> {
+interface PlacementEvaluation {
+  score: number;
+  passed: boolean;
+  accuracyPercent: number;
+  feedbackEn: string;
+  feedbackTa: string;
+  tajweedRulesObserved: string[];
+  makhrajTipsEn: string;
+  makhrajTipsTa: string;
+  strengths: string[];
+  areasForImprovement: string[];
+  unlockedLevel: number;
+  bonusXp: number;
+}
+
+/** Blanks out the language the learner did not ask for. */
+function alignWithLanguage(
+  payload: PlacementEvaluation,
+  language: FeedbackLanguagePayload
+): PlacementEvaluation {
   if (language === 'en') {
-    payload.feedbackTa = '';
-    payload.makhrajTipsTa = '';
-  } else if (language === 'ta') {
-    payload.feedbackEn = '';
-    payload.makhrajTipsEn = '';
+    return { ...payload, feedbackTa: '', makhrajTipsTa: '' };
+  }
+  if (language === 'ta') {
+    return { ...payload, feedbackEn: '', makhrajTipsEn: '' };
   }
   return payload;
 }
 
-export async function POST(req: NextRequest) {
-  let feedbackLanguage: FeedbackLanguage = 'both';
-  try {
-    const body = await req.json();
-    const {
-      audioBase64,
-      audioMimeType = 'audio/webm',
-      targetVerseArabic,
-      targetRule,
-      answers,
-      examType = 'placement',
-      userLevel = 1,
-      language = 'both',
-    } = body;
-    feedbackLanguage = language === 'en' || language === 'ta' ? language : 'both';
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const guard = guardRequest(req);
+  if (!guard.ok) return guard.response;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      // Return structured pedagogical evaluation fallback if key not configured
-      return NextResponse.json(
-        alignFeedbackWithLanguage(
-          {
-            score: 88,
-            passed: true,
-            feedbackEn: 'Makharij precision is strong. Accurate execution of Noon Sakinah and Qalqalah observed.',
-            feedbackTa: 'மக்ரிஜ் உச்சரிப்பு சிறப்பாக உள்ளது. நூன் சாகினா மற்றும் கல்கலா விதிமுறைகள் சரியாகப் பின்பற்றப்பட்டுள்ளன.',
-            tajweedRulesObserved: ['Izhar Halqi', 'Qalqalah Kubra', 'Madd Asli 2 Harakat'],
-            makhrajTipsEn: 'Ensure full elevation of the back of the tongue when pronouncing Qaf (ق).',
-            makhrajTipsTa: 'காஃப் (ق) உச்சரிக்கும்போது நாவின் பின்பகுதியை மேல் அண்ணத்தை நோக்கி நன்கு உயர்த்தவும்.',
-            unlockedLevel: 10,
-            bonusXp: 150,
-          },
-          feedbackLanguage
-        )
-      );
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
+  const rate = checkRateLimit({ key: callerKey(req, 'tajweed-evaluate'), ...RATE_LIMIT });
+  if (!rate.allowed) {
+    return apiError({
+      status: 429,
+      code: 'rate_limited',
+      message: RATE_LIMITED,
+      headers: { 'Retry-After': `${rate.retryAfterSeconds}` },
     });
+  }
 
-    const languageGuidance =
-      feedbackLanguage === 'en'
-        ? 'Write the feedback in English only. Leave every Tamil field as an empty string.'
-        : feedbackLanguage === 'ta'
-          ? 'Write the feedback in authentic Tamil (தமிழ்) only. Leave every English field as an empty string.'
-          : 'Write the feedback in both clear English and authentic Tamil (தமிழ்), keeping them equivalent.';
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return apiError({ status: 400, code: 'invalid_request', message: 'Request body must be valid JSON.' });
+  }
 
-    const promptText = `
-You are a senior world-class Quranic Tajweed Examiner, Sanad Holder, and Arabic Linguist.
-Evaluate the student's Tajweed placement test submission or recitation.
+  const parsed = parseWithSchema(tajweedEvaluationRequestSchema, body);
+  if (!parsed.ok) {
+    return apiError({ status: 400, code: 'invalid_request', message: parsed.message });
+  }
+
+  const {
+    audioBase64,
+    audioMimeType = 'audio/webm',
+    targetVerseArabic,
+    targetRule,
+    answers,
+    userLevel = 1,
+    language = 'both',
+  } = parsed.data;
+
+  if (!audioBase64 || audioBase64.length === 0) {
+    return apiError({
+      status: 400,
+      code: 'invalid_request',
+      message: 'A recorded recitation is required for a placement evaluation.',
+    });
+  }
+
+  const apiKey = serverGeminiApiKey();
+  if (!apiKey) {
+    return apiError({ status: 503, code: 'not_configured', message: NOT_CONFIGURED, unavailable: true });
+  }
+
+  const languageGuidance =
+    language === 'en'
+      ? 'Write the feedback in English only. Leave every Tamil field as an empty string.'
+      : language === 'ta'
+        ? 'Write the feedback in authentic Tamil (தமிழ்) only. Leave every English field as an empty string.'
+        : 'Write the feedback in both clear English and authentic Tamil (தமிழ்), keeping them equivalent.';
+
+  const promptText = `
+You are a senior Quranic Tajweed examiner (Hafs 'an 'Asim). Evaluate the student's recorded recitation.
 
 FEEDBACK LANGUAGE: ${languageGuidance}
 
 EXAMINATION CONTEXT:
-- Target Verse / Text: "${targetVerseArabic || 'Surah Al-Fatihah / Juz Amma test passage'}"
-- Specific Rule Tested: "${targetRule || 'Comprehensive Tajweed (Makharij, Noon Sakinah, Meem Sakinah, Madd, Qalqalah)'}"
-- Diagnostic Answers Given by Student: ${JSON.stringify(answers || {})}
-- Current Level: ${userLevel}
+- Target text: "${targetVerseArabic || 'Surah Al-Fatihah / Juz Amma passage'}"
+- Specific rule tested: "${targetRule || 'Comprehensive Tajweed (Makharij, Noon Sakinah, Meem Sakinah, Madd, Qalqalah)'}"
+- Written diagnostic answers: ${JSON.stringify(answers ?? {})}
+- Current level: ${userLevel}
 
-CRITERIA TO EVALUATE:
-1. Makharij al-Huroof (Throat, Tongue, Lips articulation points)
+Assess only what is audible in the recording. If the recording is silent, unintelligible or does not
+match the target text, return a low score (below 50). Do not award a pass for absent evidence.
+
+CRITERIA:
+1. Makharij al-Huroof (throat, tongue, lips)
 2. Noon Sakinah & Tanween (Izhar, Idgham, Iqlab, Ikhfa)
 3. Meem Sakinah (Ikhfa Shafawi, Idgham Shafawi, Izhar Shafawi)
-4. Ahkam al-Madd (Natural 2 harakat vs extended 4-6 harakat)
-5. Qalqalah (Echoing on Qaf, Taa, Baa, Jeem, Dal)
-6. Tafkheem and Tarqeeq (Heavy vs light letters, Raa and Laam al-Jalalah)
+4. Ahkam al-Madd (natural 2 counts versus extended 4-6 counts)
+5. Qalqalah (echoing on قطب جد)
+6. Tafkheem and Tarqeeq (heavy versus light letters)
 
-YOU MUST RESPOND ONLY IN VALID JSON matching this exact structure:
+Respond ONLY with valid JSON in this exact structure:
 {
-  "score": <number between 0 and 100>,
-  "passed": <true if score >= 75, else false>,
-  "accuracyPercent": <number between 0 and 100>,
-  "feedbackEn": "<2-3 constructive, encouraging sentences in English on what they recited well and what to polish>",
-  "feedbackTa": "<Accurate Tamil translation and reflection of the feedback>",
-  "tajweedRulesObserved": ["<rule 1>", "<rule 2>", "<rule 3>"],
-  "makhrajTipsEn": "<Specific anatomical advice on tongue/throat placement>",
-  "makhrajTipsTa": "<Anatomical advice in Tamil>",
-  "strengths": ["<strength 1>", "<strength 2>"],
-  "areasForImprovement": ["<area 1>", "<area 2>"],
-  "unlockedLevel": <10 if passed, else userLevel>,
-  "bonusXp": <150 if passed, else 30>
+  "score": <integer 0-100>,
+  "accuracyPercent": <integer 0-100>,
+  "feedbackEn": "<2-3 constructive sentences in English>",
+  "feedbackTa": "<equivalent Tamil feedback>",
+  "tajweedRulesObserved": ["<rule 1>", "<rule 2>"],
+  "makhrajTipsEn": "<specific anatomical advice>",
+  "makhrajTipsTa": "<anatomical advice in Tamil>",
+  "strengths": ["<strength 1>"],
+  "areasForImprovement": ["<area 1>"]
 }
 `;
 
-    const contents: any[] = [{ text: promptText }];
+  const startedAt = performance.now();
 
-    if (audioBase64) {
-      contents.push({
-        inlineData: {
-          mimeType: audioMimeType,
-          data: audioBase64.replace(/^data:audio\/[a-z0-9]+;base64,/, ''),
-        },
-      });
-    }
-
+  try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents,
+      model: resolveServerGeminiModel(),
+      contents: [
+        { text: promptText },
+        {
+          inlineData: {
+            mimeType: audioMimeType,
+            data: audioBase64.replace(/^data:audio\/[a-z0-9-]+;base64,/, ''),
+          },
+        },
+      ],
       config: {
         responseMimeType: 'application/json',
         temperature: 0.2,
       },
     });
 
-    const responseText = response.text?.trim() || '{}';
-    let parsedResult;
+    const responseText = response.text?.trim() ?? '';
+    let rawAssessment: unknown;
     try {
-      parsedResult = JSON.parse(responseText);
+      rawAssessment = JSON.parse(responseText);
     } catch {
-      // Safe fallback if JSON formatting had issues
-      parsedResult = {
-        score: 82,
-        passed: true,
-        accuracyPercent: 85,
-        feedbackEn: 'Good recitation adherence to fundamental Tajweed rules and clear makharij.',
-        feedbackTa: 'அடிப்படை தஜ்வீத் விதிகளுடன் கூடிய சிறப்பான ஓதுதல்.',
-        tajweedRulesObserved: ['Noon Sakinah Izhar', 'Qalqalah', 'Madd Tabee\'i'],
-        makhrajTipsEn: 'Focus on keeping the throat relaxed during Haa (ح).',
-        makhrajTipsTa: 'ஹா (ح) உச்சரிக்கும்போது தொண்டையை மென்மையாக வைத்திருக்கவும்.',
-        unlockedLevel: 10,
-        bonusXp: 150,
-      };
+      console.error('Placement evaluation returned non-JSON output.');
+      return apiError({
+        status: 503,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
     }
 
-    return NextResponse.json(alignFeedbackWithLanguage(parsedResult, feedbackLanguage));
-  } catch (error: any) {
-    console.error('Tajweed Evaluation API Error:', error);
-    return NextResponse.json(
-      alignFeedbackWithLanguage(
-        {
-          score: 80,
-          passed: true,
-          accuracyPercent: 82,
-          feedbackEn: 'Recitation verified with satisfactory Tajweed execution. Advanced levels unlocked.',
-          feedbackTa: 'தஜ்வீத் விதிகளுடன் திருப்திகரமாக ஓதப்பட்டது. மேம்பட்ட பாடங்கள் திறக்கப்பட்டுள்ளன.',
-          tajweedRulesObserved: ['Izhar', 'Qalqalah', 'Madd'],
-          makhrajTipsEn: 'Maintain consistent 2-count duration on natural madd.',
-          makhrajTipsTa: 'இயற்கையான மத்தில் 2 ஹரக்கத் கால அளவை சீராகப் பேணவும்.',
-          unlockedLevel: 10,
-          bonusXp: 150,
-        },
-        feedbackLanguage
-      ),
-      { status: 200 }
-    );
+    const validated = parseWithSchema(tajweedEvaluationModelResponseSchema, rawAssessment);
+    if (!validated.ok) {
+      console.error('Placement evaluation failed schema validation:', validated.message);
+      return apiError({
+        status: 503,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
+    }
+
+    // The pass decision and any reward are derived here, never taken from the model,
+    // so the certificate always matches the score the learner can see.
+    const assessment: TajweedEvaluationModelResponse = validated.data;
+    const score = Math.round(assessment.score);
+    const passed = score >= PLACEMENT_PASS_SCORE;
+
+    const payload: PlacementEvaluation = {
+      score,
+      passed,
+      accuracyPercent: Math.round(assessment.accuracyPercent ?? score),
+      feedbackEn: assessment.feedbackEn ?? '',
+      feedbackTa: assessment.feedbackTa ?? '',
+      tajweedRulesObserved: assessment.tajweedRulesObserved ?? [],
+      makhrajTipsEn: assessment.makhrajTipsEn ?? '',
+      makhrajTipsTa: assessment.makhrajTipsTa ?? '',
+      strengths: assessment.strengths ?? [],
+      areasForImprovement: assessment.areasForImprovement ?? [],
+      unlockedLevel: passed ? 10 : Math.max(1, userLevel),
+      bonusXp: passed ? PLACEMENT_BONUS_XP : 0,
+    };
+
+    if (payload.feedbackEn.length === 0 && payload.feedbackTa.length === 0) {
+      return apiError({
+        status: 502,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
+    }
+
+    return NextResponse.json({
+      ...alignWithLanguage(payload, language),
+      evaluatedAt: new Date().toISOString(),
+      latencyMs: Math.round(performance.now() - startedAt),
+    });
+  } catch (error: unknown) {
+    console.error('Placement evaluation request failed:', error);
+    return apiError({
+      status: 503,
+      code: 'upstream_unavailable',
+      message: UPSTREAM_UNAVAILABLE,
+      unavailable: true,
+    });
   }
 }

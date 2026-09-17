@@ -11,9 +11,15 @@ interface SurahPageProps {
 
 export default async function SurahReaderPage({ params }: SurahPageProps) {
   const { surah: surahParam } = await params;
-  const surahId = parseInt(surahParam, 10);
 
-  if (isNaN(surahId) || surahId < 1 || surahId > 114) {
+  // Strict route param: `parseInt` accepted "7abc" as surah 7, so a malformed link
+  // silently opened a different surah than the URL claimed.
+  if (!/^\d{1,3}$/.test(surahParam)) {
+    notFound();
+  }
+  const surahId = Number(surahParam);
+
+  if (surahId < 1 || surahId > 114) {
     notFound();
   }
 
@@ -22,13 +28,14 @@ export default async function SurahReaderPage({ params }: SurahPageProps) {
     notFound();
   }
 
-  // Fetch verified verses with Tajweed, English, and Tamil
-  let verses: Verse[] = [];
-  try {
-    verses = await quranProvider.getChapterVerses(surahId);
-  } catch (err) {
-    console.error(`Failed to fetch verses for surah ${surahId}:`, err);
-  }
+  // Fetch verified verses with Tajweed, English, and Tamil.
+  //
+  // A failure is deliberately NOT caught here. The provider throws
+  // `QuranUnavailableError` rather than substituting text, and swallowing it rendered
+  // the reader's empty state — a dead end with no way to retry. Letting it reach
+  // `error.tsx` shows the reader-scoped "could not be loaded" panel with Retry and a
+  // link to another surah, while no scripture is displayed either way.
+  const verses: Verse[] = await quranProvider.getChapterVerses(surahId);
 
   const chapter: Chapter = {
     id: surahMeta.id,

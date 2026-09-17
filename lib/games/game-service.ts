@@ -1,5 +1,7 @@
 import { db, UserProfile } from '../db';
 import { GameSessionResult } from '../db/schemas/streak-schema';
+import { evaluateStreak } from '../learning/xp-engine';
+import { localDayKey, localDayDelta } from '../time/day';
 import { recordGameSessionAction } from '@/app/actions/game-actions';
 
 /**
@@ -15,27 +17,23 @@ export async function persistGameCompletion(session: GameSessionResult): Promise
     // 2. Fetch user profile and update XP and streak
     const profile = await db.userProfile.get('default_user');
     if (profile) {
-      const today = new Date().toISOString().split('T')[0];
+      // One streak implementation for the whole app. This used to re-derive the
+      // day difference with UTC-parsed dates, so a game finished late in the
+      // evening (UTC+ offsets) could be counted as a missed day and reset the
+      // learner's streak even though they had already practised that day.
+      const today = localDayKey();
       const lastActive = profile.lastActiveDate;
-      let newStreak = profile.streakCount || 1;
+      const streakEval = lastActive
+        ? evaluateStreak(lastActive, profile.streakCount || 1)
+        : { newStreak: profile.streakCount || 1 };
 
-      if (lastActive) {
-        const lastDate = new Date(lastActive);
-        const currentDate = new Date(today);
-        const diffDays = Math.floor((currentDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-
-        if (diffDays === 1) {
-          newStreak += 1;
-        } else if (diffDays > 1) {
-          // Streak broken unless frozen
-          newStreak = 1;
-        }
-      }
+      // A session replayed on the same local day must not inflate the streak.
+      const isSameDay = Boolean(lastActive) && localDayDelta(lastActive, today) === 0;
 
       const updatedProfile: UserProfile = {
         ...profile,
-        totalXp: (profile.totalXp || 0) + session.xpEarned,
-        streakCount: newStreak,
+        totalXp: (profile.totalXp || 0) + Math.max(0, session.xpEarned),
+        streakCount: isSameDay ? profile.streakCount || 1 : streakEval.newStreak,
         lastActiveDate: today,
       };
 

@@ -1,3 +1,5 @@
+import { localDayDelta, localDayKey, shiftLocalDayKey } from '../time/day';
+
 export interface LevelInfo {
   level: number;
   title: string;
@@ -132,28 +134,36 @@ export function calculateLevel(totalXp: number): LevelInfo {
 }
 
 /**
- * Evaluates streak status based on last active date string (YYYY-MM-DD)
+ * Evaluates streak status against the learner's LOCAL calendar day.
+ *
+ * `lastActiveDate` is a `YYYY-MM-DD` local day key. Comparing it to a UTC-derived
+ * date (the previous implementation) rolls the day over at 05:30 for UTC+05:30
+ * learners, so an evening session could reset a streak that was never broken.
  */
 export function evaluateStreak(lastActiveDate: string, currentStreak: number): {
   newStreak: number;
   isNewDay: boolean;
   status: 'maintained' | 'incremented' | 'reset';
 } {
-  const today = new Date().toISOString().split('T')[0];
-  if (lastActiveDate === today) {
+  const today = localDayKey();
+  const elapsedDays = localDayDelta(lastActiveDate, today);
+
+  if (elapsedDays <= 0) {
+    // Same local day (or a future-dated record from a clock change).
     return { newStreak: currentStreak, isNewDay: false, status: 'maintained' };
   }
 
-  const yesterdayDate = new Date();
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-  const yesterday = yesterdayDate.toISOString().split('T')[0];
-
-  if (lastActiveDate === yesterday) {
+  if (elapsedDays === 1) {
     return { newStreak: currentStreak + 1, isNewDay: true, status: 'incremented' };
   }
 
-  // Streak broken: more than 1 day missed
+  // Streak broken: more than one local day missed.
   return { newStreak: 1, isNewDay: true, status: 'reset' };
+}
+
+/** Yesterday's local day key, useful for grace-period checks. */
+export function yesterdayKey(from: Date = new Date()): string {
+  return shiftLocalDayKey(localDayKey(from), -1);
 }
 
 export interface Achievement {

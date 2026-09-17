@@ -24,22 +24,50 @@ export interface RippleWave {
   color: string;
 }
 
-export class CanvasEngine {
-  static setupHiDPI(canvas: HTMLCanvasElement, containerWidth: number, containerHeight: number): {
-    ctx: CanvasRenderingContext2D;
-    dpr: number;
-    width: number;
-    height: number;
-  } {
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    canvas.width = containerWidth * dpr;
-    canvas.height = containerHeight * dpr;
-    canvas.style.width = `${containerWidth}px`;
-    canvas.style.height = `${containerHeight}px`;
+export interface CanvasSetup {
+  ctx: CanvasRenderingContext2D;
+  dpr: number;
+  width: number;
+  height: number;
+}
 
-    const ctx = canvas.getContext('2d')!;
-    ctx.scale(dpr, dpr);
-    return { ctx, dpr, width: containerWidth, height: containerHeight };
+export class CanvasEngine {
+  /**
+   * Sizes a canvas for the device pixel ratio and returns its 2D context.
+   *
+   * Callers invoke this from inside their animation loop, so the sizing is skipped
+   * when the backing store already matches. Assigning `canvas.width`/`height` resets
+   * the whole context and reallocates the bitmap, which previously happened on every
+   * single frame (visible jank and heavy GC churn on low-end phones).
+   *
+   * Returns `null` when the browser cannot provide a 2D context, so callers can bail
+   * out instead of running a draw loop against a non-existent context.
+   */
+  static setupHiDPI(
+    canvas: HTMLCanvasElement,
+    containerWidth: number,
+    containerHeight: number
+  ): CanvasSetup | null {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const width = Math.max(1, Math.round(containerWidth));
+    const height = Math.max(1, Math.round(containerHeight));
+    const backingWidth = Math.round(width * dpr);
+    const backingHeight = Math.round(height * dpr);
+
+    if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+      canvas.width = backingWidth;
+      canvas.height = backingHeight;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      // `setTransform` (not `scale`) keeps the DPR mapping exact even if a previous
+      // draw left a transform behind.
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    return { ctx, dpr, width, height };
   }
 
   static createBurst(
@@ -48,7 +76,7 @@ export class CanvasEngine {
     y: number,
     count = 18,
     color = '#10B981'
-  ) {
+  ): void {
     const colors = [color, '#F59E0B', '#38BDF8', '#FFFFFF'];
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5);
@@ -61,66 +89,76 @@ export class CanvasEngine {
         radius: 2 + Math.random() * 3,
         alpha: 1,
         decay: 0.02 + Math.random() * 0.025,
-        color: colors[Math.floor(Math.random() * colors.length)],
+        color: colors[Math.floor(Math.random() * colors.length)] ?? color,
         shape: Math.random() > 0.4 ? 'circle' : 'spark',
       });
     }
   }
 
-  static updateAndDrawParticles(
-    ctx: CanvasRenderingContext2D,
-    particles: CanvasParticle[]
-  ) {
+  static updateAndDrawParticles(ctx: CanvasRenderingContext2D, particles: CanvasParticle[]): void {
     for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.05; // slight gravity
-      p.vx *= 0.98; // air resistance
-      p.alpha -= p.decay;
+      const particle = particles[i];
+      if (!particle) continue;
 
-      if (p.alpha <= 0) {
+      particle.x += particle.vx;
+      particle.y += particle.vy;
+      particle.vy += 0.05; // slight gravity
+      particle.vx *= 0.98; // air resistance
+      particle.alpha -= particle.decay;
+
+      if (particle.alpha <= 0) {
         particles.splice(i, 1);
         continue;
       }
 
       ctx.save();
-      ctx.globalAlpha = Math.max(0, p.alpha);
-      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, particle.alpha);
 
-      if (p.shape === 'spark') {
+      if (particle.shape === 'spark') {
+        // Motion streak: a line trailing opposite to the particle's travel.
+        ctx.strokeStyle = particle.color;
+        ctx.lineWidth = Math.max(1, particle.radius * 0.7);
+        ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(particle.x, particle.y);
+        ctx.lineTo(particle.x - particle.vx * 2.5, particle.y - particle.vy * 2.5);
+        ctx.stroke();
+      } else if (particle.shape === 'ring') {
+        ctx.strokeStyle = particle.color;
+        ctx.lineWidth = Math.max(1, particle.radius * 0.4);
+        ctx.beginPath();
+        ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+        ctx.stroke();
       } else {
+        ctx.fillStyle = particle.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
         ctx.fill();
       }
+
       ctx.restore();
     }
   }
 
-  static updateAndDrawRipples(
-    ctx: CanvasRenderingContext2D,
-    ripples: RippleWave[]
-  ) {
+  static updateAndDrawRipples(ctx: CanvasRenderingContext2D, ripples: RippleWave[]): void {
     for (let i = ripples.length - 1; i >= 0; i--) {
-      const r = ripples[i];
-      r.radius += 2.2;
-      r.alpha -= 0.025;
+      const ripple = ripples[i];
+      if (!ripple) continue;
 
-      if (r.alpha <= 0 || r.radius >= r.maxRadius) {
+      ripple.radius += 2.2;
+      ripple.alpha -= 0.025;
+
+      if (ripple.alpha <= 0 || ripple.radius >= ripple.maxRadius) {
         ripples.splice(i, 1);
         continue;
       }
 
       ctx.save();
-      ctx.globalAlpha = Math.max(0, r.alpha);
-      ctx.strokeStyle = r.color;
+      ctx.globalAlpha = Math.max(0, ripple.alpha);
+      ctx.strokeStyle = ripple.color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+      ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -135,7 +173,7 @@ export class CanvasEngine {
     radius: number,
     fill = true,
     stroke = true
-  ) {
+  ): void {
     ctx.beginPath();
     ctx.roundRect(x, y, width, height, radius);
     if (fill) ctx.fill();

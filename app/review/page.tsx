@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db, HifzTier, VerseProgress } from '@/lib/db';
 import { calculateNextReview, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, STATE_LABELS } from '@/lib/learning/srs-engine';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
 import { evaluateStreak } from '@/lib/learning/xp-engine';
+import { localDayKey } from '@/lib/time/day';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import confetti from 'canvas-confetti';
 import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2, Layers, Filter } from 'lucide-react';
 import Link from 'next/link';
@@ -14,11 +16,22 @@ export default function SrsReviewPage() {
   const [allItems, setAllItems] = useState<VerseProgress[]>([]);
   const [activeTierFilter, setActiveTierFilter] = useState<'all' | HifzTier>('all');
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentVerseData, setCurrentVerseData] = useState<Verse | null>(null);
-  const [isVerseLoading, setIsVerseLoading] = useState(false);
-  const [isRevealed, setIsRevealed] = useState(false);
+  /** Verse text by `surah:ayah`. Scripture is immutable, so a re-visited card reuses it. */
+  const [versesByKey, setVersesByKey] = useState<Readonly<Record<string, Verse>>>({});
+  const [failedVerseKeys, setFailedVerseKeys] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * Which card is currently revealed, stored as a verse key.
+   * Tagging it with the verse means advancing to the next card hides the text again with
+   * no effect and no chance of showing the new ayah before the learner asks for it.
+   */
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviewedCount, setReviewedCount] = useState(0);
+  const [isGrading, setIsGrading] = useState(false);
+
+  const { playUrl, speak } = usePreviewAudio();
+  /** Prevents a double tap from grading the same card twice and skipping a verse. */
+  const gradingRef = useRef(false);
 
   useEffect(() => {
     async function loadDueQueue() {
@@ -58,109 +71,134 @@ export default function SrsReviewPage() {
     return allItems.filter((i) => (i.hifzTier || determineHifzTier(i)) === activeTierFilter);
   }, [allItems, activeTierFilter]);
 
-  // Fetch verse text when currentIndex changes
+  /**
+   * Loads the text of the card on screen.
+   *
+   * Results are stored under the verse key they belong to instead of in a single
+   * "current verse" slot, so the previous ayah can never be rendered — or graded — as the
+   * one the learner is reciting while the next request is in flight. Loading and failure
+   * are derived from which keys exist, so the effect never sets state synchronously.
+   */
   useEffect(() => {
     let isMounted = true;
-    if (dueItems.length > 0 && dueItems[currentIndex]) {
-      const item = dueItems[currentIndex];
-      quranProvider
-        .getVerse({ surah: item.surah, ayah: item.ayah })
-        .then((verse) => {
-          if (isMounted) {
-            setCurrentVerseData(verse);
-            setIsRevealed(false);
-            setIsVerseLoading(false);
-          }
-        })
-        .catch((e) => {
-          if (isMounted) {
-            console.error(e);
-            setIsVerseLoading(false);
-          }
+    const item = dueItems[currentIndex];
+    if (!item) return;
+    const key = `${item.surah}:${item.ayah}`;
+
+    quranProvider
+      .getVerse({ surah: item.surah, ayah: item.ayah })
+      .then((verse) => {
+        if (!isMounted) return;
+        setVersesByKey((previous) => ({ ...previous, [key]: verse }));
+        setFailedVerseKeys((previous) => {
+          if (!previous.has(key)) return previous;
+          const next = new Set(previous);
+          next.delete(key);
+          return next;
         });
-    }
+      })
+      .catch((error: unknown) => {
+        if (!isMounted) return;
+        console.error(`Could not load ${key} for review:`, error);
+        setFailedVerseKeys((previous) => new Set(previous).add(key));
+      });
+
     return () => {
       isMounted = false;
     };
   }, [dueItems, currentIndex]);
 
-  const handleRetryLoadVerse = async () => {
-    if (dueItems.length > 0 && dueItems[currentIndex]) {
-      const item = dueItems[currentIndex];
-      setIsVerseLoading(true);
-      try {
-        const verse = await quranProvider.getVerse({ surah: item.surah, ayah: item.ayah });
-        setCurrentVerseData(verse);
-        setIsRevealed(false);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsVerseLoading(false);
-      }
-    }
-  };
-
   const currentItem = dueItems[currentIndex];
+  const currentVerseKey = currentItem ? `${currentItem.surah}:${currentItem.ayah}` : null;
+  const verseForCurrentCard = currentVerseKey ? versesByKey[currentVerseKey] ?? null : null;
+  // Nothing for this card yet and the request has not failed: it is still on its way.
+  const isVerseLoading =
+    currentVerseKey !== null && verseForCurrentCard === null && !failedVerseKeys.has(currentVerseKey);
+  const isRevealed = currentVerseKey !== null && revealedKey === currentVerseKey;
 
-  const handleGrade = async (quality: number) => {
-    if (!currentItem) return;
+  const handleRetryLoadVerse = async (): Promise<void> => {
+    const item = dueItems[currentIndex];
+    if (!item) return;
+    const key = `${item.surah}:${item.ayah}`;
 
-    const nextProgress = calculateNextReview(currentItem, quality);
-    await db.verseProgress.put(nextProgress);
+    // Clearing the failure marker is what switches the card back to its loading state.
+    setFailedVerseKeys((previous) => {
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
 
-    // Award XP
-    const xp = quality >= 3 ? 15 : 5;
     try {
-      const profile = await db.userProfile.get('default_user');
-      if (profile) {
-        const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
-        await db.userProfile.update('default_user', {
-          totalXp: profile.totalXp + xp,
-          streakCount: streakEval.newStreak,
-          lastActiveDate: new Date().toISOString().split('T')[0],
-        });
+      const verse = await quranProvider.getVerse({ surah: item.surah, ayah: item.ayah });
+      setVersesByKey((previous) => ({ ...previous, [key]: verse }));
+    } catch (error: unknown) {
+      console.error(`Retry for ${key} failed:`, error);
+      setFailedVerseKeys((previous) => new Set(previous).add(key));
+    }
+  };
+
+  const handleGrade = useCallback(
+    async (quality: number): Promise<void> => {
+      if (!currentItem || gradingRef.current) return;
+      gradingRef.current = true;
+      setIsGrading(true);
+
+      try {
+        const nextProgress = calculateNextReview(currentItem, quality);
+        await db.verseProgress.put(nextProgress);
+
+        const xp = quality >= 3 ? 15 : 5;
+        try {
+          const profile = await db.userProfile.get('default_user');
+          if (profile) {
+            const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
+            await db.userProfile.update('default_user', {
+              totalXp: profile.totalXp + xp,
+              streakCount: streakEval.newStreak,
+              lastActiveDate: localDayKey(),
+            });
+          }
+        } catch (error) {
+          console.error('Failed to record review XP:', error);
+        }
+
+        if (quality >= 4) {
+          try {
+            confetti({ particleCount: 40, spread: 50 });
+          } catch (error) {
+            console.warn('Celebration effect unavailable:', error);
+          }
+        }
+
+        setReviewedCount((previous) => previous + 1);
+
+        // Grading the final card moves the index past the queue, which renders the
+        // completion screen instead of an empty card.
+        setCurrentIndex((previous) =>
+          previous < dueItems.length - 1 ? previous + 1 : dueItems.length
+        );
+      } finally {
+        gradingRef.current = false;
+        setIsGrading(false);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    },
+    [currentItem, dueItems.length]
+  );
 
-    if (quality >= 4) {
-      confetti({ particleCount: 40, spread: 50 });
-    }
-
-    setReviewedCount(prev => prev + 1);
-
-    if (currentIndex < dueItems.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else {
-      // Completed queue!
-      setCurrentIndex(dueItems.length);
-    }
-  };
-
-  const playAudio = (url?: string, arabicFallbackText?: string) => {
-    if (url) {
-      const audio = new Audio(url);
-      audio.onerror = () => {
-        if (arabicFallbackText && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          const u = new SpeechSynthesisUtterance(arabicFallbackText);
-          u.lang = 'ar-SA';
-          window.speechSynthesis.speak(u);
-        }
-      };
-      audio.play().catch(() => {
-        if (arabicFallbackText && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          const u = new SpeechSynthesisUtterance(arabicFallbackText);
-          u.lang = 'ar-SA';
-          window.speechSynthesis.speak(u);
-        }
-      });
-    } else if (arabicFallbackText && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(arabicFallbackText);
-      u.lang = 'ar-SA';
-      window.speechSynthesis.speak(u);
-    }
-  };
+  /** Plays the verification recitation, ending on the Arabic synthesizer if needed. */
+  const playAudio = useCallback(
+    async (url?: string, arabicFallbackText?: string): Promise<void> => {
+      if (url) {
+        const played = await playUrl('review-verification', url);
+        if (played) return;
+      }
+      if (arabicFallbackText) {
+        await speak('review-verification-speech', arabicFallbackText, 'ar-SA');
+      }
+    },
+    [playUrl, speak]
+  );
 
   if (loading) {
     return (
@@ -312,7 +350,7 @@ export default function SrsReviewPage() {
         <div className="min-h-[160px] flex flex-col items-center justify-center text-center p-4 bg-surface rounded-2xl border border-border">
           {!isRevealed ? (
             <button
-              onClick={() => setIsRevealed(true)}
+              onClick={() => setRevealedKey(currentVerseKey)}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-all"
             >
               <Eye className="w-4 h-4" />
@@ -323,29 +361,31 @@ export default function SrsReviewPage() {
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
               <span className="text-xs">Loading verse…</span>
             </div>
-          ) : currentVerseData ? (
+          ) : verseForCurrentCard ? (
             <div className="space-y-4 animate-in fade-in w-full">
               <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose select-text dir-rtl" dir="rtl">
-                {currentVerseData.textUthmani}
+                {verseForCurrentCard.textUthmani}
               </p>
 
               <div className="space-y-1.5 text-xs text-left max-w-lg mx-auto pt-2 border-t border-border">
                 <p className="text-foreground">
                   <span className="font-bold text-muted-foreground mr-1.5 uppercase">EN:</span>
-                  {currentVerseData.translationEn}
+                  {verseForCurrentCard.translationEn}
                 </p>
-                {currentVerseData.translationTa && (
+                {verseForCurrentCard.translationTa && (
                   <p className="text-primary-strong font-tamil">
                     <span className="font-bold text-primary mr-1.5">தமிழ்:</span>
-                    {currentVerseData.translationTa}
+                    {verseForCurrentCard.translationTa}
                   </p>
                 )}
               </div>
 
-              {currentVerseData.audioUrl && (
+              {verseForCurrentCard.audioUrl && (
                 <div className="pt-2">
                   <button
-                    onClick={() => playAudio(currentVerseData.audioUrl, currentVerseData.textUthmani)}
+                    onClick={() =>
+                      void playAudio(verseForCurrentCard.audioUrl, verseForCurrentCard.textUthmani)
+                    }
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-subtle text-primary-strong hover:bg-primary/20 text-xs font-semibold transition-colors"
                   >
                     <Volume2 className="w-3.5 h-3.5" />
@@ -356,7 +396,10 @@ export default function SrsReviewPage() {
             </div>
           ) : (
             <div className="text-center py-6 space-y-3">
-              <p className="text-xs text-danger font-semibold">You appear to be offline. This verse could not be loaded.</p>
+              <p className="text-xs text-danger font-semibold">
+                This Ayah could not be loaded, so nothing is shown. Check your connection,
+                then retry.
+              </p>
               <button
                 onClick={handleRetryLoadVerse}
                 className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-surface border border-border text-foreground hover:bg-surface-hover text-xs font-bold transition-colors"
@@ -378,32 +421,36 @@ export default function SrsReviewPage() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               <button
-                onClick={() => handleGrade(1)}
-                className="p-3.5 rounded-2xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 flex flex-col items-center gap-1 transition-colors"
+                onClick={() => void handleGrade(1)}
+                disabled={isGrading}
+                className="p-3.5 rounded-2xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Again (1)</span>
                 <span className="text-[10px] font-normal opacity-80">&lt;1 day</span>
               </button>
 
               <button
-                onClick={() => handleGrade(3)}
-                className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 flex flex-col items-center gap-1 transition-colors"
+                onClick={() => void handleGrade(3)}
+                disabled={isGrading}
+                className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Hard (3)</span>
                 <span className="text-[10px] font-normal opacity-80">1-2 days</span>
               </button>
 
               <button
-                onClick={() => handleGrade(4)}
-                className="p-3.5 rounded-2xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 flex flex-col items-center gap-1 transition-colors"
+                onClick={() => void handleGrade(4)}
+                disabled={isGrading}
+                className="p-3.5 rounded-2xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Good (4)</span>
                 <span className="text-[10px] font-normal opacity-80">3-5 days</span>
               </button>
 
               <button
-                onClick={() => handleGrade(5)}
-                className="p-3.5 rounded-2xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover flex flex-col items-center gap-1 transition-colors"
+                onClick={() => void handleGrade(5)}
+                disabled={isGrading}
+                className="p-3.5 rounded-2xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Easy (5)</span>
                 <span className="text-[10px] font-normal opacity-80">7+ days</span>

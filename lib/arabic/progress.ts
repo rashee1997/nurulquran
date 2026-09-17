@@ -10,6 +10,7 @@
 
 import { db } from '@/lib/db';
 import { evaluateStreak } from '@/lib/learning/xp-engine';
+import { localDayKey } from '@/lib/time/day';
 import type { FeedbackLanguage } from '@/lib/i18n/language';
 import type { ArabicLabLesson, ArabicLabProgress, LetterForm } from './types';
 
@@ -100,7 +101,7 @@ export async function recordLessonCompletion(
       await db.userProfile.update(ARABIC_LAB_PROGRESS_ID, {
         totalXp,
         streakCount,
-        lastActiveDate: new Date().toISOString().split('T')[0],
+        lastActiveDate: localDayKey(),
       });
     }
   } catch (error) {

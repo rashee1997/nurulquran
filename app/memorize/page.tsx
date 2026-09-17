@@ -1,14 +1,17 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { SURAHS } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
-import { Verse, QuranWord } from '@/lib/quran/types';
+import { Verse } from '@/lib/quran/types';
 import { db } from '@/lib/db';
 import { calculateNextReview, initializeVerseProgress } from '@/lib/learning/srs-engine';
 import { evaluateStreak } from '@/lib/learning/xp-engine';
+import { localDayKey } from '@/lib/time/day';
+import { shuffle } from '@/lib/utils';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import confetti from 'canvas-confetti';
 import { 
   Brain, 
@@ -21,19 +24,32 @@ import {
   Eye, 
   EyeOff, 
   ArrowRight,
-  Shuffle
+  Shuffle,
+  AlertCircle
 } from 'lucide-react';
 import { TutorPanel } from '@/components/ai/TutorPanel';
 
 export type HifzModeKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J';
 
+const HIFZ_MODE_KEYS: readonly HifzModeKey[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+
+function isHifzModeKey(value: string | null): value is HifzModeKey {
+  return value !== null && (HIFZ_MODE_KEYS as readonly string[]).includes(value);
+}
+
 function MemorizationContent() {
   const searchParams = useSearchParams();
-  const initialMode = (searchParams.get('mode') as HifzModeKey) || 'A';
+  const requestedMode = searchParams.get('mode');
+  const initialMode: HifzModeKey = isHifzModeKey(requestedMode) ? requestedMode : 'A';
 
   const [activeMode, setActiveMode] = useState<HifzModeKey>(initialMode);
   const [selectedSurahId, setSelectedSurahId] = useState<number>(1);
   const [verses, setVerses] = useState<Verse[]>([]);
+  /** Which surah the verses in state actually belong to. */
+  const [loadedSurahId, setLoadedSurahId] = useState<number | null>(null);
+  const [verseLoadFailed, setVerseLoadFailed] = useState(false);
+  /** Bumped by “Try again” to re-run the loader without duplicating it. */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
   const [loadingVerses, setLoadingVerses] = useState(true);
 
@@ -48,6 +64,8 @@ function MemorizationContent() {
   const [aiTutorOpen, setAiTutorOpen] = useState(false);
   const [aiTutorPrompt, setAiTutorPrompt] = useState('');
 
+  const { playUrl, speak } = usePreviewAudio();
+
   const resetModeState = React.useCallback(() => {
     setAssembledIndices([]);
     setSelectedChoice(null);
@@ -60,42 +78,77 @@ function MemorizationContent() {
 
   // Load verses for the selected Surah
   useEffect(() => {
+    // Switching surahs quickly used to be a race: the slower reply could land last and
+    // leave another surah's verses on screen under the current heading.
+    let cancelled = false;
+
     async function loadSurahVerses() {
       setLoadingVerses(true);
       try {
-        const v = await quranProvider.getChapterVerses(selectedSurahId);
-        setVerses(v);
+        const loaded = await quranProvider.getChapterVerses(selectedSurahId);
+        if (cancelled) return;
+        setVerses(loaded);
+        setLoadedSurahId(selectedSurahId);
+        setVerseLoadFailed(false);
         setCurrentVerseIndex(0);
         resetModeState();
-      } catch (e) {
-        console.error('Failed to load verses for memorization:', e);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        console.error(`Failed to load verses for surah ${selectedSurahId}:`, error);
+        // Clear the stage instead of leaving the previous surah's text in place: it would
+        // be studied and graded as the surah named at the top of the screen.
+        setVerses([]);
+        setLoadedSurahId(null);
+        setCurrentVerseIndex(0);
+        setVerseLoadFailed(true);
       } finally {
-        setLoadingVerses(false);
+        if (!cancelled) setLoadingVerses(false);
       }
     }
-    loadSurahVerses();
-  }, [selectedSurahId, resetModeState]);
 
-  // Mode I: Timer
+    void loadSurahVerses();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSurahId, loadAttempt, resetModeState]);
+
+  /**
+   * Mode I timer. The countdown is derived from state instead of being stopped by a
+   * second effect, so there is no extra render per tick and the interval cannot run
+   * past zero. The tick is only deactivated from the starter button below.
+   */
+  const isTimerRunning = activeMode === 'I' && timerActive && timerSeconds > 0;
+
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (activeMode === 'I' && timerActive && timerSeconds > 0) {
-      interval = setInterval(() => setTimerSeconds(prev => prev - 1), 1000);
-    }
+    if (!isTimerRunning) return;
+    const interval = setInterval(() => {
+      setTimerSeconds((previous) => Math.max(0, previous - 1));
+    }, 1000);
     return () => clearInterval(interval);
-  }, [activeMode, timerActive, timerSeconds]);
+  }, [isTimerRunning]);
 
-  const currentVerse = verses[currentVerseIndex] || verses[0];
+  /** Text is only offered for the surah it was loaded for. */
+  const versesForSelection = useMemo(
+    () => (loadedSurahId === selectedSurahId ? verses : []),
+    [loadedSurahId, selectedSurahId, verses]
+  );
+  const currentVerse = versesForSelection[currentVerseIndex] ?? versesForSelection[0];
 
-  const playAudio = (url?: string, text?: string) => {
-    if (url) {
-      const audio = new Audio(url);
-      audio.play().catch(e => console.warn(e));
-    } else if (text && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'ar-SA';
-      u.rate = 0.85;
-      window.speechSynthesis.speak(u);
+  /**
+   * Plays an ayah recitation through the shared player, falling back to the Arabic
+   * synthesizer when the recording cannot be loaded. Each call supersedes the last,
+   * which is what stops overlapping recitations when the learner taps quickly.
+   */
+  const playAudio = async (url?: string, text?: string): Promise<void> => {
+    if (url && text) {
+      const played = await playUrl(`memorize:${text.slice(0, 24)}`, url);
+      if (played) return;
+    } else if (url) {
+      const played = await playUrl(`memorize:${url}`, url);
+      if (played) return;
+    }
+    if (text) {
+      await speak(`memorize-speech:${text.slice(0, 24)}`, text, 'ar-SA');
     }
   };
 
@@ -107,7 +160,7 @@ function MemorizationContent() {
         await db.userProfile.update('default_user', {
           totalXp: profile.totalXp + amount,
           streakCount: streakEval.newStreak,
-          lastActiveDate: new Date().toISOString().split('T')[0],
+          lastActiveDate: localDayKey(),
         });
       }
     } catch (e) {
@@ -132,7 +185,7 @@ function MemorizationContent() {
     }
 
     // Go to next verse
-    if (currentVerseIndex < verses.length - 1) {
+    if (currentVerseIndex < versesForSelection.length - 1) {
       setCurrentVerseIndex(prev => prev + 1);
       resetModeState();
     } else {
@@ -141,13 +194,21 @@ function MemorizationContent() {
     }
   };
 
-  // Helper for multiple choices
-  const getChoiceOptions = () => {
-    if (!verses || verses.length === 0) return [];
-    const correct = currentVerse.textUthmani;
-    const others = verses.filter(v => v.ayah !== currentVerse.ayah).slice(0, 3).map(v => v.textUthmani);
-    return [correct, ...others].sort(() => Math.random() - 0.5);
-  };
+  /**
+   * Multiple-choice options for the current ayah.
+   *
+   * Memoised per verse: building (and shuffling) this inside render meant the options
+   * were reshuffled on every state change — including the tap itself — so the button
+   * under the learner's finger moved before the answer could land.
+   */
+  const choiceOptions = useMemo(() => {
+    if (!currentVerse || versesForSelection.length < 2) return [];
+    const others = versesForSelection
+      .filter((verse) => verse.ayah !== currentVerse.ayah)
+      .slice(0, 3)
+      .map((verse) => verse.textUthmani);
+    return shuffle([currentVerse.textUthmani, ...others]);
+  }, [currentVerse, versesForSelection]);
 
   const handleCheckMultipleChoice = (chosen: string) => {
     setSelectedChoice(chosen);
@@ -241,10 +302,10 @@ function MemorizationContent() {
       </div>
 
       {/* Current Verse Navigation Bar */}
-      {verses.length > 0 && (
+      {versesForSelection.length > 0 && (
         <div className="flex items-center justify-between px-4 py-2 bg-surface rounded-2xl border border-border text-xs font-semibold text-muted-foreground">
           <span>
-            Ayah {currentVerseIndex + 1} of {verses.length} (Surah {currentVerse?.surah}:{currentVerse?.ayah})
+            Ayah {currentVerseIndex + 1} of {versesForSelection.length} (Surah {currentVerse?.surah}:{currentVerse?.ayah})
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -258,9 +319,9 @@ function MemorizationContent() {
               Prev
             </button>
             <button
-              disabled={currentVerseIndex === verses.length - 1}
+              disabled={currentVerseIndex === versesForSelection.length - 1}
               onClick={() => {
-                setCurrentVerseIndex(prev => Math.min(verses.length - 1, prev + 1));
+                setCurrentVerseIndex(prev => Math.min(versesForSelection.length - 1, prev + 1));
                 resetModeState();
               }}
               className="px-2.5 py-1 rounded-lg bg-card border border-border hover:bg-surface-hover text-foreground disabled:opacity-40 transition-colors"
@@ -305,7 +366,7 @@ function MemorizationContent() {
 
               <div className="flex items-center justify-center gap-3">
                 <button
-                  onClick={() => playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
+                  onClick={() => void playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
                   className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border hover:bg-surface-hover text-foreground text-xs font-bold transition-all active:scale-95"
                 >
                   <Volume2 className="w-4 h-4" />
@@ -340,7 +401,7 @@ function MemorizationContent() {
 
               {/* Choices */}
               <div className="space-y-2.5">
-                {getChoiceOptions().map((opt, idx) => (
+                {choiceOptions.map((opt, idx) => (
                   <button
                     key={idx}
                     disabled={isAnswerChecked}
@@ -476,7 +537,7 @@ function MemorizationContent() {
 
               <div className="text-center py-4">
                 <button
-                  onClick={() => playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
+                  onClick={() => void playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md active:scale-95 transition-all"
                 >
                   <Volume2 className="w-5 h-5" />
@@ -485,7 +546,7 @@ function MemorizationContent() {
               </div>
 
               <div className="space-y-2.5">
-                {getChoiceOptions().map((opt, idx) => (
+                {choiceOptions.map((opt, idx) => (
                   <button
                     key={idx}
                     disabled={isAnswerChecked}
@@ -527,7 +588,7 @@ function MemorizationContent() {
               </div>
 
               <div className="space-y-2.5">
-                {getChoiceOptions().map((opt, idx) => (
+                {choiceOptions.map((opt, idx) => (
                   <button
                     key={idx}
                     disabled={isAnswerChecked}
@@ -688,7 +749,7 @@ function MemorizationContent() {
                 </span>
               </div>
 
-              {!timerActive && (
+              {!isTimerRunning && (
                 <button
                   onClick={() => {
                     setTimerSeconds(15);
@@ -700,7 +761,7 @@ function MemorizationContent() {
                 </button>
               )}
 
-              {timerActive && (
+              {isTimerRunning && (
                 <div className="p-6 bg-surface rounded-2xl border border-border space-y-4">
                   <p className="font-arabic text-3xl text-foreground leading-loose dir-rtl" dir="rtl">
                     {currentVerse.textUthmani}
@@ -751,7 +812,28 @@ function MemorizationContent() {
           )}
 
         </div>
-      ) : null}
+      ) : (
+        <div className="max-w-xl mx-auto my-12 p-8 rounded-3xl bg-card border border-border text-center space-y-4">
+          <AlertCircle className="w-8 h-8 mx-auto text-warning" aria-hidden="true" />
+          <h3 className="text-base font-bold text-foreground">
+            Surah {selectedSurahId} could not be loaded
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            No text is shown, because displaying a different surah&rsquo;s verses here would
+            misrepresent the Quran. Check your connection, then try again.
+          </p>
+          {verseLoadFailed && (
+            <button
+              type="button"
+              onClick={() => setLoadAttempt((previous) => previous + 1)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-surface border border-border text-foreground hover:bg-surface-hover text-xs font-bold transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Try again</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Floating Study Assistant when triggered */}
       <TutorPanel

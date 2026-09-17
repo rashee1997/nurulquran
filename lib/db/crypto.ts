@@ -1,21 +1,58 @@
 /**
- * Web Crypto API wrappers for browser-side AES-GCM encryption and decryption.
- * Used for securing user API keys (BYOK) in IndexedDB without exposing raw credentials.
+ * Web Crypto API wrappers for browser-side AES-GCM protection of user-supplied (BYOK)
+ * API keys stored in IndexedDB.
+ *
+ * THREAT MODEL — read this before describing these keys as "secure":
+ * Key material is derived from a device fingerprint (user agent + origin) and a fixed,
+ * source-visible salt. This keeps a raw secret from sitting in IndexedDB as plaintext,
+ * so casually inspecting browser storage or a database dump does not hand over a usable
+ * key. It does NOT defend against script running on this origin (which can derive the
+ * same key), and it is not a replacement for server-side secret storage. Anything that
+ * needs a stronger guarantee must pass a user passphrase — `deriveKey(passphrase)`
+ * already supports that path.
  */
 
-const SALT = new Uint8Array([78, 117, 114, 117, 108, 81, 117, 114, 97, 110, 45, 83, 101, 99, 114, 101]); // "NurulQuran-Secre"
-const ITERATIONS = 100000;
+/** Tag used when WebCrypto is unavailable and the value could only be encoded. */
+const PLAIN_PREFIX = 'plain:';
+
+const SALT = new TextEncoder().encode('NurulQuran-Secret');
+const ITERATIONS = 100_000;
+
+/** Base64-encodes a UTF-8 string without relying on deprecated escape helpers. */
+function encodeBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+/** Decodes base64 back into a UTF-8 string. Throws on invalid input. */
+function decodeBase64Utf8(value: string): string {
+  const binary = atob(value);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function hasWebCrypto(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.crypto?.subtle);
+}
 
 /**
- * Derives an AES-GCM CryptoKey from a device-bound fingerprint or user passphrase
+ * Derives an AES-GCM CryptoKey from a device fingerprint or a caller-supplied
+ * passphrase. Must run in a context that exposes `crypto.subtle`.
  */
 async function deriveKey(passphrase?: string): Promise<CryptoKey> {
-  // Use user-provided passphrase or a deterministic browser-device signature
-  const baseKeyMaterial = passphrase || (typeof window !== 'undefined' ? `${window.navigator.userAgent}-${window.location.host}-quran-salt` : 'fallback-key-seed');
-  const enc = new TextEncoder();
+  const baseKeyMaterial =
+    passphrase ||
+    (typeof window !== 'undefined'
+      ? `${window.navigator.userAgent}-${window.location.host}-quran-salt`
+      : 'fallback-key-seed');
+
   const keyMaterial = await window.crypto.subtle.importKey(
     'raw',
-    enc.encode(baseKeyMaterial),
+    new TextEncoder().encode(baseKeyMaterial),
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -26,7 +63,7 @@ async function deriveKey(passphrase?: string): Promise<CryptoKey> {
       name: 'PBKDF2',
       salt: SALT,
       iterations: ITERATIONS,
-      hash: 'SHA-256'
+      hash: 'SHA-256',
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
@@ -36,77 +73,73 @@ async function deriveKey(passphrase?: string): Promise<CryptoKey> {
 }
 
 /**
- * Encrypts plain text using AES-GCM
- * Returns base64 encoded payload formatted as `iv:ciphertext`
+ * Protects plain text with AES-GCM.
+ * Returns `iv:ciphertext`, both base64, or a `plain:`-tagged base64 string when
+ * WebCrypto is unavailable (that case is an encoding, not encryption).
  */
 export async function encryptSecret(plainText: string, passphrase?: string): Promise<string> {
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    // Server-side fallback or environment without subtle crypto
-    return Buffer.from(plainText).toString('base64');
+  if (!hasWebCrypto()) {
+    console.warn('WebCrypto unavailable — the value was only base64-encoded, not encrypted.');
+    return `${PLAIN_PREFIX}${encodeBase64Utf8(plainText)}`;
   }
 
   const key = await deriveKey(passphrase);
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const enc = new TextEncoder();
-  
+
   const encryptedContent = await window.crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv
-    },
+    { name: 'AES-GCM', iv },
     key,
-    enc.encode(plainText)
+    new TextEncoder().encode(plainText)
   );
 
-  const ivBase64 = btoa(String.fromCharCode(...Array.from(iv)));
-  const cipherBase64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(encryptedContent))));
+  const ivBase64 = encodeBase64Utf8(String.fromCharCode(...Array.from(iv)));
+  const cipherBase64 = encodeBase64Utf8(String.fromCharCode(...Array.from(new Uint8Array(encryptedContent))));
 
   return `${ivBase64}:${cipherBase64}`;
 }
 
 /**
- * Decrypts AES-GCM encrypted payload
+ * Reads back a value written by `encryptSecret`.
+ * Returns an empty string when the payload cannot be read — callers must treat that as
+ * "no usable key" rather than silently sending a corrupted credential upstream.
  */
 export async function decryptSecret(encryptedPayload: string, passphrase?: string): Promise<string> {
   if (!encryptedPayload) return '';
 
-  if (typeof window === 'undefined' || !window.crypto?.subtle) {
-    return Buffer.from(encryptedPayload, 'base64').toString('utf-8');
+  // Written without WebCrypto: no key material involved.
+  if (encryptedPayload.startsWith(PLAIN_PREFIX)) {
+    try {
+      return decodeBase64Utf8(encryptedPayload.slice(PLAIN_PREFIX.length));
+    } catch {
+      return '';
+    }
   }
 
-  // Check if standard iv:ciphertext format
+  if (!hasWebCrypto()) return '';
+
+  // Legacy values were stored as bare base64 with no IV.
   if (!encryptedPayload.includes(':')) {
     try {
-      return atob(encryptedPayload);
+      return decodeBase64Utf8(encryptedPayload);
     } catch {
-      return encryptedPayload;
+      return '';
     }
   }
 
   try {
     const [ivBase64, cipherBase64] = encryptedPayload.split(':');
-    const iv = new Uint8Array(atob(ivBase64).split('').map(c => c.charCodeAt(0)));
-    const cipherBytes = new Uint8Array(atob(cipherBase64).split('').map(c => c.charCodeAt(0)));
+    if (!ivBase64 || !cipherBase64) return '';
+
+    const iv = Uint8Array.from(atob(ivBase64), (char) => char.charCodeAt(0));
+    const cipherBytes = Uint8Array.from(atob(cipherBase64), (char) => char.charCodeAt(0));
 
     const key = await deriveKey(passphrase);
-    const decrypted = await window.crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv
-      },
-      key,
-      cipherBytes
-    );
+    const decrypted = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBytes);
 
-    const dec = new TextDecoder();
-    return dec.decode(decrypted);
+    return new TextDecoder().decode(decrypted);
   } catch (error) {
-    console.error('Decryption failed, treating as plaintext or raw base64:', error);
-    try {
-      return atob(encryptedPayload);
-    } catch {
-      return encryptedPayload;
-    }
+    console.error('Stored credential could not be decrypted:', error);
+    return '';
   }
 }
 

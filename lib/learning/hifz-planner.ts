@@ -1,5 +1,6 @@
 import { db, VerseProgress, HifzTier } from '@/lib/db';
 import { determineHifzTier } from './srs-engine';
+import { localDayKey } from '@/lib/time/day';
 
 export interface DailyHifzPlan {
   date: string;
@@ -56,15 +57,21 @@ export async function getDailyHifzPlan(): Promise<DailyHifzPlan> {
   const remaining = Math.max(0, 6236 - totalVersesMemorized);
   const projectedDays = Math.ceil(remaining / 5);
 
+  // Day boundaries use the learner's local calendar day, so "reviewed today" is
+  // measured against the same day the learner sees on their device.
+  const today = localDayKey();
+  const reviewedToday = (items: VerseProgress[]): number =>
+    items.filter((p) => p.lastReviewedAt && localDayKey(new Date(p.lastReviewedAt)) === today).length;
+
   return {
-    date: new Date().toISOString().split('T')[0],
+    date: today,
     sabaq,
     sabqi,
     manzil,
     completedCounts: {
-      sabaq: sabaq.filter((p) => p.lastReviewedAt?.startsWith(new Date().toISOString().split('T')[0])).length,
-      sabqi: sabqi.filter((p) => p.lastReviewedAt?.startsWith(new Date().toISOString().split('T')[0])).length,
-      manzil: manzil.filter((p) => p.lastReviewedAt?.startsWith(new Date().toISOString().split('T')[0])).length,
+      sabaq: reviewedToday(sabaq),
+      sabqi: reviewedToday(sabqi),
+      manzil: reviewedToday(manzil),
     },
     totalVersesMemorized,
     projectedCompletionDays: projectedDays,

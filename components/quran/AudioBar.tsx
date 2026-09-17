@@ -1,114 +1,305 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Volume2, Repeat, FastForward } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Play,
+  Pause,
+  RotateCcw,
+  Volume2,
+  Repeat,
+  FastForward,
+  SkipBack,
+  SkipForward,
+  AlertCircle,
+} from 'lucide-react';
+import { db } from '@/lib/db';
 
-interface AudioBarProps {
-  currentAyahNumber?: number;
-  surahNumber: number;
-  totalVerses: number;
-  audioUrl?: string;
-  onNextAyah?: () => void;
-  onPrevAyah?: () => void;
+export interface ReciterOption {
+  id: string;
+  name: string;
 }
 
-export const RECITERS = [
+export const RECITERS: readonly ReciterOption[] = [
   { id: 'ar.alafasy', name: 'Mishary Rashid Alafasy' },
   { id: 'ar.abdulbasitmurattal', name: 'Abdul Basit (Murattal)' },
   { id: 'ar.husary', name: 'Mahmoud Khalil Al-Husary' },
   { id: 'ar.minshawi', name: 'Mohamed Siddiq Al-Minshawi' },
 ];
 
+const AUDIO_CDN = 'https://cdn.islamic.network/quran/audio/128';
+const DEFAULT_RECITER = 'ar.alafasy';
+const REPEAT_MODES = [1, 3, 5, 10, 999] as const;
+const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5] as const;
+
+function reciterAudioUrl(reciterId: string, globalAyahNumber: number): string {
+  return `${AUDIO_CDN}/${reciterId}/${globalAyahNumber}.mp3`;
+}
+
+interface AudioBarProps {
+  surahNumber: number;
+  totalVerses: number;
+  currentAyahNumber: number;
+  /** 1-based position of the ayah in the Mushaf; required to build reciter URLs. */
+  globalAyahNumber: number;
+  /** URL provided by the verse record, used if a reciter URL cannot be built. */
+  fallbackAudioUrl?: string;
+  /**
+   * Playback the reader wants applied. `token` is bumped on every explicit request so
+   * repeating the same intent (“play this ayah” twice) still re-triggers it. The bar
+   * stays the single owner of the media element; the reader only states intent.
+   */
+  playIntent?: PlaybackIntent;
+  /** Reports the real playing state so ayah rows can show the correct control. */
+  onPlayingChange?: (playing: boolean) => void;
+  onNextAyah?: () => void;
+  onPrevAyah?: () => void;
+}
+
+export interface PlaybackIntent {
+  token: number;
+  playing: boolean;
+}
+
+/**
+ * Sticky recitation player.
+ *
+ * One component owns the media element: there is a single `play()` authority, the
+ * element is released on unmount (a detached `HTMLAudioElement` keeps playing, which
+ * previously left recitation running with no controls after navigation), and the
+ * reciter selector actually changes the audio source.
+ */
 export const AudioBar: React.FC<AudioBarProps> = ({
-  currentAyahNumber = 1,
   surahNumber,
   totalVerses,
-  audioUrl,
+  currentAyahNumber,
+  globalAyahNumber,
+  fallbackAudioUrl,
+  playIntent,
+  onPlayingChange,
   onNextAyah,
+  onPrevAyah,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [repeatMode, setRepeatMode] = useState<number>(1); // 1 = play once, 3 = 3x, 5 = 5x, 10 = 10x, 999 = infinite
-  const [currentLoopCount, setCurrentLoopCount] = useState<number>(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [selectedReciter, setSelectedReciter] = useState('ar.alafasy');
-  const [prevAyahNumber, setPrevAyahNumber] = useState(currentAyahNumber);
+  const [progressState, setProgressState] = useState<{ ayah: number; percent: number }>({
+    ayah: currentAyahNumber,
+    percent: 0,
+  });
+  const [durationState, setDurationState] = useState<{ ayah: number; seconds: number | null }>({
+    ayah: currentAyahNumber,
+    seconds: null,
+  });
+  const [repeatMode, setRepeatMode] = useState<number>(1);
+  const [loopState, setLoopState] = useState<{ ayah: number; count: number }>({
+    ayah: currentAyahNumber,
+    count: 1,
+  });
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [selectedReciter, setSelectedReciter] = useState<string>(DEFAULT_RECITER);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  /** True while the learner wants audio playing, so advancing keeps playing. */
+  const wantsPlaybackRef = useRef(false);
+  /** Token of the last playback intent that was applied to the media element. */
+  const appliedIntentRef = useRef<number>(-1);
 
-  if (prevAyahNumber !== currentAyahNumber) {
-    setPrevAyahNumber(currentAyahNumber);
-    setCurrentLoopCount(1);
-  }
+  const audioUrl = selectedReciter
+    ? reciterAudioUrl(selectedReciter, globalAyahNumber)
+    : fallbackAudioUrl;
 
+  /**
+   * Progress, duration and the repeat counter are tagged with the ayah they describe,
+   * so values from the previous ayah can never be rendered. This replaces an effect
+   * that reset three pieces of state on every navigation (one extra render per ayah)
+   * and briefly showed the previous ayah's progress bar on the new one.
+   */
+  const progress = progressState.ayah === currentAyahNumber ? progressState.percent : 0;
+  const duration = durationState.ayah === currentAyahNumber ? durationState.seconds : null;
+  const currentLoopCount = loopState.ayah === currentAyahNumber ? loopState.count : 1;
+
+  // Load the saved reciter preference once.
   useEffect(() => {
-    if (audioRef.current && audioUrl) {
-      audioRef.current.src = audioUrl;
-      audioRef.current.playbackRate = playbackRate;
-      if (isPlaying) {
-        audioRef.current.play().catch(e => console.warn('Audio play interrupted:', e));
-      }
-    }
-  }, [audioUrl, playbackRate, isPlaying]);
+    let active = true;
+    db.userProfile
+      .get('default_user')
+      .then((profile) => {
+        if (active && profile?.reciterId) {
+          setSelectedReciter(profile.reciterId);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const togglePlay = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
+  // Single place that loads a source and resumes playback when the learner had
+  // already been listening (so advancing ayahs does not stop the recitation).
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    setAudioError(null);
+    audio.playbackRate = playbackRate;
+
+    if (!audioUrl) {
+      wantsPlaybackRef.current = false;
+      return;
+    }
+
+    // `audio.src` is absolute while `audioUrl` is not, so compare on the attribute.
+    if (audio.getAttribute('src') !== audioUrl) {
+      audio.src = audioUrl;
+      audio.load();
+    }
+
+    if (wantsPlaybackRef.current) {
+      audio.play().catch(() => {
+        // Autoplay can be blocked until a user gesture; the button starts it.
+        wantsPlaybackRef.current = false;
+        setIsPlaying(false);
+      });
+    }
+  }, [audioUrl, playbackRate]);
+
+  // Explicit request from the reader (ayah play button, Listen from Start).
+  useEffect(() => {
+    if (!playIntent || playIntent.token === appliedIntentRef.current) return;
+    appliedIntentRef.current = playIntent.token;
+
+    const audio = audioRef.current;
+    if (!audio || !audioUrl) return;
+
+    if (!playIntent.playing) {
+      wantsPlaybackRef.current = false;
+      audio.pause();
+      return;
+    }
+
+    wantsPlaybackRef.current = true;
+    audio.play().catch(() => {
+      wantsPlaybackRef.current = false;
       setIsPlaying(false);
-    } else {
-      audioRef.current.play().then(() => setIsPlaying(true)).catch(e => console.warn(e));
-    }
-  };
+      setAudioError('Playback was blocked or the recitation could not be loaded.');
+    });
+  }, [audioUrl, playIntent]);
 
-  const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      const cur = audioRef.current.currentTime;
-      const dur = audioRef.current.duration || 1;
-      setProgress((cur / dur) * 100);
-      setDuration(dur);
-    }
-  };
+  // Keep the reader informed about the real playback state (not a guess).
+  useEffect(() => {
+    onPlayingChange?.(isPlaying);
+  }, [isPlaying, onPlayingChange]);
 
-  const handleEnded = () => {
+  // Release the media element when the reader is unmounted or the ayah list changes.
+  useEffect(() => {
+    const audio = audioRef.current;
+    return () => {
+      wantsPlaybackRef.current = false;
+      if (!audio) return;
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    };
+  }, []);
+
+  const togglePlay = useCallback((): void => {
+    const audio = audioRef.current;
+    if (!audio || !audioUrl) return;
+
+    if (wantsPlaybackRef.current) {
+      wantsPlaybackRef.current = false;
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+
+    wantsPlaybackRef.current = true;
+    audio
+      .play()
+      .then(() => setIsPlaying(true))
+      .catch(() => {
+        wantsPlaybackRef.current = false;
+        setIsPlaying(false);
+        setAudioError('Playback was blocked or the recitation could not be loaded.');
+      });
+  }, [audioUrl]);
+
+  const handleTimeUpdate = useCallback((): void => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const current = audio.currentTime;
+    const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : null;
+    setDurationState({ ayah: currentAyahNumber, seconds: total });
+    // Without a known duration the scrubber stays at zero rather than reporting a
+    // meaningless percentage derived from a fallback value.
+    setProgressState({
+      ayah: currentAyahNumber,
+      percent: total ? Math.min(100, (current / total) * 100) : 0,
+    });
+  }, [currentAyahNumber]);
+
+  const handleEnded = useCallback((): void => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     const isInfinite = repeatMode === 999;
-    if ((isInfinite || currentLoopCount < repeatMode) && audioRef.current) {
-      setCurrentLoopCount((prev) => prev + 1);
-      audioRef.current.currentTime = 0;
-      audioRef.current.play();
-    } else if (onNextAyah && currentAyahNumber < totalVerses) {
-      setCurrentLoopCount(1);
+    if (isInfinite || currentLoopCount < repeatMode) {
+      setLoopState({ ayah: currentAyahNumber, count: currentLoopCount + 1 });
+      audio.currentTime = 0;
+      audio.play().catch(() => undefined);
+      return;
+    }
+
+    if (onNextAyah && currentAyahNumber < totalVerses) {
+      // The next ayah gets a fresh repeat tier automatically.
+      setLoopState({ ayah: currentAyahNumber + 1, count: 1 });
       onNextAyah();
-    } else {
-      setIsPlaying(false);
-      setProgress(0);
-      setCurrentLoopCount(1);
+      return;
     }
-  };
 
-  const cycleRepeatMode = () => {
-    const modes = [1, 3, 5, 10, 999];
-    const nextIdx = (modes.indexOf(repeatMode) + 1) % modes.length;
-    setRepeatMode(modes[nextIdx]);
-    setCurrentLoopCount(1);
-  };
+    wantsPlaybackRef.current = false;
+    setIsPlaying(false);
+    setProgressState({ ayah: currentAyahNumber, percent: 0 });
+    setLoopState({ ayah: currentAyahNumber, count: 1 });
+  }, [currentAyahNumber, currentLoopCount, onNextAyah, repeatMode, totalVerses]);
 
-  const cycleSpeed = () => {
-    const speeds = [0.75, 1, 1.25, 1.5];
-    const nextIdx = (speeds.indexOf(playbackRate) + 1) % speeds.length;
-    const nextSpeed = speeds[nextIdx];
-    setPlaybackRate(nextSpeed);
-    if (audioRef.current) {
-      audioRef.current.playbackRate = nextSpeed;
+  const cycleRepeatMode = useCallback((): void => {
+    setRepeatMode((previous) => {
+      const index = REPEAT_MODES.indexOf(previous as (typeof REPEAT_MODES)[number]);
+      return REPEAT_MODES[(index + 1) % REPEAT_MODES.length];
+    });
+    setLoopState({ ayah: currentAyahNumber, count: 1 });
+  }, [currentAyahNumber]);
+
+  const cycleSpeed = useCallback((): void => {
+    setPlaybackRate((previous) => {
+      const index = PLAYBACK_RATES.indexOf(previous as (typeof PLAYBACK_RATES)[number]);
+      const next = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+      if (audioRef.current) {
+        audioRef.current.playbackRate = next;
+      }
+      return next;
+    });
+  }, []);
+
+  const seek = useCallback((event: React.ChangeEvent<HTMLInputElement>): void => {
+    const audio = audioRef.current;
+    if (!audio || !duration) return;
+    const nextTime = (Number(event.target.value) / 100) * duration;
+    audio.currentTime = nextTime;
+    setProgressState({ ayah: currentAyahNumber, percent: Number(event.target.value) });
+  }, [currentAyahNumber, duration]);
+
+  const handleReciterChange = useCallback(async (reciterId: string): Promise<void> => {
+    setSelectedReciter(reciterId);
+    try {
+      await db.userProfile.update('default_user', { reciterId });
+    } catch (error) {
+      console.warn('Could not persist the reciter preference:', error);
     }
-  };
+  }, []);
 
-  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!audioRef.current || duration === 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
-    audioRef.current.currentTime = pos * duration;
-  };
+  const repeatLabel =
+    repeatMode === 1 ? 'Play once' : repeatMode === 999 ? 'Loop continuously' : `Repeat ${repeatMode} times`;
 
   return (
     <div
@@ -117,78 +308,142 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     >
       <audio
         ref={audioRef}
-        src={audioUrl}
+        preload="metadata"
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleEnded}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onError={() => {
+          setAudioError('This recitation could not be loaded. Try another reciter.');
+          wantsPlaybackRef.current = false;
+          setIsPlaying(false);
+        }}
       />
 
       <div className="max-w-4xl mx-auto flex flex-col gap-2">
-        {/* Progress scrub bar */}
-        <div
-          onClick={seek}
-          className="w-full bg-surface-muted h-1.5 rounded-full overflow-hidden cursor-pointer group"
-        >
-          <div
-            className="h-full bg-primary group-hover:bg-primary-hover transition-all rounded-full"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+        {audioError && (
+          <div className="flex items-center gap-2 text-[11px] text-danger-strong bg-danger-subtle border border-danger/30 rounded-lg px-2.5 py-1.5">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span>{audioError}</span>
+          </div>
+        )}
+
+        <label htmlFor="audio-scrubber" className="sr-only">
+          Recitation position
+        </label>
+        <input
+          id="audio-scrubber"
+          type="range"
+          min={0}
+          max={100}
+          step={0.1}
+          value={progress}
+          onChange={seek}
+          disabled={!audioUrl || duration === null}
+          aria-valuetext={
+            duration ? `${Math.round(progress)}% of ayah ${currentAyahNumber}` : 'Duration unavailable'
+          }
+          className="w-full h-1.5 accent-primary cursor-pointer disabled:opacity-50"
+        />
 
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          {/* Current Ayah / Reciter */}
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary-subtle flex items-center justify-center text-primary-strong">
-              <Volume2 className="w-4 h-4" />
+              <Volume2 className="w-4 h-4" aria-hidden="true" />
             </div>
             <div className="flex flex-col">
               <span className="text-xs font-bold text-foreground">
                 Ayah {surahNumber}:{currentAyahNumber}
               </span>
+              <label htmlFor="reciter-select" className="sr-only">
+                Reciter
+              </label>
               <select
+                id="reciter-select"
                 value={selectedReciter}
-                onChange={(e) => setSelectedReciter(e.target.value)}
+                onChange={(event) => void handleReciterChange(event.target.value)}
                 className="text-[11px] text-muted-foreground bg-transparent border-0 outline-hidden cursor-pointer hover:text-primary"
               >
-                {RECITERS.map((r) => (
-                  <option key={r.id} value={r.id} className="bg-card text-foreground">
-                    {r.name}
+                {RECITERS.map((reciter) => (
+                  <option key={reciter.id} value={reciter.id} className="bg-card text-foreground">
+                    {reciter.name}
                   </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
+              type="button"
               onClick={() => {
                 if (audioRef.current) audioRef.current.currentTime = 0;
+                setProgressState({ ayah: currentAyahNumber, percent: 0 });
               }}
-              className="p-2 rounded-full hover:bg-surface-hover text-muted-foreground hover:text-foreground transition-colors"
-              title="Restart Ayah"
+              disabled={!audioUrl}
+              className="p-2 rounded-full hover:bg-surface-hover text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+              aria-label="Restart this ayah"
+              title="Restart this ayah"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-4 h-4" aria-hidden="true" />
             </button>
+
+            {onPrevAyah && (
+              <button
+                type="button"
+                onClick={onPrevAyah}
+                disabled={currentAyahNumber <= 1}
+                className="p-2 rounded-full hover:bg-surface-hover text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                aria-label="Previous ayah"
+                title="Previous ayah"
+              >
+                <SkipBack className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
 
             <button
               id="audio-play-toggle-btn"
+              type="button"
               onClick={togglePlay}
-              className="w-10 h-10 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground flex items-center justify-center shadow-md transition-all active:scale-95"
+              disabled={!audioUrl}
+              className="w-10 h-10 rounded-full bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground flex items-center justify-center shadow-md transition-all active:scale-95"
+              aria-label={isPlaying ? 'Pause recitation' : 'Play recitation'}
               title={isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+              {isPlaying ? (
+                <Pause className="w-5 h-5" aria-hidden="true" />
+              ) : (
+                <Play className="w-5 h-5 ml-0.5" aria-hidden="true" />
+              )}
             </button>
 
+            {onNextAyah && (
+              <button
+                type="button"
+                onClick={onNextAyah}
+                disabled={currentAyahNumber >= totalVerses}
+                className="p-2 rounded-full hover:bg-surface-hover text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                aria-label="Next ayah"
+                title="Next ayah"
+              >
+                <SkipForward className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
+
             <button
+              type="button"
               onClick={cycleRepeatMode}
-              className={`px-2 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
+              aria-label={`${repeatLabel}. Currently ${currentLoopCount} of ${
+                repeatMode === 999 ? 'continuous' : repeatMode
+              }.`}
+              className={`px-2 py-1.5 rounded-xl transition-colors flex items-center gap-1 text-xs font-bold ${
                 repeatMode > 1
                   ? 'bg-secondary text-secondary-foreground shadow-xs'
                   : 'hover:bg-surface-hover text-muted-foreground hover:text-foreground'
               }`}
-              title={`Hifz Loop Mode: ${repeatMode === 1 ? 'Single play' : repeatMode === 999 ? 'Infinite loop' : `${repeatMode}x repeat`} (Current: ${currentLoopCount}/${repeatMode === 999 ? '∞' : repeatMode})`}
+              title={`Hifz loop: ${repeatLabel}`}
             >
-              <Repeat className="w-3.5 h-3.5" />
+              <Repeat className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{repeatMode === 999 ? '∞' : `${repeatMode}x`}</span>
               {repeatMode > 1 && (
                 <span className="text-[10px] opacity-80">
@@ -198,11 +453,13 @@ export const AudioBar: React.FC<AudioBarProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={cycleSpeed}
+              aria-label={`Playback speed ${playbackRate} times. Change speed.`}
               className="px-2 py-1 rounded-md text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-surface-hover flex items-center gap-0.5"
               title="Playback speed"
             >
-              <FastForward className="w-3 h-3" />
+              <FastForward className="w-3 h-3" aria-hidden="true" />
               <span>{playbackRate}x</span>
             </button>
           </div>

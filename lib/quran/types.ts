@@ -22,13 +22,14 @@ export interface QuranWord {
   audioUrl?: string;
 }
 
-export type TajweedRule = 
+export type TajweedRule =
   | 'ghunnah'
   | 'qalqalah'
   | 'idgham_with_ghunnah'
   | 'idgham_without_ghunnah'
   | 'ikhfa'
   | 'iqlab'
+  | 'izhar'
   | 'madd_normal'
   | 'madd_obligatory'
   | 'silent';
@@ -38,6 +39,8 @@ export interface TajweedSegment {
   rule?: TajweedRule;
   ruleName?: string;
   description?: string;
+  /** 0-based word this segment belongs to, so words can be coloured without splitting them. */
+  wordIndex?: number;
 }
 
 export interface TajweedData {
@@ -62,6 +65,13 @@ export interface AudioResource {
   duration?: number;
 }
 
+/**
+ * Where a verse's text came from.
+ * `verified-offline` means the exact verse was served from the audited offline
+ * corpus because the network was unreachable — never a substitute verse.
+ */
+export type VerseProvenance = 'network' | 'verified-offline';
+
 export interface Verse {
   surah: number;
   ayah: number;
@@ -77,6 +87,7 @@ export interface Verse {
   juz?: number;
   hizb?: number;
   page?: number;
+  provenance?: VerseProvenance;
 }
 
 export interface QuranSearchQuery {
@@ -86,6 +97,9 @@ export interface QuranSearchQuery {
   limit?: number;
 }
 
+/** Which corpus a search result was drawn from. */
+export type SearchScope = 'surah' | 'remote' | 'offline-corpus';
+
 export interface SearchResult {
   surah: number;
   surahName: string;
@@ -94,6 +108,7 @@ export interface SearchResult {
   matchType: 'arabic' | 'translationEn' | 'translationTa';
   translationEn?: string;
   translationTa?: string;
+  scope?: SearchScope;
 }
 
 export interface QuranProvider {

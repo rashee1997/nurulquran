@@ -24,5 +24,7 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  /* "isolate" is a stale duplicate snapshot of this project; it is git-ignored and
+     must not be type-checked or bundled alongside the real sources. */
+  "exclude": ["node_modules", "isolate", ".next", "out"]
 }

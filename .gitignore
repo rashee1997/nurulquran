@@ -2,6 +2,10 @@ node_modules/
 .next/
 coverage/
 .DS_Store
+isolate/
 *.log
 .env*
 !.env.example
+
+# Incremental TypeScript state: machine-specific build output, never a source file.
+*.tsbuildinfo

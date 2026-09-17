@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Volume2, Check, Bookmark, X } from 'lucide-react';
 import { QuranWord } from '@/lib/quran/types';
 import { db } from '@/lib/db';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
 
 interface WordPopoverProps {
   word: QuranWord;
@@ -11,29 +12,49 @@ interface WordPopoverProps {
   position?: { x: number; y: number };
 }
 
-export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
+export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, position }) => {
   const [isSaved, setIsSaved] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const playAudio = () => {
-    // Generate spoken audio via web speech synthesis or word audio URL if available
+  const { playingKey, playUrl, speak } = usePreviewAudio();
+  const playbackKey = `word:${word.id}`;
+  // Read from the shared player rather than mirroring it in local state, so the
+  // button cannot claim to be playing something that has already finished.
+  const isPlaying = playingKey === playbackKey;
+
+  // Escape closes the sheet, and focus starts on the dismiss control so keyboard and
+  // switch users are not left behind the modal.
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, [onClose]);
+
+  /**
+   * Plays the word: the recorded clip when one exists, otherwise the Arabic
+   * synthesizer. Both go through the shared player, so a previous word never keeps
+   * sounding underneath the new one.
+   */
+  const playAudio = useCallback(async (): Promise<void> => {
     if (word.audioUrl) {
-      const audio = new Audio(word.audioUrl);
-      setIsPlaying(true);
-      audio.play().finally(() => setIsPlaying(false));
-    } else if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      setIsPlaying(true);
-      const utterance = new SpeechSynthesisUtterance(word.arabic);
-      utterance.lang = 'ar-SA';
-      utterance.rate = 0.85;
-      utterance.onend = () => setIsPlaying(false);
-      utterance.onerror = () => setIsPlaying(false);
-      window.speechSynthesis.speak(utterance);
+      const played = await playUrl(playbackKey, word.audioUrl);
+      if (played) return;
     }
-  };
+    await speak(playbackKey, word.arabic, 'ar-SA');
+  }, [playbackKey, playUrl, speak, word.arabic, word.audioUrl]);
 
-  const handleSaveWord = async () => {
+  const handleSaveWord = useCallback(async (): Promise<void> => {
     try {
+      // Read-then-merge: `put` used to overwrite the record with `mistakesCount: 0`,
+      // silently erasing the learner's mistake history for that word.
+      const existing = await db.wordProgress.get(word.id);
       await db.wordProgress.put({
         wordKey: word.id,
         surah: word.surah,
@@ -41,42 +62,48 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
         wordIndex: word.wordIndex,
         arabic: word.arabic,
         memorized: true,
-        mistakesCount: 0,
+        mistakesCount: existing?.mistakesCount ?? 0,
         lastSeenAt: new Date().toISOString(),
       });
       setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2000);
-    } catch (e) {
-      console.error('Failed to save word progress:', e);
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setIsSaved(false), 2000);
+    } catch (error) {
+      console.error('Failed to save word progress:', error);
     }
-  };
+  }, [word.arabic, word.ayah, word.id, word.surah, word.wordIndex]);
 
   return (
     <div
-      id={`word-popover-${word.id}`}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
+        id={`word-popover-${word.id}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Word ${word.wordIndex} of ayah ${word.surah}:${word.ayah}`}
         className="bg-card border border-border rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4"
-        onClick={(e) => e.stopPropagation()}
+        style={position ? { position: 'fixed', left: position.x, top: position.y } : undefined}
+        onClick={(event) => event.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-border pb-3">
           <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-primary-subtle text-primary-strong">
             Word {word.wordIndex} • Ayah {word.surah}:{word.ayah}
           </span>
           <button
+            ref={closeButtonRef}
+            type="button"
             onClick={onClose}
+            aria-label="Close word details"
             className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Arabic Display */}
         <div className="text-center py-2 bg-surface rounded-xl border border-border">
-          <p className="text-3xl font-arabic text-foreground select-none py-1">
+          <p className="text-3xl font-arabic text-foreground select-text py-1" dir="rtl" lang="ar">
             {word.arabic}
           </p>
           <p className="text-xs text-muted-foreground font-medium tracking-wide">
@@ -84,16 +111,21 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
           </p>
         </div>
 
-        {/* Translation details */}
         <div className="space-y-2.5 text-sm">
           <div className="flex flex-col">
-            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">English Meaning</span>
-            <span className="text-foreground font-medium">{word.translationEn || 'Meaning provided in context'}</span>
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              English Meaning
+            </span>
+            <span className="text-foreground font-medium">
+              {word.translationEn || 'Meaning provided in context'}
+            </span>
           </div>
 
           {word.translationTa && (
             <div className="flex flex-col">
-              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-tamil">தமிழ் அர்த்தம் (Tamil)</span>
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                தமிழ் அர்த்தம் (Tamil)
+              </span>
               <span className="text-primary-strong font-tamil font-medium">{word.translationTa}</span>
             </div>
           )}
@@ -115,19 +147,20 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
           )}
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-2 pt-2 border-t border-border">
           <button
-            onClick={playAudio}
-            disabled={isPlaying}
+            type="button"
+            onClick={() => void playAudio()}
             className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-semibold transition-colors"
           >
-            <Volume2 className={`w-4 h-4 text-primary ${isPlaying ? 'animate-bounce' : ''}`} />
-            <span>{isPlaying ? 'Playing...' : 'Pronounce'}</span>
+            <Volume2 className={`w-4 h-4 text-primary ${isPlaying ? 'animate-bounce' : ''}`} aria-hidden="true" />
+            <span>{isPlaying ? 'Playing…' : 'Pronounce'}</span>
           </button>
 
           <button
-            onClick={handleSaveWord}
+            type="button"
+            onClick={() => void handleSaveWord()}
+            aria-live="polite"
             className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
               isSaved
                 ? 'bg-primary text-primary-foreground'
@@ -136,12 +169,12 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
           >
             {isSaved ? (
               <>
-                <Check className="w-4 h-4" />
+                <Check className="w-4 h-4" aria-hidden="true" />
                 <span>Saved!</span>
               </>
             ) : (
               <>
-                <Bookmark className="w-4 h-4" />
+                <Bookmark className="w-4 h-4" aria-hidden="true" />
                 <span>Save to Deck</span>
               </>
             )}

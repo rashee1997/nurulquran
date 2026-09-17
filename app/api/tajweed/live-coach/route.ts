@@ -1,108 +1,134 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import {
+  apiError,
+  guardRequest,
+  NOT_CONFIGURED,
+  RATE_LIMITED,
+  UPSTREAM_UNAVAILABLE,
+} from '@/lib/api/http';
+import { callerKey, checkRateLimit } from '@/lib/api/rate-limit';
+import {
+  accuracyRatingSchema,
+  liveCoachModelResponseSchema,
+  liveCoachRequestSchema,
+  parseWithSchema,
+  type AccuracyRating,
+  type FeedbackLanguagePayload,
+} from '@/lib/api/schemas';
+import { resolveServerGeminiModel } from '@/lib/ai/models';
+import { serverGeminiApiKey } from '@/lib/ai/resolver';
 
 export const maxDuration = 45;
 
-interface LiveCoachRequestBody {
-  audioBase64?: string;
-  audioMimeType?: string;
-  userQuery?: string;
-  currentLessonTitle?: string;
-  currentActivityTitle?: string;
-  promptArabic?: string;
-  targetRule?: string;
-  voiceId?: string;
-  teacherPersona?: 'gentle' | 'balanced' | 'strict';
-  language?: 'both' | 'en' | 'ta';
+const RATE_LIMIT = { limit: 30, windowMs: 60_000 };
+
+interface LiveCoachResponse {
+  coachResponseEn: string;
+  coachResponseTa: string;
+  makhrajTip: string;
+  makhrajTipTa: string;
+  tajweedRuleName: string;
+  accuracyRating?: AccuracyRating;
+  suggestedPractice: string;
+  detectedErrors: string[];
+  latencyMs: number;
+  voiceId: string;
+  persona: string;
 }
 
-export async function POST(req: NextRequest) {
-  const startTime = performance.now();
-  let feedbackLanguage: 'both' | 'en' | 'ta' = 'both';
+/** Blanks out the language the learner did not ask for. */
+function alignWithLanguage(payload: LiveCoachResponse, language: FeedbackLanguagePayload): LiveCoachResponse {
+  if (language === 'en') {
+    return { ...payload, coachResponseTa: '', makhrajTipTa: '' };
+  }
+  if (language === 'ta') {
+    return { ...payload, coachResponseEn: '', makhrajTip: '' };
+  }
+  return payload;
+}
 
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  const guard = guardRequest(req);
+  if (!guard.ok) return guard.response;
+
+  const rate = checkRateLimit({ key: callerKey(req, 'live-coach'), ...RATE_LIMIT });
+  if (!rate.allowed) {
+    return apiError({
+      status: 429,
+      code: 'rate_limited',
+      message: RATE_LIMITED,
+      headers: { 'Retry-After': `${rate.retryAfterSeconds}` },
+    });
+  }
+
+  let body: unknown;
   try {
-    const body = (await req.json()) as LiveCoachRequestBody;
-    const {
-      audioBase64,
-      audioMimeType = 'audio/pcm;rate=16000',
-      userQuery,
-      currentLessonTitle = 'Quranic Recitation & Tajweed',
-      currentActivityTitle = 'Oral Recitation & Pronunciation',
-      promptArabic = '',
-      targetRule = 'Makharij al-Huroof & Ahkam at-Tajweed',
-      voiceId = 'Kore',
-      teacherPersona = 'balanced',
-      language = 'both',
-    } = body;
-    feedbackLanguage = language;
+    body = await req.json();
+  } catch {
+    return apiError({ status: 400, code: 'invalid_request', message: 'Request body must be valid JSON.' });
+  }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+  const parsed = parseWithSchema(liveCoachRequestSchema, body);
+  if (!parsed.ok) {
+    return apiError({ status: 400, code: 'invalid_request', message: parsed.message });
+  }
 
-    // Define persona instructions
-    let personaGuidance = '';
-    if (teacherPersona === 'gentle') {
-      personaGuidance = `
+  const {
+    audioBase64,
+    audioMimeType = 'audio/pcm;rate=16000',
+    userQuery,
+    currentLessonTitle = 'Quranic Recitation & Tajweed',
+    currentActivityTitle = 'Oral Recitation & Pronunciation',
+    promptArabic = '',
+    targetRule = 'Makharij al-Huroof & Ahkam at-Tajweed',
+    voiceId = 'Kore',
+    teacherPersona = 'balanced',
+    language = 'both',
+  } = parsed.data;
+
+  if ((!audioBase64 || audioBase64.length === 0) && !userQuery) {
+    return apiError({
+      status: 400,
+      code: 'invalid_request',
+      message: 'Provide either recorded audio or a written question.',
+    });
+  }
+
+  const apiKey = serverGeminiApiKey();
+  if (!apiKey) {
+    // No key means no evaluation. Never stand in for the assessment with canned praise.
+    return apiError({ status: 503, code: 'not_configured', message: NOT_CONFIGURED, unavailable: true });
+  }
+
+  const personaGuidance =
+    teacherPersona === 'gentle'
+      ? `
 TEACHER PERSONA: Gentle Encourager.
 - Prioritize praise, build student confidence, and do not nitpick minor acoustic variations.
 - Only correct major makhraj misplacements (e.g. confusing 'Ain with Hamzah, or Haa with Khaa).
-- Always include an encouraging remark.
-`;
-    } else if (teacherPersona === 'strict') {
-      personaGuidance = `
+- Always include an encouraging remark.`
+      : teacherPersona === 'strict'
+        ? `
 TEACHER PERSONA: Strict Qari & Hafiz Examiner (Hafs 'an 'Asim Sanad Standard).
 - Scrutinize precise letter articulation (Makhraj) and intrinsic characteristics (Sifaat).
-- Check exact Harakah vowel timing (2 counts for Madd Tabee'ee, exact 4-5 counts for Muttasil/Munfasil).
+- Check exact Harakah vowel timing (2 counts for Madd Tabee'ee, 4-5 counts for Muttasil/Munfasil).
 - Check Ghunnah duration (full 2 counts on Noon/Meem Mushaddadah, Ikhfa, Idgham bi-Ghunnah).
-- Demand crisp Qalqalah on قطب جد when sakin, and verify Tafkheem (heaviness) vs Tarqeeq (lightness).
-`;
-    } else {
-      personaGuidance = `
+- Demand crisp Qalqalah on قطب جد when sakin, and verify Tafkheem versus Tarqeeq.`
+        : `
 TEACHER PERSONA: Balanced Mentor.
 - Blend warm pedagogical encouragement with actionable, clear corrections.
-- Focus on correct letter origin (Makhraj), avoiding vowel swallowing or elongation, and foundational Tajweed rules.
-`;
-    }
+- Focus on correct letter origin (Makhraj), avoiding vowel swallowing or elongation, and foundational Tajweed rules.`;
 
-    // Define language instructions
-    let languageGuidance = '';
-    if (language === 'en') {
-      languageGuidance =
-        'FEEDBACK LANGUAGE: English only. Write every response in English and return empty strings for all Tamil fields (coachResponseTa, makhrajTipTa).';
-    } else if (language === 'ta') {
-      languageGuidance =
-        'FEEDBACK LANGUAGE: Tamil only. Write every response in authentic Tamil (தமிழ் விளக்கம்) and return empty strings for all English fields (coachResponseEn, makhrajTip).';
-    } else {
-      languageGuidance =
-        'FEEDBACK LANGUAGE: Bilingual. Provide a high-clarity English explanation and an equally complete authentic Tamil explanation (தமிழ் வழிகாட்டல்).';
-    }
+  const languageGuidance =
+    language === 'en'
+      ? 'FEEDBACK LANGUAGE: English only. Write every response in English and return empty strings for all Tamil fields (coachResponseTa, makhrajTipTa).'
+      : language === 'ta'
+        ? 'FEEDBACK LANGUAGE: Tamil only. Write every response in authentic Tamil (தமிழ் விளக்கம்) and return empty strings for all English fields (coachResponseEn, makhrajTip).'
+        : 'FEEDBACK LANGUAGE: Bilingual. Provide a high-clarity English explanation and an equally complete authentic Tamil explanation (தமிழ் வழிகாட்டல்).';
 
-    if (!apiKey) {
-      const serverLatency = Math.round(performance.now() - startTime);
-      return NextResponse.json({
-        coachResponseEn: language === 'ta' ? '' : `For "${promptArabic || currentLessonTitle}": Pronounce clearly from its primary articulation point (Makhraj). Maintain consistent Harakah count and smooth airflow.`,
-        coachResponseTa: language === 'en' ? '' : `"${promptArabic || currentLessonTitle}" க்கான வழிகாட்டல்: அதன் சரியான உச்சரிப்பு தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரிக்கவும். ஹரக்கத் அளவைச் சரியாகப் பேணவும்.`,
-        makhrajTip: language === 'ta' ? '' : 'Relax jaw and align tongue firmly with the designated palate or dental ridge.',
-        makhrajTipTa: language === 'en' ? '' : 'தாடையைத் தளர்த்தி, நாவை மேல் அண்ணம் அல்லது பல்லடியுடன் சரியாகப் பொருத்தவும்.',
-        tajweedRuleName: targetRule || 'Makharij & Tajweed Precision',
-        accuracyRating: 'Good',
-        suggestedPractice: 'Recite 3 times steadily with full breath.',
-        latencyMs: serverLatency,
-        voiceId,
-        persona: teacherPersona,
-      });
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build-nurulquran',
-        },
-      },
-    });
-
-    const systemPrompt = `
-You are the interactive "NurulQuran Live Tajweed Coach", a certified world-class Quran Qari and compassionate Mu'allim.
+  const systemPrompt = `
+You are the interactive "NurulQuran Live Tajweed Coach", a certified Quran Qari and compassionate Mu'allim.
 You are evaluating a student reciting:
 - Lesson: "${currentLessonTitle}"
 - Activity: "${currentActivityTitle}"
@@ -115,39 +141,41 @@ ${languageGuidance}
 STUDENT INPUT:
 ${userQuery ? `Question: "${userQuery}"` : 'The student submitted a live voice audio recitation for Tajweed evaluation.'}
 
-EVALUATION CRITERIA:
-1. Makhraj (Throat: ء هـ ع ح غ خ | Tongue: ق ك ض ل ن ر ط د ت ص ز س ظ ذ ث | Lips: ف ب م و | Nasal: Ghunnah).
-2. Harakat & Madd timing (2, 4, 5, or 6 counts).
-3. Sifaat (Hams, Jahr, Qalqalah on قطب جد, Tafkheem vs Tarqeeq).
-4. Concrete physical guidance (where to place tongue, teeth, or lips).
+Evaluate only what is actually present in the submission. If the audio is silent, unintelligible, or
+unrelated to the target, say so plainly and rate it "Needs Practice" — never invent praise.
 
-OUTPUT FORMAT:
-Respond ONLY in valid, parseable JSON matching:
+OUTPUT FORMAT — respond ONLY with valid JSON matching:
 {
-  "coachResponseEn": "<2-3 clear, constructive, encouraging sentences in English — or an empty string when the feedback language is Tamil only>",
-  "coachResponseTa": "<2-3 accurate sentences in Tamil explaining the pronunciation and correction — or an empty string when the feedback language is English only>",
-  "makhrajTip": "<Specific physical/anatomical tip for tongue, throat, or lips — or an empty string for Tamil only>",
-  "makhrajTipTa": "<Physical anatomical tip in Tamil — or an empty string for English only>",
-  "tajweedRuleName": "<Exact Tajweed rule name>",
+  "coachResponseEn": "<2-3 clear, constructive sentences — or an empty string when the feedback language is Tamil only>",
+  "coachResponseTa": "<2-3 accurate sentences in Tamil — or an empty string when the feedback language is English only>",
+  "makhrajTip": "<specific physical tip for tongue, throat or lips — or an empty string for Tamil only>",
+  "makhrajTipTa": "<physical anatomical tip in Tamil — or an empty string for English only>",
+  "tajweedRuleName": "<exact Tajweed rule name>",
   "accuracyRating": "<Excellent | Good | Needs Practice | Polished>",
-  "suggestedPractice": "<1 concise practice exercise for the student>",
+  "suggestedPractice": "<1 concise practice exercise>",
   "detectedErrors": ["<specific error 1 if any>", "<specific error 2 if any>"]
 }
 `;
 
-    const contents: any[] = [{ text: systemPrompt }];
+  const contents: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
+    { text: systemPrompt },
+  ];
 
-    if (audioBase64) {
-      contents.push({
-        inlineData: {
-          mimeType: audioMimeType,
-          data: audioBase64.replace(/^data:audio\/[a-z0-9\-]+;base64,/, ''),
-        },
-      });
-    }
+  if (audioBase64) {
+    contents.push({
+      inlineData: {
+        mimeType: audioMimeType,
+        data: audioBase64.replace(/^data:audio\/[a-z0-9-]+;base64,/, ''),
+      },
+    });
+  }
 
+  const startedAt = performance.now();
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: resolveServerGeminiModel(),
       contents,
       config: {
         responseMimeType: 'application/json',
@@ -155,65 +183,66 @@ Respond ONLY in valid, parseable JSON matching:
       },
     });
 
-    const responseText = response.text?.trim() || '{}';
-    let result: Record<string, any>;
+    const responseText = response.text?.trim() ?? '';
+    let rawVerdict: unknown;
     try {
-      result = JSON.parse(responseText);
+      rawVerdict = JSON.parse(responseText);
     } catch {
-      result = {
-        coachResponseEn: 'Articulate this letter firmly from its makhraj. Maintain proper vowel duration and smooth breath.',
-        coachResponseTa: 'இந்த எழுத்தை அதன் அசல் மக்ரிஜிலிருந்து துல்லியமாக உச்சரித்து ஹரக்கத் அளவை நிலைநிறுத்தவும்.',
-        makhrajTip: 'Ensure correct contact between tongue and palate.',
-        makhrajTipTa: 'நாவுக்கும் மேல் அண்ணத்திற்கும் இடையே சரியான தொடர்பை உறுதிப்படுத்தவும்.',
-        tajweedRuleName: targetRule,
-        accuracyRating: 'Good',
-        suggestedPractice: 'Repeat 3 times at a steady, deliberate pace.',
-      };
+      // Unparsable model output is a service failure, not a passing grade.
+      console.error('Live coach returned non-JSON output.');
+      return apiError({
+        status: 503,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
     }
 
-    // Guarantee the reply matches the learner's selected language(s)
-    if (language === 'en') {
-      result.coachResponseTa = '';
-      result.makhrajTipTa = '';
-    } else if (language === 'ta') {
-      result.coachResponseEn = '';
-      result.makhrajTip = '';
+    const verdict = parseWithSchema(liveCoachModelResponseSchema, rawVerdict);
+    if (!verdict.ok) {
+      console.error('Live coach output failed schema validation:', verdict.message);
+      return apiError({
+        status: 503,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
     }
 
-    const serverLatency = Math.round(performance.now() - startTime);
-    result.latencyMs = serverLatency;
-    result.voiceId = voiceId;
-    result.persona = teacherPersona;
+    const ratingCandidate = verdict.data.accuracyRating;
+    const ratingParsed = ratingCandidate ? accuracyRatingSchema.safeParse(ratingCandidate) : null;
 
-    return NextResponse.json(result);
-  } catch (error: any) {
-    console.error('Live Tajweed Coach Error:', error);
-    const serverLatency = Math.round(performance.now() - startTime);
+    const payload: LiveCoachResponse = {
+      coachResponseEn: verdict.data.coachResponseEn ?? '',
+      coachResponseTa: verdict.data.coachResponseTa ?? '',
+      makhrajTip: verdict.data.makhrajTip ?? '',
+      makhrajTipTa: verdict.data.makhrajTipTa ?? '',
+      tajweedRuleName: verdict.data.tajweedRuleName ?? targetRule,
+      suggestedPractice: verdict.data.suggestedPractice ?? 'Recite the passage three times at a measured pace.',
+      detectedErrors: verdict.data.detectedErrors ?? [],
+      latencyMs: Math.round(performance.now() - startedAt),
+      voiceId,
+      persona: teacherPersona,
+      ...(ratingParsed?.success ? { accuracyRating: ratingParsed.data } : {}),
+    };
 
-    return NextResponse.json(
-      {
-        coachResponseEn:
-          feedbackLanguage === 'ta'
-            ? ''
-            : 'Remember to articulate clearly from the primary articulation point (Makhraj) and hold vowel lengths evenly.',
-        coachResponseTa:
-          feedbackLanguage === 'en'
-            ? ''
-            : 'எழுத்தின் அசல் தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரித்து, ஹரக்கத் கால அளவைச் சரியாகப் பேணவும்.',
-        makhrajTip:
-          feedbackLanguage === 'ta'
-            ? ''
-            : 'Keep mouth relaxed and focus breath at the exact point of articulation.',
-        makhrajTipTa:
-          feedbackLanguage === 'en'
-            ? ''
-            : 'வாயைத் தளர்த்தி, உச்சரிப்பு தானத்தில் கவனத்தைச் செலுத்தவும்.',
-        tajweedRuleName: 'Makharij & Tajweed Foundation',
-        accuracyRating: 'Good',
-        suggestedPractice: 'Repeat 3 times with steady breath control.',
-        latencyMs: serverLatency,
-      },
-      { status: 200 }
-    );
+    if (payload.coachResponseEn.length === 0 && payload.coachResponseTa.length === 0) {
+      return apiError({
+        status: 502,
+        code: 'upstream_unavailable',
+        message: UPSTREAM_UNAVAILABLE,
+        unavailable: true,
+      });
+    }
+
+    return NextResponse.json(alignWithLanguage(payload, language));
+  } catch (error: unknown) {
+    console.error('Live Tajweed coach request failed:', error);
+    return apiError({
+      status: 503,
+      code: 'upstream_unavailable',
+      message: UPSTREAM_UNAVAILABLE,
+      unavailable: true,
+    });
   }
 }

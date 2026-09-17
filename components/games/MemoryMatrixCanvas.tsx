@@ -167,7 +167,9 @@ export const MemoryMatrixCanvas: React.FC = () => {
       if (!isRunning) return;
       const width = container.clientWidth || 800;
       const height = 480;
-      const { ctx } = CanvasEngine.setupHiDPI(canvas, width, height);
+      const setup = CanvasEngine.setupHiDPI(canvas, width, height);
+      if (!setup) return;
+      const { ctx } = setup;
 
       ctx.clearRect(0, 0, width, height);
 

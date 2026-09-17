@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { 
   Flame, 
@@ -21,6 +21,7 @@ import { db, UserProfile, initializeDatabase } from '@/lib/db';
 import { GameSessionResult } from '@/lib/db/schemas/streak-schema';
 import { getGameSessions } from '@/lib/games/game-service';
 import { calculateLevel } from '@/lib/learning/xp-engine';
+import { localDayKey } from '@/lib/time/day';
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -67,31 +68,33 @@ export default function DashboardPage() {
     ? Math.max(...sessions.map((s) => s.comboMax))
     : 0;
 
-  // Generate 52 weeks (364 days) for the activity heatmap
-  const today = new Date();
-  const daysInHeatmap = 70; // 10 weeks for crisp UI presentation
-  const heatmapDays = Array.from({ length: daysInHeatmap }).map((_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (daysInHeatmap - 1 - i));
-    const dateStr = d.toISOString().split('T')[0];
+  /**
+   * Ten weeks of activity for the heatmap.
+   *
+   * Buckets use the learner's LOCAL calendar day: `toISOString()` produced UTC day
+   * keys, so every session played after 05:30 in UTC+05:30 landed on the previous
+   * column and the streak grid disagreed with the streak counter.
+   */
+  const heatmapDays = useMemo(() => {
+    const daysInHeatmap = 70; // 10 weeks of cells
+    const today = new Date();
+    const sessionDays = sessions.map((session) => localDayKey(new Date(session.timestamp)));
 
-    // Find sessions on this date
-    const daySessions = sessions.filter((s) => {
-      const sDate = new Date(s.timestamp).toISOString().split('T')[0];
-      return sDate === dateStr;
+    return Array.from({ length: daysInHeatmap }).map((_, index) => {
+      const day = new Date(today);
+      day.setDate(day.getDate() - (daysInHeatmap - 1 - index));
+      const dateKey = localDayKey(day);
+      const sessionsOnDay = sessionDays.filter((key) => key === dateKey).length;
+      const isToday = index === daysInHeatmap - 1;
+
+      return {
+        date: dateKey,
+        count: sessionsOnDay + (isToday ? 1 : 0),
+        isToday,
+        hasActivity: sessionsOnDay > 0 || Boolean(isToday && profile?.streakCount),
+      };
     });
-
-    const isToday = i === daysInHeatmap - 1;
-    const hasActivity = daySessions.length > 0 || (isToday && profile?.streakCount);
-    const count = daySessions.length + (isToday ? 1 : 0);
-
-    return {
-      date: dateStr,
-      count,
-      isToday,
-      hasActivity,
-    };
-  });
+  }, [profile?.streakCount, sessions]);
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-8">

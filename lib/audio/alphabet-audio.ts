@@ -4,6 +4,8 @@
  * vowel forms, and multi-tier speech synthesis / web-audio fallback.
  */
 
+import { previewAudio } from './preview-audio';
+
 export interface ArabicLetterMeta {
   id: string;
   letter: string;
@@ -595,136 +597,123 @@ export const ARABIC_ALPHABET: ArabicLetterMeta[] = [
   },
 ];
 
-// Active global audio tracker to ensure only one sound plays at a time
-let currentActiveAudio: HTMLAudioElement | null = null;
+/**
+ * Shared tone synthesizer for the last-resort fallback.
+ *
+ * The previous implementation created a brand-new `AudioContext` per fallback tone
+ * and never closed it. Browsers cap concurrent contexts (around six) and keep the
+ * audio hardware awake for each one, so repeated fallbacks eventually silenced the
+ * whole app. One context is reused and suspended while idle.
+ */
+let toneContext: AudioContext | null = null;
+let toneSuspendTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getToneContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+
+  const AudioCtx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+
+  if (!toneContext || toneContext.state === 'closed') {
+    toneContext = new AudioCtx();
+  }
+  if (toneContext.state === 'suspended') {
+    void toneContext.resume().catch(() => undefined);
+  }
+  return toneContext;
+}
+
+/** Plays the marimba-style bell used when neither a recording nor a voice exists. */
+async function playFallbackTone(): Promise<void> {
+  const ctx = getToneContext();
+  if (!ctx) return;
+
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    await new Promise<void>((resolve) => {
+      osc.onended = () => resolve();
+      osc.start();
+      osc.stop(ctx.currentTime + 0.6);
+      // Safety net in case `onended` never fires on a suspended context.
+      setTimeout(resolve, 900);
+    });
+  } catch (error) {
+    console.warn('WebAudio fallback failed:', error);
+  } finally {
+    // Release the audio hardware once nothing is playing.
+    if (toneSuspendTimer) clearTimeout(toneSuspendTimer);
+    toneSuspendTimer = setTimeout(() => {
+      void toneContext?.suspend().catch(() => undefined);
+    }, 500);
+  }
+}
+
+/** Resolves a letter reference to its verified metadata. */
+function resolveLetterMeta(letter: ArabicLetterMeta | string): ArabicLetterMeta | undefined {
+  if (typeof letter !== 'string') return letter;
+  return ARABIC_ALPHABET.find(
+    (entry) =>
+      entry.letter === letter ||
+      entry.nameEn.toLowerCase() === letter.toLowerCase() ||
+      entry.id === letter
+  );
+}
 
 /**
  * Robust audio player for Arabic letters with multi-level fallback:
- * 1. Authentic isolated MP3 audio file
- * 2. Arabic SpeechSynthesis with explicit full letter name (e.g. "أَلِف", "بَاء")
- * 3. Web Audio harmonic chime fallback
+ * 1. Authentic isolated MP3 recording (through the shared single-playback controller)
+ * 2. Arabic speech synthesis of the full letter name (e.g. "أَلِف", "بَاء")
+ * 3. A short synthesized bell tone
+ *
+ * The promise always resolves after a terminal `onStateChange`, so callers can drive
+ * a spinner from it without getting stuck when every source is unavailable.
  */
-export function playLetterAudio(
+export async function playLetterAudio(
   letter: ArabicLetterMeta | string,
   onStateChange?: (state: 'playing' | 'ended' | 'error') => void
 ): Promise<void> {
-  return new Promise<void>((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve();
+  if (typeof window === 'undefined') return;
+
+  const meta = resolveLetterMeta(letter);
+  const spokenText = meta?.nameArabic ?? (typeof letter === 'string' ? letter : meta?.letter ?? '');
+  const key = `letter:${meta?.id ?? spokenText}`;
+
+  onStateChange?.('playing');
+
+  if (meta?.audioUrl) {
+    const played = await previewAudio.play(key, meta.audioUrl);
+    if (played) {
+      onStateChange?.('ended');
       return;
     }
+    console.warn('Letter recording unavailable, falling back to speech synthesis:', meta.audioUrl);
+  }
 
-    // Stop any previously playing audio instance
-    if (currentActiveAudio) {
-      try {
-        currentActiveAudio.pause();
-        currentActiveAudio.currentTime = 0;
-      } catch (e) {
-        console.warn(e);
-      }
-      currentActiveAudio = null;
+  if (spokenText) {
+    const spoke = await previewAudio.speak(`${key}:speech`, spokenText, 'ar-SA');
+    if (spoke) {
+      onStateChange?.('ended');
+      return;
     }
+  }
 
-    // Resolve letter object if string passed
-    let meta: ArabicLetterMeta | undefined;
-    if (typeof letter === 'string') {
-      meta = ARABIC_ALPHABET.find(
-        (l) => l.letter === letter || l.nameEn.toLowerCase() === letter.toLowerCase() || l.id === letter
-      );
-    } else {
-      meta = letter;
-    }
-
-    const fallbackSpeech = () => {
-      if ('speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const spokenText = meta?.nameArabic || (typeof letter === 'string' ? letter : meta?.letter || '');
-          const utterance = new SpeechSynthesisUtterance(spokenText);
-          utterance.lang = 'ar-SA';
-          utterance.rate = 0.85;
-
-          utterance.onstart = () => {
-            onStateChange?.('playing');
-          };
-          utterance.onend = () => {
-            onStateChange?.('ended');
-            resolve();
-          };
-          utterance.onerror = () => {
-            fallbackWebAudioTone();
-          };
-
-          window.speechSynthesis.speak(utterance);
-          return;
-        } catch (e) {
-          console.warn('SpeechSynthesis error:', e);
-        }
-      }
-      fallbackWebAudioTone();
-    };
-
-    const fallbackWebAudioTone = () => {
-      try {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (!AudioCtx) {
-          onStateChange?.('ended');
-          resolve();
-          return;
-        }
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        // Pleasing resonant marimba bell tone
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start();
-        osc.stop(ctx.currentTime + 0.6);
-        onStateChange?.('playing');
-
-        setTimeout(() => {
-          onStateChange?.('ended');
-          resolve();
-        }, 600);
-      } catch (e) {
-        console.warn('WebAudio error:', e);
-        onStateChange?.('ended');
-        resolve();
-      }
-    };
-
-    // If meta has authentic audioUrl, attempt to play it
-    if (meta?.audioUrl) {
-      onStateChange?.('playing');
-      const audio = new Audio(meta.audioUrl);
-      currentActiveAudio = audio;
-
-      audio.onended = () => {
-        currentActiveAudio = null;
-        onStateChange?.('ended');
-        resolve();
-      };
-
-      audio.onerror = () => {
-        console.warn('Audio URL failed or blocked, falling back to speech synthesis:', meta?.audioUrl);
-        currentActiveAudio = null;
-        fallbackSpeech();
-      };
-
-      audio.play().catch((err) => {
-        console.warn('Audio play error, falling back:', err);
-        currentActiveAudio = null;
-        fallbackSpeech();
-      });
-    } else {
-      fallbackSpeech();
-    }
-  });
+  try {
+    await playFallbackTone();
+    onStateChange?.('ended');
+  } catch (error) {
+    console.warn('Letter audio could not be played:', error);
+    onStateChange?.('error');
+  }
 }

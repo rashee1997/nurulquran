@@ -59,6 +59,15 @@
   --color-destructive-subtle: var(--destructive-subtle);
   --color-destructive-strong: var(--destructive-strong);
 
+  /* "danger" is the alias used across the learning UI (wrong answers, weak SRS
+     state). It maps to the same red family as destructive so error states always
+     render with a visible colour instead of silently producing no CSS. */
+  --color-danger: var(--destructive);
+  --color-danger-foreground: var(--destructive-foreground);
+  --color-danger-hover: var(--destructive-hover);
+  --color-danger-subtle: var(--destructive-subtle);
+  --color-danger-strong: var(--destructive-strong);
+
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-subtle: var(--warning-subtle);
@@ -88,6 +97,7 @@
   --color-tajweed-qalqalah: var(--tajweed-qalqalah);
   --color-tajweed-ikhfa: var(--tajweed-ikhfa);
   --color-tajweed-idgham: var(--tajweed-idgham);
+  --color-tajweed-izhar: var(--tajweed-izhar);
   --color-tajweed-iqlab: var(--tajweed-iqlab);
   --color-tajweed-madd: var(--tajweed-madd);
   --color-tajweed-madd-long: var(--tajweed-madd-long);
@@ -176,6 +186,7 @@
   --tajweed-qalqalah: #2563eb;
   --tajweed-ikhfa: #059669;
   --tajweed-idgham: #0d9488;
+  --tajweed-izhar: #7c3aed;
   --tajweed-iqlab: #e11d48;
   --tajweed-madd: #9333ea;
   --tajweed-madd-long: #dc2626;
@@ -264,6 +275,7 @@
   --tajweed-qalqalah: #60a5fa;
   --tajweed-ikhfa: #34d399;
   --tajweed-idgham: #2dd4bf;
+  --tajweed-izhar: #c4b5fd;
   --tajweed-iqlab: #fb7185;
   --tajweed-madd: #c084fc;
   --tajweed-madd-long: #f87171;
@@ -297,6 +309,39 @@ body {
 .bg-pattern-dots {
   background-image: radial-gradient(var(--pattern-dot) 1px, transparent 1px);
   background-size: 16px 16px;
+}
+
+/*
+ * RTL helper used by Arabic text containers throughout the reader.
+ * `dir="rtl"` is still set on the elements themselves; this class keeps the
+ * matching alignment/typography in one place instead of repeating Tailwind
+ * utilities on every call site.
+ */
+.dir-rtl {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Horizontal chip/tab rows that should scroll without showing a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Respect the user's motion preference for the ambient attention animations
+ * (recording indicators, loading dots, combo flourishes). Nothing here carries
+ * meaning that is lost when the motion is removed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .animate-ping,
+  .animate-pulse,
+  .animate-bounce {
+    animation: none !important;
+  }
 }
 
 /* Custom scrollbars */

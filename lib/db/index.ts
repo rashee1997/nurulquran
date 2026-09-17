@@ -1,9 +1,17 @@
 import Dexie, { type Table } from 'dexie';
+import { z } from 'zod';
 import { GameSessionResult } from './schemas/streak-schema';
 import type { ArabicLabProgress } from '../arabic/types';
+import { localDayKey } from '../time/day';
 
 export type SrsState = 'new' | 'learning' | 'familiar' | 'memorized' | 'review' | 'weak' | 'mastered';
 export type HifzTier = 'sabaq' | 'sabqi' | 'manzil';
+
+/**
+ * Row id of the built-in server-backed Gemini provider.
+ * Shared so the settings screen cannot offer to delete a provider that always exists.
+ */
+export const SERVER_DEFAULT_PROVIDER_ID = 'gemini-default';
 
 export interface UserProfile {
   id: string;
@@ -132,7 +140,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
       level: 1,
       totalXp: 0,
       streakCount: 1,
-      lastActiveDate: new Date().toISOString().split('T')[0],
+      lastActiveDate: localDayKey(),
       dailyGoalMinutes: 15,
       preferredTranslationLang: 'both',
       tajweedColorsEnabled: true,
@@ -146,7 +154,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
   }
 
   let profile = await db.userProfile.get('default_user');
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDayKey();
 
   if (!profile) {
     profile = {
@@ -191,10 +199,10 @@ export async function initializeDatabase(): Promise<UserProfile> {
   }
 
   // Ensure default Gemini provider exists
-  const existingProvider = await db.aiProviders.get('gemini-default');
+  const existingProvider = await db.aiProviders.get(SERVER_DEFAULT_PROVIDER_ID);
   if (!existingProvider) {
     await db.aiProviders.put({
-      id: 'gemini-default',
+      id: SERVER_DEFAULT_PROVIDER_ID,
       name: 'Google Gemini (Server Default)',
       type: 'gemini',
       models: ['gemini-3.8-flash'],
@@ -202,7 +210,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
       isDefault: true,
     });
   } else if (existingProvider.selectedModel === 'gemini-2.5-flash') {
-    await db.aiProviders.update('gemini-default', {
+    await db.aiProviders.update(SERVER_DEFAULT_PROVIDER_ID, {
       models: ['gemini-3.8-flash'],
       selectedModel: 'gemini-3.8-flash',
     });
@@ -211,78 +219,307 @@ export async function initializeDatabase(): Promise<UserProfile> {
   return profile;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Backup (export / import)                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Two things are deliberately NOT in a backup:
+ *  - `quranCache` — public, immutable scripture text that is re-fetched for free;
+ *    including it would multiply the file size by the whole cached Mushaf.
+ * A backup file is untrusted input (it is a file the user picked from disk), so every
+ * row is parsed against the same field rules the app uses. The previous version
+ * called `JSON.parse` and `bulkPut` with the raw `any` payload, which let a malformed
+ * or hand-edited file write rows that later crashed the reader, the SRS engine and
+ * the streak engine on typed field access.
+ */
+export const BACKUP_FORMAT_VERSION = 2;
+
+const srsStateSchema = z.enum(['new', 'learning', 'familiar', 'memorized', 'review', 'weak', 'mastered']);
+const hifzTierSchema = z.enum(['sabaq', 'sabqi', 'manzil']);
+const feedbackLanguageSchema = z.enum(['both', 'en', 'ta']);
+const surahNumberSchema = z.number().int().min(1).max(114);
+const ayahNumberSchema = z.number().int().min(1).max(286);
+
+const userProfileRowSchema = z.object({
+  id: z.string().min(1),
+  level: z.number().int().min(1),
+  totalXp: z.number().int().min(0),
+  streakCount: z.number().int().min(0),
+  lastActiveDate: z.string().min(1),
+  dailyGoalMinutes: z.number().min(1),
+  preferredTranslationLang: z.enum(['en', 'ta', 'both']),
+  tajweedColorsEnabled: z.boolean(),
+  arabicFontSize: z.number().min(1),
+  reciterId: z.string().min(1),
+  unlockedLevels: z.array(z.number().int().min(1)).optional(),
+  tajweedCertifiedLevel: z.number().int().min(1).optional(),
+  placementExamPassedAt: z.string().optional(),
+  aiVoiceId: z.string().optional(),
+  aiTeacherPersona: z.enum(['gentle', 'balanced', 'strict']).optional(),
+  aiFeedbackLanguage: feedbackLanguageSchema.optional(),
+  aiSpeechRate: z.number().min(0.5).max(2).optional(),
+});
+
+const verseProgressRowSchema = z.object({
+  verseKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  state: srsStateSchema,
+  interval: z.number().min(0),
+  easeFactor: z.number().min(1),
+  dueDate: z.string().min(1),
+  lapses: z.number().int().min(0),
+  repetitions: z.number().int().min(0),
+  lastReviewedAt: z.string().optional(),
+  hifzTier: hifzTierSchema.optional(),
+});
+
+const wordProgressRowSchema = z.object({
+  wordKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  wordIndex: z.number().int().min(1),
+  arabic: z.string(),
+  memorized: z.boolean(),
+  mistakesCount: z.number().int().min(0),
+  lastSeenAt: z.string().min(1),
+});
+
+const lessonHistoryRowSchema = z.object({
+  lessonId: z.string().min(1),
+  score: z.number().min(0).max(100),
+  xpEarned: z.number().int().min(0),
+  completedAt: z.string().min(1),
+});
+
+const aiProviderRowSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  type: z.enum(['gemini', 'openai', 'anthropic', 'groq', 'mistral', 'openrouter', 'custom']),
+  baseUrl: z.string().optional(),
+  encryptedKey: z.string().optional(),
+  models: z.array(z.string()),
+  selectedModel: z.string(),
+  isDefault: z.boolean(),
+});
+
+const aiConversationRowSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  messages: z.array(
+    z.object({
+      id: z.string().min(1),
+      role: z.enum(['user', 'assistant', 'system']),
+      content: z.string(),
+      createdAt: z.string().optional(),
+      toolInvocations: z.array(z.unknown()).optional(),
+    })
+  ),
+  updatedAt: z.string().min(1),
+});
+
+const gameSessionRowSchema = z.object({
+  sessionId: z.string().min(1),
+  gameId: z.enum(['ayah-assembly', 'mutashabihat-radar', 'memory-matrix']),
+  gameTitle: z.string().min(1),
+  surahNumber: surahNumberSchema,
+  surahName: z.string().min(1),
+  ayahNumber: ayahNumberSchema.optional(),
+  accuracy: z.number().min(0).max(100),
+  score: z.number().int().min(0),
+  timeSeconds: z.number().min(0),
+  comboMax: z.number().int().min(0),
+  xpEarned: z.number().int().min(0),
+  timestamp: z.number().int().nonnegative(),
+});
+
+const arabicLabProgressRowSchema = z.object({
+  id: z.string().min(1),
+  completedLessonIds: z.array(z.string()),
+  masteredEntryIds: z.array(z.string()),
+  strokeScores: z.record(z.string(), z.number().min(0).max(100)),
+  updatedAt: z.string().min(1),
+});
+
+const backupEnvelopeSchema = z.object({
+  // v1 files predate the game-session and Arabic Lab tables; they are still importable.
+  version: z.union([z.literal(1), z.literal(2)]),
+  exportedAt: z.string().optional(),
+  userProfile: z.array(userProfileRowSchema).optional(),
+  verseProgress: z.array(verseProgressRowSchema).optional(),
+  wordProgress: z.array(wordProgressRowSchema).optional(),
+  lessonHistory: z.array(lessonHistoryRowSchema).optional(),
+  aiProviders: z.array(aiProviderRowSchema).optional(),
+  aiConversations: z.array(aiConversationRowSchema).optional(),
+  gameSessions: z.array(gameSessionRowSchema).optional(),
+  arabicLabProgress: z.array(arabicLabProgressRowSchema).optional(),
+});
+
+/** Every table that holds learner data, in injection order. */
+const PROGRESS_TABLES = [
+  db.userProfile,
+  db.verseProgress,
+  db.wordProgress,
+  db.lessonHistory,
+  db.aiProviders,
+  db.aiConversations,
+  db.gameSessions,
+  db.arabicLabProgress,
+] as const;
+
+/**
+ * Serializes every table that holds learner data.
+ *
+ * Game sessions and Arabic Lab progress were missing from the export, so restoring a
+ * backup silently dropped streak history and the Arabic Lab track.
+ */
 export async function exportDatabaseJson(): Promise<string> {
-  const profile = await db.userProfile.toArray();
-  const verseProgress = await db.verseProgress.toArray();
-  const wordProgress = await db.wordProgress.toArray();
-  const lessonHistory = await db.lessonHistory.toArray();
-  const aiProviders = await db.aiProviders.toArray();
-  const aiConversations = await db.aiConversations.toArray();
+  const [
+    userProfile,
+    verseProgress,
+    wordProgress,
+    lessonHistory,
+    aiProviders,
+    aiConversations,
+    gameSessions,
+    arabicLabProgress,
+  ] = await Promise.all([
+    db.userProfile.toArray(),
+    db.verseProgress.toArray(),
+    db.wordProgress.toArray(),
+    db.lessonHistory.toArray(),
+    db.aiProviders.toArray(),
+    db.aiConversations.toArray(),
+    db.gameSessions.toArray(),
+    db.arabicLabProgress.toArray(),
+  ]);
 
   return JSON.stringify(
     {
-      version: 1,
+      version: BACKUP_FORMAT_VERSION,
       exportedAt: new Date().toISOString(),
-      userProfile: profile,
+      userProfile,
       verseProgress,
       wordProgress,
       lessonHistory,
       aiProviders,
       aiConversations,
+      gameSessions,
+      arabicLabProgress,
     },
     null,
     2
   );
 }
 
-export async function importDatabaseJson(jsonString: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const data = JSON.parse(jsonString);
-    if (!data || typeof data !== 'object') {
-      return { success: false, error: 'Invalid JSON backup format' };
-    }
+/**
+ * Restores a backup file.
+ *
+ * The payload is validated before anything is written, and the writes run in one
+ * transaction, so an invalid file leaves the existing data exactly as it was. Tables
+ * absent from the file are left untouched rather than cleared.
+ */
+export interface DatabaseImportResult {
+  success: boolean;
+  error?: string;
+  /** Plain-language inventory of what a successful restore wrote. */
+  summary?: string;
+}
 
-    await db.transaction('rw', [db.userProfile, db.verseProgress, db.wordProgress, db.lessonHistory, db.aiProviders, db.aiConversations], async () => {
-      if (Array.isArray(data.userProfile)) {
+export async function importDatabaseJson(jsonString: string): Promise<DatabaseImportResult> {
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(jsonString);
+  } catch {
+    return { success: false, error: 'That file is not valid JSON.' };
+  }
+
+  const result = backupEnvelopeSchema.safeParse(parsedJson);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const path = issue?.path.join('.') || 'file';
+    return {
+      success: false,
+      error: `unexpected value at “${path}” (${issue?.message ?? 'invalid backup'}).`,
+    };
+  }
+
+  const backup = result.data;
+
+  try {
+    await db.transaction('rw', PROGRESS_TABLES, async () => {
+      if (backup.userProfile) {
         await db.userProfile.clear();
-        await db.userProfile.bulkPut(data.userProfile);
+        await db.userProfile.bulkPut(backup.userProfile);
       }
-      if (Array.isArray(data.verseProgress)) {
+      if (backup.verseProgress) {
         await db.verseProgress.clear();
-        await db.verseProgress.bulkPut(data.verseProgress);
+        await db.verseProgress.bulkPut(backup.verseProgress);
       }
-      if (Array.isArray(data.wordProgress)) {
+      if (backup.wordProgress) {
         await db.wordProgress.clear();
-        await db.wordProgress.bulkPut(data.wordProgress);
+        await db.wordProgress.bulkPut(backup.wordProgress);
       }
-      if (Array.isArray(data.lessonHistory)) {
+      if (backup.lessonHistory) {
         await db.lessonHistory.clear();
-        await db.lessonHistory.bulkPut(data.lessonHistory);
+        await db.lessonHistory.bulkPut(backup.lessonHistory);
       }
-      if (Array.isArray(data.aiProviders)) {
+      if (backup.aiProviders) {
         await db.aiProviders.clear();
-        await db.aiProviders.bulkPut(data.aiProviders);
+        await db.aiProviders.bulkPut(backup.aiProviders);
       }
-      if (Array.isArray(data.aiConversations)) {
+      if (backup.aiConversations) {
         await db.aiConversations.clear();
-        await db.aiConversations.bulkPut(data.aiConversations);
+        await db.aiConversations.bulkPut(backup.aiConversations);
+      }
+      if (backup.gameSessions) {
+        await db.gameSessions.clear();
+        await db.gameSessions.bulkPut(backup.gameSessions);
+      }
+      if (backup.arabicLabProgress) {
+        await db.arabicLabProgress.clear();
+        await db.arabicLabProgress.bulkPut(backup.arabicLabProgress);
       }
     });
 
-    return { success: true };
-  } catch (err: unknown) {
-    return { success: false, error: (err as Error).message };
+    // A v1 file may not carry a profile; make sure the app still has a usable one.
+    await initializeDatabase();
+
+    const restoredParts = [
+      [backup.verseProgress?.length, 'review item'],
+      [backup.wordProgress?.length, 'word'],
+      [backup.lessonHistory?.length, 'lesson result'],
+      [backup.gameSessions?.length, 'game session'],
+      [backup.arabicLabProgress?.length, 'Arabic Lab record'],
+      [backup.aiConversations?.length, 'conversation'],
+      [backup.aiProviders?.length, 'provider'],
+    ]
+      .filter((entry): entry is [number, string] => typeof entry[0] === 'number' && entry[0] > 0)
+      .map(([count, label]) => `${count} ${label}${count === 1 ? '' : 's'}`);
+
+    return {
+      success: true,
+      summary: restoredParts.length > 0 ? `Restored ${restoredParts.join(', ')}.` : 'Backup restored.',
+    };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : 'unknown storage error' };
   }
 }
 
+/**
+ * Clears every table that holds learner data and re-seeds the defaults.
+ *
+ * The game sessions, Arabic Lab progress and the streak records derived from them were
+ * previously left behind, so "Reset progress" kept showing the old streak and XP.
+ * The Quran text cache is intentionally preserved: it is public, immutable scripture,
+ * not learner data.
+ */
 export async function resetDatabase(): Promise<void> {
-  await db.transaction('rw', [db.userProfile, db.verseProgress, db.wordProgress, db.lessonHistory, db.aiProviders, db.aiConversations], async () => {
-    await db.userProfile.clear();
-    await db.verseProgress.clear();
-    await db.wordProgress.clear();
-    await db.lessonHistory.clear();
-    await db.aiProviders.clear();
-    await db.aiConversations.clear();
+  await db.transaction('rw', PROGRESS_TABLES, async () => {
+    for (const table of PROGRESS_TABLES) {
+      await table.clear();
+    }
   });
   await initializeDatabase();
 }

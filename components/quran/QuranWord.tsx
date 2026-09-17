@@ -1,37 +1,60 @@
 'use client';
 
 import React from 'react';
-import { QuranWord } from '@/lib/quran/types';
+import { QuranWord, TajweedSegment } from '@/lib/quran/types';
+import { TajweedSpan } from './TajweedSpan';
 
 interface QuranWordItemProps {
   word: QuranWord;
   fontSize?: number;
   isSelected?: boolean;
+  /** Tajweed segments belonging to this word (already filtered by word index). */
+  segments?: TajweedSegment[];
+  showTajweedColors?: boolean;
   onClick: (word: QuranWord) => void;
 }
 
+/**
+ * A single tappable Quranic word.
+ *
+ * The word is a button so the learner can open its morphology, and its Tajweed
+ * segments are rendered as plain inline spans inside it. Keeping the segments
+ * inline (rather than block-level boxes) is what preserves Arabic letter joining.
+ */
 export const QuranWordItem: React.FC<QuranWordItemProps> = ({
   word,
   fontSize = 28,
   isSelected = false,
+  segments,
+  showTajweedColors = false,
   onClick,
 }) => {
+  const hasSegments = showTajweedColors && segments !== undefined && segments.length > 0;
+
   return (
     <button
+      type="button"
       id={`word-btn-${word.id}`}
-      onClick={(e) => {
-        e.stopPropagation();
+      onClick={(event) => {
+        event.stopPropagation();
         onClick(word);
       }}
-      className={`font-arabic inline-block px-1.5 py-0.5 rounded-lg transition-all duration-150 cursor-pointer ${
+      className={`font-arabic inline-block px-1.5 py-0.5 rounded-lg align-baseline transition-colors duration-150 cursor-pointer ${
         isSelected
           ? 'bg-primary-subtle text-primary-strong ring-2 ring-primary'
           : 'hover:bg-surface-hover text-foreground'
       }`}
       style={{ fontSize: `${fontSize}px` }}
-      title={`${word.transliteration} - Click for English/Tamil meaning & root`}
+      aria-label={`Word ${word.wordIndex} of ayah ${word.surah}:${word.ayah}${
+        word.transliteration ? `, ${word.transliteration}` : ''
+      }. Open word details.`}
+      title={word.transliteration ? `${word.transliteration} — tap for meaning and root` : 'Tap for word details'}
     >
-      {word.arabic}
+      {hasSegments
+        ? segments.map((segment, index) => (
+            <TajweedSpan key={`${word.id}-seg-${index}`} segment={segment} enabled />
+          ))
+        : word.arabic}
     </button>
   );
 };

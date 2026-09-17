@@ -1,27 +1,60 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { db, AIProviderRecord } from '@/lib/db';
+import { db, AIProviderRecord, SERVER_DEFAULT_PROVIDER_ID } from '@/lib/db';
 import { encryptApiKey, decryptApiKey } from '@/lib/db/crypto';
-import { Bot, Key, Plus, Check, Trash2, Globe, Cpu, ChevronLeft, ShieldCheck, Activity } from 'lucide-react';
+import { PROVIDER_DEFAULT_MODELS } from '@/lib/ai/models';
+import { AI_PROVIDER_VENDORS, type AIProviderVendor } from '@/lib/ai/types';
+import { Bot, Plus, Trash2, ChevronLeft, ShieldCheck, Activity } from 'lucide-react';
 
-const DEFAULT_MODELS: Record<string, string> = {
-  gemini: 'gemini-2.5-flash',
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-haiku-20241022',
-  groq: 'llama-3.3-70b-versatile',
-  mistral: 'mistral-small-latest',
-  openrouter: 'google/gemini-2.5-flash',
-  custom: 'local-model',
-};
+/**
+ * Model defaults come from `lib/ai/models`, the single source of truth the server
+ * routes read. A local copy here had drifted (it still suggested the retired
+ * `gemini-2.5-flash`), so a provider could be configured with a model id that every
+ * evaluation route disagreed with.
+ */
+const DEFAULT_MODELS = PROVIDER_DEFAULT_MODELS;
+
+function isProviderVendor(value: string): value is AIProviderVendor {
+  return (AI_PROVIDER_VENDORS as readonly string[]).includes(value);
+}
+
+interface ProviderProbeResult {
+  success: boolean;
+  error?: string;
+  latencyMs?: number;
+}
+
+/**
+ * Narrows the provider-probe response.
+ *
+ * The previous version read properties off `await res.json()` directly, i.e. off `any`,
+ * so a change to the route's error shape would have turned into "Connection test failed"
+ * with no explanation instead of a type error here.
+ */
+function readProbeResult(payload: unknown): ProviderProbeResult {
+  if (typeof payload !== 'object' || payload === null) return { success: false };
+  const source = payload as Record<string, unknown>;
+  return {
+    success: source.success === true,
+    error:
+      typeof source.error === 'string' && source.error.trim().length > 0
+        ? source.error.trim()
+        : undefined,
+    latencyMs:
+      typeof source.latencyMs === 'number' && Number.isFinite(source.latencyMs)
+        ? source.latencyMs
+        : undefined,
+  };
+}
 
 export default function AIProviderSettingsPage() {
   const [providers, setProviders] = useState<AIProviderRecord[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Form state
-  const [newType, setNewType] = useState('openai');
+  const [newType, setNewType] = useState<AIProviderVendor>('openai');
   const [newName, setNewName] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [newBaseUrl, setNewBaseUrl] = useState('');
@@ -43,16 +76,27 @@ export default function AIProviderSettingsPage() {
     };
   }, []);
 
-  const reloadProviders = async () => {
+  // The add-provider sheet behaves like a dialog: Escape dismisses it.
+  useEffect(() => {
+    if (!showAddModal) return;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setShowAddModal(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showAddModal]);
+
+  const reloadProviders = async (): Promise<void> => {
     const list = await db.aiProviders.toArray();
     setProviders(list);
   };
 
-  const handleTypeChange = (type: string) => {
-    setNewType(type);
-    setNewModel(DEFAULT_MODELS[type] || '');
-    if (!newName || Object.keys(DEFAULT_MODELS).some(k => newName.toLowerCase().includes(k))) {
-      setNewName(type.charAt(0).toUpperCase() + type.slice(1));
+  const handleTypeChange = (value: string): void => {
+    if (!isProviderVendor(value)) return;
+    setNewType(value);
+    setNewModel(DEFAULT_MODELS[value]);
+    if (!newName || AI_PROVIDER_VENDORS.some((vendor) => newName.toLowerCase().includes(vendor))) {
+      setNewName(value.charAt(0).toUpperCase() + value.slice(1));
     }
   };
 
@@ -65,38 +109,46 @@ export default function AIProviderSettingsPage() {
       }
 
       const id = `provider_${Date.now()}`;
+      const selectedModel = newModel.trim() || DEFAULT_MODELS[newType];
       await db.aiProviders.add({
         id,
         name: newName || newType,
-        type: newType as AIProviderRecord['type'],
-        encryptedKey: encryptedKey,
+        type: newType,
+        encryptedKey,
         baseUrl: newBaseUrl.trim() || undefined,
-        models: [newModel.trim() || DEFAULT_MODELS[newType] || 'default-model'],
-        selectedModel: newModel.trim() || DEFAULT_MODELS[newType] || 'default-model',
+        models: [selectedModel],
+        selectedModel,
         isDefault: providers.length === 0,
       });
 
       setShowAddModal(false);
       setNewApiKey('');
       setNewBaseUrl('');
-      reloadProviders();
+      await reloadProviders();
     } catch (err) {
       console.error('Failed to save AI provider:', err);
     }
   };
 
   const handleSetDefault = async (id: string) => {
-    const all = await db.aiProviders.toArray();
-    for (const p of all) {
-      await db.aiProviders.update(p.id, { isDefault: p.id === id });
-    }
-    reloadProviders();
+    // One transaction: without it an interrupted loop could leave two providers flagged
+    // as default, and the resolver's "first default" lookup would be ambiguous.
+    await db.transaction('rw', db.aiProviders, async () => {
+      const all = await db.aiProviders.toArray();
+      for (const provider of all) {
+        const shouldBeDefault = provider.id === id;
+        if (provider.isDefault !== shouldBeDefault) {
+          await db.aiProviders.update(provider.id, { isDefault: shouldBeDefault });
+        }
+      }
+    });
+    await reloadProviders();
   };
 
   const handleDelete = async (id: string) => {
     if (confirm('Delete this AI provider configuration?')) {
       await db.aiProviders.delete(id);
-      reloadProviders();
+      await reloadProviders();
     }
   };
 
@@ -127,19 +179,22 @@ export default function AIProviderSettingsPage() {
         }),
       });
 
-      const data = await res.json();
+      const payload: unknown = await res.json().catch(() => null);
+      const probe = readProbeResult(payload);
 
-      if (res.ok && data.success) {
+      if (res.ok && probe.success) {
         setTestResult({
           id: prov.id,
           success: true,
-          message: `Connected successfully (${data.latencyMs || 0}ms - ${prov.selectedModel})`,
+          message: `Connected in ${probe.latencyMs ?? 0} ms — ${prov.selectedModel}`,
         });
       } else {
         setTestResult({
           id: prov.id,
           success: false,
-          message: data.error || 'Connection test failed',
+          message:
+            probe.error ??
+            'The provider did not respond. Check the API key, model name and base URL.',
         });
       }
     } catch (err) {
@@ -198,7 +253,10 @@ export default function AIProviderSettingsPage() {
             Keys stay in this browser
           </h4>
           <p className="text-muted-foreground leading-relaxed">
-            API keys are encrypted with AES-GCM in your browser and sent only with the requests that need them. They are never stored on a server.
+            API keys are protected with AES-GCM using a key derived from this device, sent
+            only with the requests that need them, and never stored on a server. This
+            protects the value at rest in browser storage; it is not a defence against
+            code already running on this page.
           </p>
         </div>
       </div>
@@ -275,7 +333,7 @@ export default function AIProviderSettingsPage() {
                   </button>
                 )}
 
-                {prov.id !== 'gemini-server-default' && (
+                {prov.id !== SERVER_DEFAULT_PROVIDER_ID && (
                   <button
                     onClick={() => handleDelete(prov.id)}
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-danger hover:bg-danger-subtle transition-colors"
@@ -292,17 +350,28 @@ export default function AIProviderSettingsPage() {
 
       {/* Add Provider Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in">
-          <div className="bg-card border border-border rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 text-foreground">
-            <h2 className="text-base font-bold text-foreground">                  Add provider
-                </h2>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-provider-title"
+            className="bg-card border border-border rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 text-foreground"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="add-provider-title" className="text-base font-bold text-foreground">
+              Add provider
+            </h2>
 
             <form onSubmit={handleSaveProvider} className="space-y-4 text-xs">
               <div>
-                <label className="font-semibold text-foreground block mb-1">
+                <label htmlFor="provider-vendor" className="font-semibold text-foreground block mb-1">
                   Provider
                 </label>
                 <select
+                  id="provider-vendor"
                   value={newType}
                   onChange={(e) => handleTypeChange(e.target.value)}
                   className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary"
@@ -318,10 +387,11 @@ export default function AIProviderSettingsPage() {
               </div>
 
               <div>
-                <label className="font-semibold text-foreground block mb-1">
+                <label htmlFor="provider-name" className="font-semibold text-foreground block mb-1">
                   Display Name
                 </label>
                 <input
+                  id="provider-name"
                   type="text"
                   required
                   value={newName}
@@ -332,10 +402,11 @@ export default function AIProviderSettingsPage() {
               </div>
 
               <div>
-                <label className="font-semibold text-foreground block mb-1">
+                <label htmlFor="provider-model" className="font-semibold text-foreground block mb-1">
                   Model
                 </label>
                 <input
+                  id="provider-model"
                   type="text"
                   required
                   value={newModel}
@@ -347,10 +418,11 @@ export default function AIProviderSettingsPage() {
 
               {newType === 'custom' || newType === 'openrouter' ? (
                 <div>
-                  <label className="font-semibold text-foreground block mb-1">
+                  <label htmlFor="provider-base-url" className="font-semibold text-foreground block mb-1">
                     Base URL
                   </label>
                   <input
+                    id="provider-base-url"
                     type="url"
                     value={newBaseUrl}
                     onChange={(e) => setNewBaseUrl(e.target.value)}
@@ -361,10 +433,11 @@ export default function AIProviderSettingsPage() {
               ) : null}
 
               <div>
-                <label className="font-semibold text-foreground block mb-1">
-                  API Key (Stored locally in IndexedDB with AES-GCM)
+                <label htmlFor="provider-api-key" className="font-semibold text-foreground block mb-1">
+                  API Key (stored in this browser, protected with AES-GCM)
                 </label>
                 <input
+                  id="provider-api-key"
                   type="password"
                   value={newApiKey}
                   onChange={(e) => setNewApiKey(e.target.value)}

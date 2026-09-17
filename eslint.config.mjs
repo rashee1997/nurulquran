@@ -8,4 +8,10 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig([{
     extends: [...next],
+    ignores: [
+        // Stale duplicate snapshot of this project (git-ignored); never lint it.
+        'isolate/**',
+        '.next/**',
+        'node_modules/**',
+    ],
 }]);

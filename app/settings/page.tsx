@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS } from '@/components/quran/AudioBar';
 import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
+import { localDayKey } from '@/lib/time/day';
 import { AI_TEACHER_VOICES, playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
 import {
   FEEDBACK_LANGUAGE_OPTIONS,
@@ -20,10 +21,35 @@ export default function SettingsPage() {
   const [showEnglish, setShowEnglish] = useState(true);
   const [showTamil, setShowTamil] = useState(true);
   const [exportSuccess, setExportSuccess] = useState(false);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [backupStatus, setBackupStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(
+    null
+  );
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
   const [preferenceSavedNotice, setPreferenceSavedNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * Shows one result line for the backup controls.
+   *
+   * Failures used to be rendered through the success panel (green border, check icon),
+   * so "Import failed" — often because the file was a different app's JSON — looked
+   * like a completed import. Tone now decides the styling, and a new message replaces
+   * the pending clear timer instead of racing it.
+   */
+  const notify = useCallback((tone: 'success' | 'error', message: string, ttlMs = 5000): void => {
+    setBackupStatus({ tone, message });
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(() => setBackupStatus(null), ttlMs);
+  }, []);
+
+  // A queued clear timer must not fire after the page is gone.
+  useEffect(
+    () => () => {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    },
+    []
+  );
 
   // Single source of truth: what the AI teacher writes AND what the preview speaks
   const feedbackLanguage = normalizeFeedbackLanguage(profile?.aiFeedbackLanguage);
@@ -46,13 +72,15 @@ export default function SettingsPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `nurulquran_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `nurulquran_backup_${localDayKey()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 3000);
+      notify('success', 'Backup downloaded to your downloads folder.');
     } catch (err) {
       console.error('Export failed:', err);
+      notify('error', 'The backup could not be written. Check that this browser allows downloads.');
     }
   };
 
@@ -64,16 +92,19 @@ export default function SettingsPage() {
       const text = await file.text();
       const res = await importDatabaseJson(text);
       if (res.success) {
-        setImportStatus('Backup imported.');
+        notify('success', res.summary ?? 'Backup restored.');
         const p = await db.userProfile.get('default_user');
         if (p) setProfile(p);
       } else {
-        setImportStatus(`Import failed: ${res.error}`);
+        notify('error', `Nothing was imported — ${res.error ?? 'the file could not be read.'}`);
       }
     } catch (err) {
-      setImportStatus('That file could not be read.');
+      console.error('Import failed:', err);
+      notify('error', 'That file could not be read.');
+    } finally {
+      // Clear the input so picking the same file again still fires a change event.
+      e.target.value = '';
     }
-    setTimeout(() => setImportStatus(null), 4000);
   };
 
   const handleReset = async () => {
@@ -81,8 +112,7 @@ export default function SettingsPage() {
       await resetDatabase();
       const p = await db.userProfile.get('default_user');
       if (p) setProfile(p);
-      setImportStatus('Progress reset.');
-      setTimeout(() => setImportStatus(null), 3000);
+      notify('success', 'All progress was reset on this device.', 3000);
     }
   };
 
@@ -461,14 +491,29 @@ export default function SettingsPage() {
             Data and backup
           </h3>
           <p className="text-xs text-muted-foreground">
-            Bookmarks, review intervals and lesson history are stored in this browser. Export or import them at any time.
+            Review intervals, lesson history, game sessions and Arabic Lab progress are stored in
+            this browser and never uploaded. The backup is a plain JSON file; importing one
+            replaces the matching data on this device. Quran text is not included — it is fetched
+            again from the text service.
           </p>
         </div>
 
-        {importStatus && (
-          <div className="p-3.5 rounded-xl bg-success-subtle border border-success/30 text-xs text-success-strong flex items-center gap-2">
-            <Check className="w-4 h-4 text-success shrink-0" />
-            <span>{importStatus}</span>
+        {backupStatus && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={
+              backupStatus.tone === 'success'
+                ? 'p-3.5 rounded-xl bg-success-subtle border border-success/30 text-xs text-success-strong flex items-center gap-2'
+                : 'p-3.5 rounded-xl bg-danger-subtle border border-danger/30 text-xs text-danger-strong flex items-center gap-2'
+            }
+          >
+            {backupStatus.tone === 'success' ? (
+              <Check className="w-4 h-4 text-success shrink-0" aria-hidden="true" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-danger shrink-0" aria-hidden="true" />
+            )}
+            <span>{backupStatus.message}</span>
           </div>
         )}
 
