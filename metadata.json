@@ -1,0 +1,6 @@
+{
+  "name": "NurulQuran - Quran Learning & Hifz Engine",
+  "description": "Local-first gamified Quran learning, Arabic reading, and memorization platform with 10 Hifz modes, spaced repetition, English and Tamil translations, word morphology, and BYOK AI tutor.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

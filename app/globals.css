@@ -1,0 +1,73 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Scheherazade+New:wght@400;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --font-arabic: 'Amiri Quran', 'Scheherazade New', 'Noto Sans Arabic', serif;
+  --font-tamil: 'Noto Sans Tamil', sans-serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  
+  --background: 45 20% 98%;
+  --foreground: 220 20% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 20% 12%;
+  --primary: 158 64% 32%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 42 78% 55%;
+  --secondary-foreground: 24 50% 15%;
+  --muted: 210 15% 94%;
+  --muted-foreground: 215 16% 45%;
+  --accent: 158 35% 92%;
+  --accent-foreground: 158 64% 25%;
+  --border: 214 20% 88%;
+}
+
+.dark {
+  --background: 222 30% 8%;
+  --foreground: 210 20% 96%;
+  --card: 222 25% 12%;
+  --card-foreground: 210 20% 96%;
+  --primary: 158 60% 45%;
+  --primary-foreground: 222 30% 8%;
+  --secondary: 42 78% 60%;
+  --secondary-foreground: 24 50% 10%;
+  --muted: 220 20% 18%;
+  --muted-foreground: 215 15% 65%;
+  --accent: 158 40% 18%;
+  --accent-foreground: 158 60% 75%;
+  --border: 220 20% 20%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+}
+
+.font-arabic {
+  font-family: var(--font-arabic);
+  direction: rtl;
+  text-align: right;
+  line-height: 2.2;
+}
+
+.font-tamil {
+  font-family: var(--font-tamil);
+  line-height: 1.7;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}

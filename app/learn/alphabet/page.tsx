@@ -1,0 +1,538 @@
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { 
+  Volume2, 
+  VolumeX, 
+  Sparkles, 
+  ChevronLeft, 
+  Play, 
+  CheckCircle2, 
+  HelpCircle, 
+  RotateCcw,
+  BookOpen,
+  Headphones,
+  Award,
+  Sliders
+} from 'lucide-react';
+import { ARABIC_ALPHABET, ArabicLetterMeta, playLetterAudio } from '@/lib/audio/alphabet-audio';
+import { db } from '@/lib/db';
+import { evaluateStreak } from '@/lib/learning/xp-engine';
+import confetti from 'canvas-confetti';
+
+type VowelMode = 'isolated' | 'fatha' | 'kasra' | 'damma' | 'tanween' | 'sukoon';
+type CategoryFilter = 'all' | 'throat' | 'tongue' | 'lips' | 'emphatic' | 'qalqalah';
+
+export default function AlphabetStudioPage() {
+  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
+  const [vowelMode, setVowelMode] = useState<VowelMode>('isolated');
+  const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
+  const [selectedLetter, setSelectedLetter] = useState<ArabicLetterMeta>(ARABIC_ALPHABET[0]);
+  const [quizMode, setQuizMode] = useState(false);
+  const [quizScore, setQuizScore] = useState(0);
+  const [quizTotal, setQuizTotal] = useState(0);
+  const [quizQuestion, setQuizQuestion] = useState<{
+    target: ArabicLetterMeta;
+    options: ArabicLetterMeta[];
+    selectedAnswer: string | null;
+    isCorrect: boolean | null;
+  } | null>(null);
+
+  const handlePlaySound = async (letter: ArabicLetterMeta) => {
+    setActivePlayingId(letter.id);
+    await playLetterAudio(letter, (state) => {
+      if (state === 'ended' || state === 'error') {
+        setActivePlayingId(null);
+      }
+    });
+  };
+
+  const getVowelGlyph = (baseLetter: string, mode: VowelMode) => {
+    switch (mode) {
+      case 'fatha':
+        return `${baseLetter}\u064E`;
+      case 'kasra':
+        return `${baseLetter}\u0650`;
+      case 'damma':
+        return `${baseLetter}\u064F`;
+      case 'tanween':
+        return `${baseLetter}\u064B`;
+      case 'sukoon':
+        return `${baseLetter}\u0652`;
+      default:
+        return baseLetter;
+    }
+  };
+
+  const getVowelPhonetic = (name: string, mode: VowelMode) => {
+    const base = name.split(' ')[0];
+    switch (mode) {
+      case 'fatha':
+        return `${base} + a (Fatha)`;
+      case 'kasra':
+        return `${base} + i (Kasra)`;
+      case 'damma':
+        return `${base} + u (Damma)`;
+      case 'tanween':
+        return `${base} + an (Tanween)`;
+      case 'sukoon':
+        return `Silent stop (Sukoon)`;
+      default:
+        return name;
+    }
+  };
+
+  // Filter letters
+  const filteredLetters = ARABIC_ALPHABET.filter((letter) => {
+    if (selectedCategory === 'all') return true;
+    if (selectedCategory === 'throat') return letter.category === 'throat';
+    if (selectedCategory === 'tongue') return letter.category === 'tongue';
+    if (selectedCategory === 'lips') return letter.category === 'lips';
+    if (selectedCategory === 'emphatic') return letter.isEmphatic;
+    if (selectedCategory === 'qalqalah') {
+      return ['ق', 'ط', 'ب', 'ج', 'د'].includes(letter.letter);
+    }
+    return true;
+  });
+
+  // Quiz generator
+  const startQuiz = () => {
+    setQuizMode(true);
+    generateNextQuestion();
+  };
+
+  const generateNextQuestion = () => {
+    const target = ARABIC_ALPHABET[Math.floor(Math.random() * ARABIC_ALPHABET.length)];
+    const distractors = ARABIC_ALPHABET.filter((l) => l.id !== target.id)
+      .sort(() => 0.5 - Math.random())
+      .slice(0, 3);
+    const options = [target, ...distractors].sort(() => 0.5 - Math.random());
+
+    setQuizQuestion({
+      target,
+      options,
+      selectedAnswer: null,
+      isCorrect: null,
+    });
+
+    // Auto play target audio
+    setTimeout(() => {
+      handlePlaySound(target);
+    }, 200);
+  };
+
+  const handleQuizAnswer = async (option: ArabicLetterMeta) => {
+    if (!quizQuestion || quizQuestion.selectedAnswer !== null) return;
+    const isCorrect = option.id === quizQuestion.target.id;
+    setQuizQuestion({
+      ...quizQuestion,
+      selectedAnswer: option.id,
+      isCorrect,
+    });
+    setQuizTotal((prev) => prev + 1);
+
+    if (isCorrect) {
+      setQuizScore((prev) => prev + 1);
+      confetti({ particleCount: 30, spread: 50 });
+      try {
+        const profile = await db.userProfile.get('default_user');
+        if (profile) {
+          const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
+          await db.userProfile.update('default_user', {
+            totalXp: profile.totalXp + 10,
+            streakCount: streakEval.newStreak,
+            lastActiveDate: new Date().toISOString().split('T')[0],
+          });
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+    }
+  };
+
+  return (
+    <div id="alphabet-studio" className="space-y-6 animate-in fade-in duration-300 pb-16">
+      {/* Top Breadcrumb & Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          href="/learn"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors py-1.5 px-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>Back to Curriculum</span>
+        </Link>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (quizMode) {
+                setQuizMode(false);
+              } else {
+                startQuiz();
+              }
+            }}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 ${
+              quizMode
+                ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+                : 'bg-linear-to-r from-emerald-600 to-teal-700 text-white shadow-emerald-700/20'
+            }`}
+          >
+            {quizMode ? <BookOpen className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
+            <span>{quizMode ? 'Letter Explorer' : 'Ear Training Quiz'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Header Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-emerald-950 via-teal-900 to-emerald-900 p-6 sm:p-8 text-white shadow-xl">
+        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/70 text-emerald-200 text-xs font-semibold backdrop-blur-xs">
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Interactive Noorani Qaida & Makharij Studio</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Arabic Alphabet Pronunciation
+            </h1>
+            <p className="text-emerald-200/90 text-xs sm:text-sm max-w-xl leading-relaxed">
+              Listen to authentic isolated recordings of all 28 letters, practice throat and tongue makharij, and explore Harakat (Fatha, Kasra, Damma) with Tamil phonetics.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/15">
+            <button
+              onClick={() => handlePlaySound(selectedLetter)}
+              className="w-12 h-12 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center shadow-lg transition-transform active:scale-90"
+              title="Play Selected Letter Audio"
+            >
+              <Volume2 className="w-6 h-6" />
+            </button>
+            <div className="pr-2">
+              <span className="text-[10px] uppercase font-bold text-emerald-200 block">Selected</span>
+              <p className="text-sm font-bold">{selectedLetter.nameEn} ({selectedLetter.nameArabic})</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quiz Screen Mode */}
+      {quizMode && quizQuestion ? (
+        <div className="max-w-xl mx-auto p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6 animate-in zoom-in-95">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+              Ear Training: Identify the Letter
+            </span>
+            <span className="text-xs font-semibold text-slate-400">
+              Score: {quizScore} / {quizTotal}
+            </span>
+          </div>
+
+          <div className="text-center py-6 space-y-4">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Listen to the pronunciation and select the matching Arabic letter:
+            </p>
+
+            <button
+              onClick={() => handlePlaySound(quizQuestion.target)}
+              className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold shadow-lg transition-all active:scale-95 ${
+                activePlayingId === quizQuestion.target.id
+                  ? 'bg-amber-500 text-slate-950 ring-4 ring-amber-300/40 animate-pulse'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
+              }`}
+            >
+              <Volume2 className="w-5 h-5" />
+              <span>{activePlayingId === quizQuestion.target.id ? 'Playing Sound...' : 'Replay Sound'}</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {quizQuestion.options.map((opt) => {
+              const isSelected = quizQuestion.selectedAnswer === opt.id;
+              const isTarget = opt.id === quizQuestion.target.id;
+              let btnStyle = 'border-slate-200 dark:border-slate-800 hover:border-emerald-400 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200';
+
+              if (quizQuestion.selectedAnswer !== null) {
+                if (isTarget) {
+                  btnStyle = 'border-emerald-500 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-500';
+                } else if (isSelected) {
+                  btnStyle = 'border-rose-500 bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-200 ring-2 ring-rose-500';
+                } else {
+                  btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                }
+              }
+
+              return (
+                <button
+                  key={opt.id}
+                  disabled={quizQuestion.selectedAnswer !== null}
+                  onClick={() => handleQuizAnswer(opt)}
+                  className={`p-4 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1.5 active:scale-98 min-h-[90px] ${btnStyle}`}
+                >
+                  <span className="font-arabic text-4xl">{opt.letter}</span>
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{opt.nameEn}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {quizQuestion.selectedAnswer !== null && (
+            <div className="space-y-3 pt-2">
+              <div
+                className={`p-4 rounded-2xl text-center text-xs font-bold ${
+                  quizQuestion.isCorrect
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                }`}
+              >
+                {quizQuestion.isCorrect ? (
+                  <span>Alhamdulillah! Correct! +10 XP earned.</span>
+                ) : (
+                  <span>
+                    Incorrect. The sound played was{' '}
+                    <strong>{quizQuestion.target.nameEn} ({quizQuestion.target.letter})</strong>.
+                  </span>
+                )}
+              </div>
+
+              <button
+                onClick={generateNextQuestion}
+                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+              >
+                Next Audio Challenge
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Regular Studio View */
+        <div className="space-y-6">
+          {/* Controls Bar: Vowel Mode & Category Filters */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            {/* Vowel selector */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Harakat / Vowel Mark
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: 'isolated', label: 'Plain (حروف)', sub: 'Isolated' },
+                    { id: 'fatha', label: 'Fatha (ـَ)', sub: 'Short A' },
+                    { id: 'kasra', label: 'Kasra (ـِ)', sub: 'Short I' },
+                    { id: 'damma', label: 'Damma (ـُ)', sub: 'Short U' },
+                    { id: 'tanween', label: 'Tanween (ـً)', sub: 'Double An' },
+                    { id: 'sukoon', label: 'Sukoon (ـْ)', sub: 'Rest / Stop' },
+                  ] as const
+                ).map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setVowelMode(v.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      vowelMode === v.id
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Category Filter */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Makhraj / Articulation Category
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {(
+                  [
+                    { id: 'all', label: 'All 28' },
+                    { id: 'throat', label: 'Throat (حلق)' },
+                    { id: 'tongue', label: 'Tongue (لسان)' },
+                    { id: 'lips', label: 'Lips (شفتين)' },
+                    { id: 'emphatic', label: 'Heavy (مفخم)' },
+                    { id: 'qalqalah', label: 'Qalqalah (قلقلة)' },
+                  ] as const
+                ).map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                      selectedCategory === cat.id
+                        ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Main Grid & Inspector Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Letters Grid (2 cols on lg) */}
+            <div className="lg:col-span-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-4 gap-3">
+                {filteredLetters.map((item) => {
+                  const isPlaying = activePlayingId === item.id;
+                  const isSelected = selectedLetter.id === item.id;
+                  const displayGlyph = getVowelGlyph(item.letter, vowelMode);
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        setSelectedLetter(item);
+                        handlePlaySound(item);
+                      }}
+                      className={`group relative p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between items-center text-center select-none active:scale-97 min-h-[140px] ${
+                        isSelected
+                          ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-400/50 shadow-md'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-300 hover:shadow-xs'
+                      }`}
+                    >
+                      {/* Audio indicator badge */}
+                      <div className="w-full flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          {item.nameEn}
+                        </span>
+                        <div
+                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
+                            isPlaying
+                              ? 'bg-amber-500 text-slate-950 animate-bounce'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 group-hover:text-emerald-600'
+                          }`}
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+
+                      {/* Giant Arabic Glyph */}
+                      <p className="font-arabic text-5xl my-1 text-slate-900 dark:text-slate-100 transition-transform group-hover:scale-110">
+                        {displayGlyph}
+                      </p>
+
+                      {/* Transliteration & Tamil */}
+                      <div className="mt-1 space-y-0.5">
+                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                          {item.nameTa}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block truncate max-w-[100px]">
+                          {item.category}
+                        </span>
+                      </div>
+
+                      {/* Playing pulse waves */}
+                      {isPlaying && (
+                        <div className="absolute inset-0 rounded-2xl border-2 border-amber-400 pointer-events-none animate-pulse" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Letter Deep-Dive Inspector (1 col on lg) */}
+            <div className="space-y-5">
+              <div className="sticky top-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-lg space-y-5">
+                {/* Header of Inspector */}
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                  <div>
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                      Letter Profile
+                    </span>
+                    <h3 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                      {selectedLetter.nameEn} • {selectedLetter.nameTa}
+                    </h3>
+                  </div>
+
+                  <button
+                    onClick={() => handlePlaySound(selectedLetter)}
+                    className="p-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md active:scale-95 transition-transform"
+                    title="Play audio pronunciation"
+                  >
+                    <Volume2 className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Big Center Display */}
+                <div className="text-center py-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <p className="font-arabic text-7xl text-slate-900 dark:text-slate-100 select-none my-2">
+                    {getVowelGlyph(selectedLetter.letter, vowelMode)}
+                  </p>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {getVowelPhonetic(selectedLetter.nameEn, vowelMode)}
+                  </p>
+                </div>
+
+                {/* 4 Script Positions (Isolated, Initial, Medial, Final) */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Letter Positions (أشكال الحرف)
+                  </span>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
+                      <span className="text-[10px] text-slate-400 block mb-1">Final</span>
+                      <span className="font-arabic text-2xl">{selectedLetter.forms.final}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
+                      <span className="text-[10px] text-slate-400 block mb-1">Medial</span>
+                      <span className="font-arabic text-2xl">{selectedLetter.forms.medial}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
+                      <span className="text-[10px] text-slate-400 block mb-1">Initial</span>
+                      <span className="font-arabic text-2xl">{selectedLetter.forms.initial}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200">
+                      <span className="text-[10px] text-emerald-600 block mb-1 font-bold">Isolated</span>
+                      <span className="font-arabic text-2xl">{selectedLetter.forms.isolated}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Makhraj (Point of Articulation) */}
+                <div className="space-y-1.5 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
+                    Makhraj (உச்சரிப்புத் தானம்)
+                  </span>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                    {selectedLetter.makhrajEn}
+                  </p>
+                  <p className="text-xs text-emerald-800 dark:text-emerald-300 font-tamil leading-relaxed pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                    {selectedLetter.makhrajTa}
+                  </p>
+                </div>
+
+                {/* Sample Quranic Word */}
+                {selectedLetter.sampleWord && (
+                  <div className="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Sample Vocabulary Word
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-arabic text-3xl text-emerald-700 dark:text-emerald-300">
+                        {selectedLetter.sampleWord.arabic}
+                      </span>
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                          {selectedLetter.sampleWord.transliteration}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {selectedLetter.sampleWord.translationEn} • {selectedLetter.sampleWord.translationTa}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
