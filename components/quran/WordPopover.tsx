@@ -58,28 +58,28 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4"
+        className="bg-card border border-border rounded-2xl p-5 w-full max-w-sm shadow-2xl space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-primary-subtle text-primary-strong">
             Word {word.wordIndex} • Ayah {word.surah}:{word.ayah}
           </span>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Arabic Display */}
-        <div className="text-center py-2 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800">
-          <p className="text-3xl font-arabic text-slate-900 dark:text-slate-100 select-none py-1">
+        <div className="text-center py-2 bg-surface rounded-xl border border-border">
+          <p className="text-3xl font-arabic text-foreground select-none py-1">
             {word.arabic}
           </p>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium tracking-wide">
+          <p className="text-xs text-muted-foreground font-medium tracking-wide">
             {word.transliteration}
           </p>
         </div>
@@ -87,42 +87,42 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
         {/* Translation details */}
         <div className="space-y-2.5 text-sm">
           <div className="flex flex-col">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">English Meaning</span>
-            <span className="text-slate-800 dark:text-slate-200 font-medium">{word.translationEn || 'Meaning provided in context'}</span>
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">English Meaning</span>
+            <span className="text-foreground font-medium">{word.translationEn || 'Meaning provided in context'}</span>
           </div>
 
           {word.translationTa && (
             <div className="flex flex-col">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider font-tamil">தமிழ் அர்த்தம் (Tamil)</span>
-              <span className="text-emerald-700 dark:text-emerald-300 font-tamil font-medium">{word.translationTa}</span>
+              <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider font-tamil">தமிழ் அர்த்தம் (Tamil)</span>
+              <span className="text-primary-strong font-tamil font-medium">{word.translationTa}</span>
             </div>
           )}
 
           {word.root && word.root !== '—' && (
-            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
-              <span className="text-xs text-slate-500 dark:text-slate-400">Linguistic Root (الجذر):</span>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400">
+            <div className="flex items-center justify-between pt-1 border-t border-border">
+              <span className="text-xs text-muted-foreground">Linguistic Root (الجذر):</span>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-secondary-subtle text-secondary-strong">
                 {word.root}
               </span>
             </div>
           )}
 
           {word.morphology && (
-            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Grammar:</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">{word.morphology}</span>
+              <span className="font-medium text-foreground">{word.morphology}</span>
             </div>
           )}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center gap-2 pt-2 border-t border-border">
           <button
             onClick={playAudio}
             disabled={isPlaying}
-            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-semibold transition-colors"
           >
-            <Volume2 className={`w-4 h-4 text-emerald-600 ${isPlaying ? 'animate-bounce' : ''}`} />
+            <Volume2 className={`w-4 h-4 text-primary ${isPlaying ? 'animate-bounce' : ''}`} />
             <span>{isPlaying ? 'Playing...' : 'Pronounce'}</span>
           </button>
 
@@ -130,8 +130,8 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose }) => {
             onClick={handleSaveWord}
             className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
               isSaved
-                ? 'bg-emerald-600 text-white'
-                : 'bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-primary-subtle hover:bg-primary/20 text-primary-strong border border-primary/30'
             }`}
           >
             {isSaved ? (

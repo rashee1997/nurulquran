@@ -95,11 +95,11 @@ export function isItemDue(dueDateIso: string): boolean {
 }
 
 export const STATE_LABELS: Record<SrsState, { label: string; color: string; bg: string }> = {
-  new: { label: 'New', color: 'text-slate-600', bg: 'bg-slate-100 dark:bg-slate-800' },
-  learning: { label: 'Learning', color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/40' },
-  familiar: { label: 'Familiar', color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/40' },
-  memorized: { label: 'Memorized', color: 'text-emerald-600', bg: 'bg-emerald-100 dark:bg-emerald-900/40' },
-  review: { label: 'In Review', color: 'text-indigo-600', bg: 'bg-indigo-100 dark:bg-indigo-900/40' },
-  weak: { label: 'Needs Focus', color: 'text-rose-600', bg: 'bg-rose-100 dark:bg-rose-900/40' },
-  mastered: { label: 'Mastered', color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/40' },
+  new: { label: 'New', color: 'text-muted-foreground', bg: 'bg-surface border border-border' },
+  learning: { label: 'Learning', color: 'text-primary-strong', bg: 'bg-primary-subtle border border-primary/30' },
+  familiar: { label: 'Familiar', color: 'text-secondary-strong', bg: 'bg-secondary-subtle border border-secondary/30' },
+  memorized: { label: 'Memorized', color: 'text-primary-strong', bg: 'bg-primary-subtle border border-primary/30' },
+  review: { label: 'In Review', color: 'text-primary-strong', bg: 'bg-primary-subtle border border-primary/30' },
+  weak: { label: 'Needs Focus', color: 'text-danger-strong', bg: 'bg-danger-subtle border border-danger/30' },
+  mastered: { label: 'Mastered', color: 'text-secondary-strong', bg: 'bg-secondary-subtle border border-secondary/30' },
 };

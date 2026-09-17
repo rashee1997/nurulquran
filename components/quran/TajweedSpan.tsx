@@ -15,7 +15,7 @@ export const TajweedSpan: React.FC<TajweedSpanProps> = ({ segment, enabled = tru
   }
 
   const meta = TAJWEED_META[segment.rule];
-  const colorClass = meta?.colorClass || 'text-emerald-600';
+  const colorClass = meta?.colorClass || 'text-primary';
 
   return (
     <span

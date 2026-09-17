@@ -158,7 +158,7 @@ export default function AIProviderSettingsPage() {
       {/* Back button */}
       <Link
         href="/settings"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary transition-colors"
       >
         <ChevronLeft className="w-4 h-4" />
         <span>Back to Settings</span>
@@ -167,11 +167,11 @@ export default function AIProviderSettingsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <Bot className="w-6 h-6 text-emerald-600" />
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Bot className="w-6 h-6 text-primary" />
             <span>Bring Your Own Key (BYOK)</span>
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-muted-foreground">
             Configure dynamic AI models with client-side AES-GCM encryption in IndexedDB.
           </p>
         </div>
@@ -183,7 +183,7 @@ export default function AIProviderSettingsPage() {
             setNewModel('gpt-4o-mini');
             setShowAddModal(true);
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md active:scale-95 self-start sm:self-center"
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95 self-start sm:self-center"
         >
           <Plus className="w-4 h-4" />
           <span>Add AI Provider</span>
@@ -191,13 +191,13 @@ export default function AIProviderSettingsPage() {
       </div>
 
       {/* Security notice */}
-      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-start gap-3">
-        <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+      <div className="p-4 rounded-2xl bg-surface border border-border flex items-start gap-3">
+        <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div className="space-y-0.5 text-xs">
-          <h4 className="font-bold text-slate-800 dark:text-slate-200">
+          <h4 className="font-bold text-foreground">
             Zero Cloud Storage of API Keys
           </h4>
-          <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
+          <p className="text-muted-foreground leading-relaxed">
             All user-provided API keys are encrypted with standard AES-GCM in your browser using the Web Crypto API. Keys are only sent to the model resolver in transient request headers and never stored on a server database.
           </p>
         </div>
@@ -208,8 +208,8 @@ export default function AIProviderSettingsPage() {
         <div
           className={`p-3.5 rounded-2xl border text-xs flex items-center gap-2 animate-in fade-in ${
             testResult.success
-              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
-              : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              ? 'bg-success-subtle border-success/40 text-success-strong'
+              : 'bg-danger-subtle border-danger/40 text-danger-strong'
           }`}
         >
           <Activity className="w-4 h-4 shrink-0" />
@@ -224,27 +224,27 @@ export default function AIProviderSettingsPage() {
             key={prov.id}
             className={`p-5 rounded-2xl border transition-all ${
               prov.isDefault
-                ? 'bg-white dark:bg-slate-900 border-emerald-400 dark:border-emerald-600/70 shadow-sm ring-1 ring-emerald-500/20'
-                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                ? 'bg-card border-primary/60 shadow-sm ring-1 ring-primary/30'
+                : 'bg-card border-border'
             }`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  <h3 className="text-sm font-bold text-foreground">
                     {prov.name}
                   </h3>
                   {prov.isDefault && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-primary-subtle text-primary-strong">
                       Default Active
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="capitalize font-medium">{prov.type}</span>
                   <span>•</span>
-                  <span className="font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                  <span className="font-mono text-[11px] bg-surface border border-border text-foreground px-2 py-0.5 rounded">
                     {prov.selectedModel}
                   </span>
                   {prov.baseUrl && (
@@ -261,7 +261,7 @@ export default function AIProviderSettingsPage() {
                 <button
                   disabled={testingId === prov.id}
                   onClick={() => handleTestConnection(prov)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-colors disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-surface border border-border hover:bg-surface-hover text-foreground transition-colors disabled:opacity-40"
                 >
                   {testingId === prov.id ? 'Testing...' : 'Test Connection'}
                 </button>
@@ -269,7 +269,7 @@ export default function AIProviderSettingsPage() {
                 {!prov.isDefault && (
                   <button
                     onClick={() => handleSetDefault(prov.id)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950 transition-colors"
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold text-primary-strong hover:bg-primary-subtle transition-colors"
                   >
                     Set Default
                   </button>
@@ -278,7 +278,7 @@ export default function AIProviderSettingsPage() {
                 {prov.id !== 'gemini-server-default' && (
                   <button
                     onClick={() => handleDelete(prov.id)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-danger hover:bg-danger-subtle transition-colors"
                     title="Delete Provider"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -292,21 +292,21 @@ export default function AIProviderSettingsPage() {
 
       {/* Add Provider Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in">
+          <div className="bg-card border border-border rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 text-foreground">
+            <h2 className="text-base font-bold text-foreground">
               Configure New AI Provider
             </h2>
 
             <form onSubmit={handleSaveProvider} className="space-y-4 text-xs">
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                <label className="font-semibold text-foreground block mb-1">
                   Provider Ecosystem
                 </label>
                 <select
                   value={newType}
                   onChange={(e) => handleTypeChange(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden"
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary"
                 >
                   <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI</option>
@@ -319,7 +319,7 @@ export default function AIProviderSettingsPage() {
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                <label className="font-semibold text-foreground block mb-1">
                   Display Name
                 </label>
                 <input
@@ -328,12 +328,12 @@ export default function AIProviderSettingsPage() {
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. My Fast Groq"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden"
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary"
                 />
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                <label className="font-semibold text-foreground block mb-1">
                   Target Model Identifier
                 </label>
                 <input
@@ -342,13 +342,13 @@ export default function AIProviderSettingsPage() {
                   value={newModel}
                   onChange={(e) => setNewModel(e.target.value)}
                   placeholder="e.g. gpt-4o-mini, llama-3.3-70b-versatile"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden font-mono"
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary font-mono"
                 />
               </div>
 
               {newType === 'custom' || newType === 'openrouter' ? (
                 <div>
-                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  <label className="font-semibold text-foreground block mb-1">
                     Base URL
                   </label>
                   <input
@@ -356,13 +356,13 @@ export default function AIProviderSettingsPage() {
                     value={newBaseUrl}
                     onChange={(e) => setNewBaseUrl(e.target.value)}
                     placeholder="https://openrouter.ai/api/v1 or http://localhost:11434/v1"
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden font-mono"
+                    className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary font-mono"
                   />
                 </div>
               ) : null}
 
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                <label className="font-semibold text-foreground block mb-1">
                   API Key (Stored locally in IndexedDB with AES-GCM)
                 </label>
                 <input
@@ -370,21 +370,21 @@ export default function AIProviderSettingsPage() {
                   value={newApiKey}
                   onChange={(e) => setNewApiKey(e.target.value)}
                   placeholder="sk-... or api key"
-                  className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden font-mono"
+                  className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary font-mono"
                 />
               </div>
 
-              <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex gap-2 pt-3 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold"
+                  className="flex-1 py-2.5 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md"
+                  className="flex-1 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold shadow-md"
                 >
                   Save Provider
                 </button>

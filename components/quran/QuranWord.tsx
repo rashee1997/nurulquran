@@ -25,8 +25,8 @@ export const QuranWordItem: React.FC<QuranWordItemProps> = ({
       }}
       className={`font-arabic inline-block px-1.5 py-0.5 rounded-lg transition-all duration-150 cursor-pointer ${
         isSelected
-          ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-500'
-          : 'hover:bg-slate-100 dark:hover:bg-slate-800/80 text-slate-900 dark:text-slate-100'
+          ? 'bg-primary-subtle text-primary-strong ring-2 ring-primary'
+          : 'hover:bg-surface-hover text-foreground'
       }`}
       style={{ fontSize: `${fontSize}px` }}
       title={`${word.transliteration} - Click for English/Tamil meaning & root`}

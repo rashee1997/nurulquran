@@ -147,29 +147,29 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
   // Completion Screen
   if (isCompleted) {
     return (
-      <div id="lesson-completed-screen" className="max-w-xl mx-auto p-8 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl text-center space-y-6 animate-in zoom-in-95">
-        <div className="w-20 h-20 rounded-2xl bg-amber-100 dark:bg-amber-950/60 mx-auto flex items-center justify-center text-amber-500 shadow-md">
+      <div id="lesson-completed-screen" className="max-w-xl mx-auto p-8 bg-card rounded-3xl border border-border shadow-xl text-center space-y-6 animate-in zoom-in-95">
+        <div className="w-20 h-20 rounded-2xl bg-secondary-subtle mx-auto flex items-center justify-center text-secondary-strong shadow-md">
           <Award className="w-10 h-10" />
         </div>
 
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+          <h2 className="text-2xl font-bold text-foreground">
             Lesson Completed!
           </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            You successfully finished <span className="font-semibold text-slate-800 dark:text-slate-200">{lesson.title}</span>.
+          <p className="text-sm text-muted-foreground">
+            You successfully finished <span className="font-semibold text-foreground">{lesson.title}</span>.
           </p>
         </div>
 
         <div className="grid grid-cols-2 gap-4 py-3">
-          <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40">
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold uppercase">XP Earned</span>
-            <p className="text-3xl font-extrabold text-emerald-700 dark:text-emerald-300">+{earnedXp}</p>
+          <div className="p-4 rounded-2xl bg-primary-subtle border border-primary/30">
+            <span className="text-xs text-primary-strong font-semibold uppercase">XP Earned</span>
+            <p className="text-3xl font-extrabold text-primary-strong">+{earnedXp}</p>
           </div>
 
-          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40">
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold uppercase">Accuracy</span>
-            <p className="text-3xl font-extrabold text-amber-700 dark:text-amber-300">
+          <div className="p-4 rounded-2xl bg-secondary-subtle border border-secondary/30">
+            <span className="text-xs text-secondary-strong font-semibold uppercase">Accuracy</span>
+            <p className="text-3xl font-extrabold text-secondary-strong">
               {Math.round((score / lesson.activities.length) * 100)}%
             </p>
           </div>
@@ -178,7 +178,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
         <div className="flex items-center gap-3 pt-2">
           <button
             onClick={restartLesson}
-            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors"
+            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border hover:bg-surface-hover text-xs font-bold text-foreground transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             <span>Practice Again</span>
@@ -186,7 +186,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
 
           <Link
             href="/learn"
-            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md active:scale-95"
+            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95"
           >
             <span>Back to Map</span>
             <ArrowRight className="w-4 h-4" />
@@ -200,54 +200,54 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
     <div id="lesson-runner" className="max-w-2xl mx-auto space-y-6">
       {/* Progress header */}
       <div className="space-y-2">
-        <div className="flex justify-between items-center text-xs font-semibold text-slate-500 dark:text-slate-400">
+        <div className="flex justify-between items-center text-xs font-semibold text-muted-foreground">
           <span>Question {currentIdx + 1} of {lesson.activities.length}</span>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsCoachOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-linear-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-[11px] shadow-xs active:scale-95 transition-all"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-[11px] shadow-xs active:scale-95 transition-all"
               title="Open Live Gemini Tajweed Coach"
             >
-              <Sparkles className="w-3 h-3 text-amber-300" />
+              <Sparkles className="w-3 h-3 text-secondary" />
               <span>AI Tajweed Coach</span>
             </button>
-            <span className="hidden sm:inline font-medium text-slate-700 dark:text-slate-300">{lesson.title}</span>
+            <span className="hidden sm:inline font-medium text-foreground">{lesson.title}</span>
           </div>
         </div>
-        <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+        <div className="w-full bg-surface-muted h-2 rounded-full overflow-hidden">
           <div
-            className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
+            className="h-full bg-primary transition-all duration-300 rounded-full"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
       </div>
 
       {/* Activity Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
+      <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
         <div className="space-y-1 text-center">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-primary-strong">
             {currentActivity.type.replace('_', ' ')}
           </span>
-          <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">
+          <h3 className="text-xl font-bold text-foreground">
             {currentActivity.title}
           </h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-muted-foreground">
             {currentActivity.instruction}
           </p>
         </div>
 
         {/* Visual Arabic prompt if present */}
         {currentActivity.promptArabic && (
-          <div className="text-center py-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-3">
-            <p className="text-5xl font-arabic text-slate-900 dark:text-slate-100 select-none py-2">
+          <div className="text-center py-6 bg-surface rounded-2xl border border-border space-y-3">
+            <p className="text-5xl font-arabic text-foreground select-none py-2">
               {currentActivity.promptArabic}
             </p>
             <button
               onClick={() => playAudio(currentActivity.promptArabic, currentActivity.promptAudioUrl)}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
                 isPlayingAudio
-                  ? 'bg-amber-500 text-slate-950 shadow-md animate-pulse ring-2 ring-amber-300'
-                  : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900'
+                  ? 'bg-secondary text-secondary-foreground shadow-md animate-pulse ring-2 ring-secondary/40'
+                  : 'bg-primary-subtle text-primary-strong hover:bg-primary-subtle/80'
               }`}
             >
               {isPlayingAudio ? (
@@ -269,9 +269,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
         {currentActivity.type === 'word_order' && currentActivity.wordTokens && (
           <div className="space-y-4">
             {/* Assembled Area */}
-            <div className="min-h-[64px] p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
+            <div className="min-h-[64px] p-4 bg-surface rounded-2xl border-2 border-dashed border-border flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
               {assembledTokens.length === 0 ? (
-                <span className="text-xs text-slate-400 font-sans" dir="ltr">Tap words below to arrange them here</span>
+                <span className="text-xs text-muted-foreground font-sans" dir="ltr">Tap words below to arrange them here</span>
               ) : (
                 assembledTokens.map((token, tIdx) => (
                   <button
@@ -281,7 +281,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                         setAssembledTokens(prev => prev.filter((_, i) => i !== tIdx));
                       }
                     }}
-                    className="font-arabic text-xl px-3 py-1.5 rounded-xl bg-emerald-600 text-white shadow-xs hover:bg-rose-500 transition-colors"
+                    className="font-arabic text-xl px-3 py-1.5 rounded-xl bg-primary text-primary-foreground shadow-xs hover:bg-danger transition-colors"
                   >
                     {token}
                   </button>
@@ -306,8 +306,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                     }}
                     className={`font-arabic text-2xl px-4 py-2 rounded-xl border transition-all ${
                       isAllUsed
-                        ? 'opacity-30 border-slate-200 dark:border-slate-800 pointer-events-none'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-emerald-500 hover:shadow-md'
+                        ? 'opacity-30 border-border pointer-events-none'
+                        : 'bg-surface border-border text-foreground hover:border-primary hover:shadow-md'
                     }`}
                   >
                     {token}
@@ -323,18 +323,18 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {currentActivity.options.map((opt, oIdx) => {
               const isSelected = selectedOption === opt;
-              let btnStyle = 'bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:border-emerald-500';
+              let btnStyle = 'bg-surface border-border text-foreground hover:border-primary';
 
               if (isAnswerChecked) {
                 if (opt === currentActivity.correctAnswer) {
-                  btnStyle = 'bg-emerald-500 text-white border-emerald-600';
+                  btnStyle = 'bg-success text-success-foreground border-success';
                 } else if (isSelected) {
-                  btnStyle = 'bg-rose-500 text-white border-rose-600';
+                  btnStyle = 'bg-danger text-danger-foreground border-danger';
                 } else {
-                  btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                  btnStyle = 'opacity-40 border-border';
                 }
               } else if (isSelected) {
-                btnStyle = 'bg-emerald-50 dark:bg-emerald-950 border-emerald-500 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-400';
+                btnStyle = 'bg-primary-subtle border-primary text-primary-strong ring-2 ring-primary/40';
               }
 
               return (
@@ -359,14 +359,14 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
           <div
             className={`p-4 rounded-2xl border flex items-start gap-3 animate-in slide-in-from-bottom-2 ${
               isCorrect
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/40 text-emerald-900 dark:text-emerald-100'
-                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/40 text-rose-900 dark:text-rose-100'
+                ? 'bg-success-subtle border-success/40 text-success-strong'
+                : 'bg-danger-subtle border-danger/40 text-danger-strong'
             }`}
           >
             {isCorrect ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-5 h-5 text-success shrink-0 mt-0.5" />
             ) : (
-              <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+              <XCircle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
             )}
 
             <div className="space-y-1 text-xs">
@@ -384,7 +384,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
         )}
 
         {/* Action Button */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+        <div className="pt-4 border-t border-border">
           {!isAnswerChecked ? (
             <button
               onClick={checkAnswer}
@@ -393,14 +393,14 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                   ? assembledTokens.length === 0
                   : !selectedOption
               }
-              className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none text-white font-bold text-sm transition-all shadow-md active:scale-98"
+              className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none text-primary-foreground font-bold text-sm transition-all shadow-md active:scale-98"
             >
               Check Answer
             </button>
           ) : (
             <button
               onClick={handleNext}
-              className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-all shadow-md active:scale-98 flex items-center justify-center gap-2"
+              className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-sm transition-all shadow-md active:scale-98 flex items-center justify-center gap-2"
             >
               <span>{currentIdx < lesson.activities.length - 1 ? 'Continue' : 'Finish Lesson'}</span>
               <ArrowRight className="w-4 h-4" />

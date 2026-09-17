@@ -195,22 +195,22 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg h-[620px] max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in">
+      <div className="bg-card rounded-3xl w-full max-w-lg h-[620px] max-h-[90vh] flex flex-col border border-border shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-linear-to-r from-emerald-900 to-teal-900 text-white flex items-center justify-between shrink-0">
+        <div className="p-4 sm:p-5 bg-hero-bg text-hero-fg border-b border-hero-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-emerald-700/80 flex items-center justify-center text-amber-300">
+            <div className="w-8 h-8 rounded-full bg-hero-card-bg flex items-center justify-center text-secondary">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold">Gemini Live Tajweed Coach</h3>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-700/60 text-emerald-200">
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg">
                   AI Live
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-200/80 truncate max-w-[260px]">
+              <p className="text-[11px] text-hero-muted truncate max-w-[260px]">
                 {currentLessonTitle} • {currentActivityTitle}
               </p>
             </div>
@@ -218,7 +218,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="p-1.5 rounded-xl hover:bg-hero-card-bg text-hero-muted hover:text-hero-fg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -226,11 +226,11 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
         {/* Current Prompt Context Banner */}
         {promptArabic && (
-          <div className="px-4 py-2 bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between text-xs shrink-0">
-            <span className="text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
+          <div className="px-4 py-2 bg-primary-subtle border-b border-primary/20 flex items-center justify-between text-xs shrink-0">
+            <span className="text-[11px] font-semibold text-primary-strong">
               Current Target:
             </span>
-            <span className="font-arabic text-xl font-bold text-slate-900 dark:text-slate-100 select-text">
+            <span className="font-arabic text-xl font-bold text-foreground select-text">
               {promptArabic}
             </span>
           </div>
@@ -246,22 +246,22 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                 className={`flex gap-2.5 ${isCoach ? 'justify-start' : 'justify-end'}`}
               >
                 {isCoach && (
-                  <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-7 h-7 rounded-full bg-primary-subtle text-primary flex items-center justify-center shrink-0 mt-0.5">
                     <Sparkles className="w-3.5 h-3.5" />
                   </div>
                 )}
                 <div
                   className={`max-w-[85%] rounded-2xl p-3.5 text-xs space-y-2 shadow-2xs leading-relaxed ${
                     isCoach
-                      ? 'bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
-                      : 'bg-emerald-600 text-white font-medium'
+                      ? 'bg-surface border border-border text-foreground'
+                      : 'bg-primary text-primary-foreground font-medium'
                   }`}
                 >
                   <p>{m.textEn}</p>
 
                   {m.textTa && (
-                    <p className="font-tamil text-slate-700 dark:text-slate-300 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                      <span className="font-sans font-bold text-emerald-600 dark:text-emerald-400 text-[10px] block mb-0.5">
+                    <p className="font-tamil text-foreground pt-1 border-t border-border">
+                      <span className="font-sans font-bold text-primary-strong text-[10px] block mb-0.5">
                         தமிழ் வழிகாட்டல்:
                       </span>
                       {m.textTa}
@@ -269,7 +269,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                   )}
 
                   {m.makhrajTip && (
-                    <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 text-[11px] flex items-start gap-1.5">
+                    <div className="p-2 rounded-lg bg-secondary-subtle border border-secondary/30 text-secondary-strong text-[11px] flex items-start gap-1.5">
                       <span className="shrink-0">💡</span>
                       <span>{m.makhrajTip}</span>
                     </div>
@@ -277,7 +277,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
                   <span
                     className={`text-[9px] block text-right opacity-60 ${
-                      isCoach ? 'text-slate-400' : 'text-emerald-100'
+                      isCoach ? 'text-muted-foreground' : 'text-primary-foreground'
                     }`}
                   >
                     {m.timestamp}
@@ -288,8 +288,8 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           })}
 
           {isLoading && (
-            <div className="flex gap-2.5 items-center text-xs text-slate-400 animate-pulse">
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            <div className="flex gap-2.5 items-center text-xs text-muted-foreground animate-pulse">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
               <span>Gemini is analyzing pronunciation & Tajweed rules...</span>
             </div>
           )}
@@ -297,12 +297,12 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         </div>
 
         {/* Quick Question Chips */}
-        <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto no-scrollbar shrink-0">
+        <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto no-scrollbar shrink-0">
           <button
             onClick={() =>
               sendToCoach({ query: 'How do I pronounce this correctly from its makhraj?' })
             }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-100 dark:hover:bg-emerald-950 whitespace-nowrap transition-colors"
+            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
           >
             How to pronounce?
           </button>
@@ -310,7 +310,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             onClick={() =>
               sendToCoach({ query: 'Explain this Tajweed rule in Tamil (தமிழ் விளக்கம்).' })
             }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-100 dark:hover:bg-emerald-950 whitespace-nowrap transition-colors font-tamil"
+            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors font-tamil"
           >
             தமிழ் விளக்கம்
           </button>
@@ -318,18 +318,18 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             onClick={() =>
               sendToCoach({ query: 'What common mistakes should I avoid on this letter or rule?' })
             }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-emerald-100 dark:hover:bg-emerald-950 whitespace-nowrap transition-colors"
+            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
           >
             Common mistakes
           </button>
         </div>
 
         {/* Input & Voice Controls */}
-        <div className="p-3 sm:p-4 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2 shrink-0">
+        <div className="p-3 sm:p-4 bg-surface border-t border-border flex items-center gap-2 shrink-0">
           {!isRecording ? (
             <button
               onClick={startVoiceRecording}
-              className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 active:scale-95 transition-all"
+              className="p-3 rounded-2xl bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20 active:scale-95 transition-all"
               title="Record recitation to get live AI feedback"
             >
               <Mic className="w-4 h-4" />
@@ -337,7 +337,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           ) : (
             <button
               onClick={stopVoiceRecording}
-              className="px-3 py-2 rounded-2xl bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md animate-pulse"
+              className="px-3 py-2 rounded-2xl bg-danger text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md animate-pulse"
               title="Stop recording"
             >
               <Square className="w-3.5 h-3.5" />
@@ -356,13 +356,13 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               }
             }}
             placeholder="Ask AI coach or tap mic to recite..."
-            className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-3.5 py-2.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder:text-slate-400"
+            className="flex-1 bg-card border border-border rounded-2xl px-3.5 py-2.5 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
           />
 
           <button
             onClick={() => sendToCoach({})}
             disabled={!inputQuery.trim() || isLoading}
-            className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white transition-all shadow-xs active:scale-95"
+            className="p-2.5 rounded-2xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground transition-all shadow-xs active:scale-95"
           >
             <Send className="w-4 h-4" />
           </button>

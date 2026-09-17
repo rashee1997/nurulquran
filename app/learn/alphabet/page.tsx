@@ -157,7 +157,7 @@ export default function AlphabetStudioPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href="/learn"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors py-1.5 px-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors py-1.5 px-2.5 rounded-lg hover:bg-surface-hover"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>Back to Curriculum</span>
@@ -172,10 +172,10 @@ export default function AlphabetStudioPage() {
                 startQuiz();
               }
             }}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95 ${
               quizMode
-                ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
-                : 'bg-linear-to-r from-emerald-600 to-teal-700 text-white shadow-emerald-700/20'
+                ? 'bg-card border border-border text-foreground'
+                : 'bg-primary hover:bg-primary-hover text-primary-foreground'
             }`}
           >
             {quizMode ? <BookOpen className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
@@ -185,32 +185,32 @@ export default function AlphabetStudioPage() {
       </div>
 
       {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-emerald-950 via-teal-900 to-emerald-900 p-6 sm:p-8 text-white shadow-xl">
+      <div className="relative overflow-hidden rounded-3xl bg-card border border-border p-6 sm:p-8 text-foreground shadow-xs">
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-800/70 text-emerald-200 text-xs font-semibold backdrop-blur-xs">
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-subtle text-primary text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5 text-secondary" />
               <span>Interactive Noorani Qaida & Makharij Studio</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
               Arabic Alphabet Pronunciation
             </h1>
-            <p className="text-emerald-200/90 text-xs sm:text-sm max-w-xl leading-relaxed">
+            <p className="text-muted-foreground text-xs sm:text-sm max-w-xl leading-relaxed">
               Listen to authentic isolated recordings of all 28 letters, practice throat and tongue makharij, and explore Harakat (Fatha, Kasra, Damma) with Tamil phonetics.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/15">
+          <div className="flex items-center gap-2 bg-surface p-3 rounded-2xl border border-border">
             <button
               onClick={() => handlePlaySound(selectedLetter)}
-              className="w-12 h-12 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center justify-center shadow-lg transition-transform active:scale-90"
+              className="w-12 h-12 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground flex items-center justify-center shadow-md transition-transform active:scale-90"
               title="Play Selected Letter Audio"
             >
               <Volume2 className="w-6 h-6" />
             </button>
             <div className="pr-2">
-              <span className="text-[10px] uppercase font-bold text-emerald-200 block">Selected</span>
-              <p className="text-sm font-bold">{selectedLetter.nameEn} ({selectedLetter.nameArabic})</p>
+              <span className="text-[10px] uppercase font-bold text-primary block">Selected</span>
+              <p className="text-sm font-bold text-foreground">{selectedLetter.nameEn} ({selectedLetter.nameArabic})</p>
             </div>
           </div>
         </div>
@@ -218,27 +218,27 @@ export default function AlphabetStudioPage() {
 
       {/* Quiz Screen Mode */}
       {quizMode && quizQuestion ? (
-        <div className="max-w-xl mx-auto p-6 sm:p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6 animate-in zoom-in-95">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+        <div className="max-w-xl mx-auto p-6 sm:p-8 rounded-3xl bg-card border border-border shadow-md space-y-6 animate-in zoom-in-95">
+          <div className="flex items-center justify-between border-b border-border pb-3">
+            <span className="text-xs font-bold text-primary uppercase tracking-wider">
               Ear Training: Identify the Letter
             </span>
-            <span className="text-xs font-semibold text-slate-400">
+            <span className="text-xs font-semibold text-muted-foreground">
               Score: {quizScore} / {quizTotal}
             </span>
           </div>
 
           <div className="text-center py-6 space-y-4">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-muted-foreground">
               Listen to the pronunciation and select the matching Arabic letter:
             </p>
 
             <button
               onClick={() => handlePlaySound(quizQuestion.target)}
-              className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold shadow-lg transition-all active:scale-95 ${
+              className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl text-sm font-bold shadow-md transition-all active:scale-95 ${
                 activePlayingId === quizQuestion.target.id
-                  ? 'bg-amber-500 text-slate-950 ring-4 ring-amber-300/40 animate-pulse'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20'
+                  ? 'bg-secondary text-secondary-foreground ring-4 ring-secondary/30 animate-pulse'
+                  : 'bg-primary hover:bg-primary-hover text-primary-foreground'
               }`}
             >
               <Volume2 className="w-5 h-5" />
@@ -250,15 +250,15 @@ export default function AlphabetStudioPage() {
             {quizQuestion.options.map((opt) => {
               const isSelected = quizQuestion.selectedAnswer === opt.id;
               const isTarget = opt.id === quizQuestion.target.id;
-              let btnStyle = 'border-slate-200 dark:border-slate-800 hover:border-emerald-400 bg-slate-50 dark:bg-slate-800/40 text-slate-800 dark:text-slate-200';
+              let btnStyle = 'border-border hover:border-primary/40 bg-surface hover:bg-surface-hover text-foreground';
 
               if (quizQuestion.selectedAnswer !== null) {
                 if (isTarget) {
-                  btnStyle = 'border-emerald-500 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 ring-2 ring-emerald-500';
+                  btnStyle = 'border-primary bg-primary-subtle text-primary-strong ring-2 ring-primary';
                 } else if (isSelected) {
-                  btnStyle = 'border-rose-500 bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-200 ring-2 ring-rose-500';
+                  btnStyle = 'border-danger bg-danger-subtle text-danger-strong ring-2 ring-danger';
                 } else {
-                  btnStyle = 'opacity-40 border-slate-200 dark:border-slate-800';
+                  btnStyle = 'opacity-40 border-border bg-surface text-muted-foreground';
                 }
               }
 
@@ -270,7 +270,7 @@ export default function AlphabetStudioPage() {
                   className={`p-4 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1.5 active:scale-98 min-h-[90px] ${btnStyle}`}
                 >
                   <span className="font-arabic text-4xl">{opt.letter}</span>
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{opt.nameEn}</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{opt.nameEn}</span>
                 </button>
               );
             })}
@@ -281,8 +281,8 @@ export default function AlphabetStudioPage() {
               <div
                 className={`p-4 rounded-2xl text-center text-xs font-bold ${
                   quizQuestion.isCorrect
-                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+                    ? 'bg-success-subtle text-success-strong'
+                    : 'bg-danger-subtle text-danger-strong'
                 }`}
               >
                 {quizQuestion.isCorrect ? (
@@ -297,7 +297,7 @@ export default function AlphabetStudioPage() {
 
               <button
                 onClick={generateNextQuestion}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+                className="w-full py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md transition-all active:scale-95"
               >
                 Next Audio Challenge
               </button>
@@ -308,10 +308,10 @@ export default function AlphabetStudioPage() {
         /* Regular Studio View */
         <div className="space-y-6">
           {/* Controls Bar: Vowel Mode & Category Filters */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card p-4 sm:p-5 rounded-3xl border border-border shadow-xs">
             {/* Vowel selector */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Harakat / Vowel Mark
               </span>
               <div className="flex flex-wrap gap-1.5">
@@ -330,8 +330,8 @@ export default function AlphabetStudioPage() {
                     onClick={() => setVowelMode(v.id)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                       vowelMode === v.id
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'bg-surface text-muted-foreground hover:bg-surface-hover hover:text-foreground'
                     }`}
                   >
                     {v.label}
@@ -342,7 +342,7 @@ export default function AlphabetStudioPage() {
 
             {/* Category Filter */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Makhraj / Articulation Category
               </span>
               <div className="flex flex-wrap gap-1.5">
@@ -361,8 +361,8 @@ export default function AlphabetStudioPage() {
                     onClick={() => setSelectedCategory(cat.id)}
                     className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                       selectedCategory === cat.id
-                        ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                        ? 'bg-secondary text-secondary-foreground font-bold shadow-xs'
+                        : 'bg-surface text-muted-foreground hover:bg-surface-hover hover:text-foreground'
                     }`}
                   >
                     {cat.label}
@@ -391,20 +391,20 @@ export default function AlphabetStudioPage() {
                       }}
                       className={`group relative p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between items-center text-center select-none active:scale-97 min-h-[140px] ${
                         isSelected
-                          ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-400/50 shadow-md'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-300 hover:shadow-xs'
+                          ? 'bg-primary-subtle border-primary ring-2 ring-primary/40 shadow-xs'
+                          : 'bg-card border-border hover:border-primary/40 hover:bg-surface-hover'
                       }`}
                     >
                       {/* Audio indicator badge */}
                       <div className="w-full flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase">
                           {item.nameEn}
                         </span>
                         <div
                           className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
                             isPlaying
-                              ? 'bg-amber-500 text-slate-950 animate-bounce'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-500 group-hover:text-emerald-600'
+                              ? 'bg-secondary text-secondary-foreground animate-bounce'
+                              : 'bg-surface text-muted-foreground group-hover:text-primary'
                           }`}
                         >
                           <Volume2 className="w-3.5 h-3.5" />
@@ -412,23 +412,23 @@ export default function AlphabetStudioPage() {
                       </div>
 
                       {/* Giant Arabic Glyph */}
-                      <p className="font-arabic text-5xl my-1 text-slate-900 dark:text-slate-100 transition-transform group-hover:scale-110">
+                      <p className="font-arabic text-5xl my-1 text-foreground transition-transform group-hover:scale-110">
                         {displayGlyph}
                       </p>
 
                       {/* Transliteration & Tamil */}
                       <div className="mt-1 space-y-0.5">
-                        <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                        <span className="text-xs font-bold text-primary block">
                           {item.nameTa}
                         </span>
-                        <span className="text-[10px] text-slate-400 block truncate max-w-[100px]">
+                        <span className="text-[10px] text-muted-foreground block truncate max-w-[100px]">
                           {item.category}
                         </span>
                       </div>
 
                       {/* Playing pulse waves */}
                       {isPlaying && (
-                        <div className="absolute inset-0 rounded-2xl border-2 border-amber-400 pointer-events-none animate-pulse" />
+                        <div className="absolute inset-0 rounded-2xl border-2 border-secondary pointer-events-none animate-pulse" />
                       )}
                     </div>
                   );
@@ -438,21 +438,21 @@ export default function AlphabetStudioPage() {
 
             {/* Letter Deep-Dive Inspector (1 col on lg) */}
             <div className="space-y-5">
-              <div className="sticky top-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-lg space-y-5">
+              <div className="sticky top-20 bg-card border border-border rounded-3xl p-6 shadow-md space-y-5">
                 {/* Header of Inspector */}
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center justify-between border-b border-border pb-4">
                   <div>
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-wider">
                       Letter Profile
                     </span>
-                    <h3 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
+                    <h3 className="text-xl font-extrabold text-foreground">
                       {selectedLetter.nameEn} • {selectedLetter.nameTa}
                     </h3>
                   </div>
 
                   <button
                     onClick={() => handlePlaySound(selectedLetter)}
-                    className="p-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md active:scale-95 transition-transform"
+                    className="p-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground shadow-md active:scale-95 transition-transform"
                     title="Play audio pronunciation"
                   >
                     <Volume2 className="w-5 h-5" />
@@ -460,68 +460,68 @@ export default function AlphabetStudioPage() {
                 </div>
 
                 {/* Big Center Display */}
-                <div className="text-center py-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
-                  <p className="font-arabic text-7xl text-slate-900 dark:text-slate-100 select-none my-2">
+                <div className="text-center py-4 bg-surface rounded-2xl border border-border">
+                  <p className="font-arabic text-7xl text-foreground select-none my-2">
                     {getVowelGlyph(selectedLetter.letter, vowelMode)}
                   </p>
-                  <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  <p className="text-xs font-semibold text-muted-foreground">
                     {getVowelPhonetic(selectedLetter.nameEn, vowelMode)}
                   </p>
                 </div>
 
                 {/* 4 Script Positions (Isolated, Initial, Medial, Final) */}
                 <div className="space-y-2">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
                     Letter Positions (أشكال الحرف)
                   </span>
                   <div className="grid grid-cols-4 gap-2 text-center">
-                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
-                      <span className="text-[10px] text-slate-400 block mb-1">Final</span>
-                      <span className="font-arabic text-2xl">{selectedLetter.forms.final}</span>
+                    <div className="p-2.5 rounded-xl bg-surface border border-border">
+                      <span className="text-[10px] text-muted-foreground block mb-1">Final</span>
+                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.final}</span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
-                      <span className="text-[10px] text-slate-400 block mb-1">Medial</span>
-                      <span className="font-arabic text-2xl">{selectedLetter.forms.medial}</span>
+                    <div className="p-2.5 rounded-xl bg-surface border border-border">
+                      <span className="text-[10px] text-muted-foreground block mb-1">Medial</span>
+                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.medial}</span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border">
-                      <span className="text-[10px] text-slate-400 block mb-1">Initial</span>
-                      <span className="font-arabic text-2xl">{selectedLetter.forms.initial}</span>
+                    <div className="p-2.5 rounded-xl bg-surface border border-border">
+                      <span className="text-[10px] text-muted-foreground block mb-1">Initial</span>
+                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.initial}</span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200">
-                      <span className="text-[10px] text-emerald-600 block mb-1 font-bold">Isolated</span>
-                      <span className="font-arabic text-2xl">{selectedLetter.forms.isolated}</span>
+                    <div className="p-2.5 rounded-xl bg-primary-subtle border border-primary/40">
+                      <span className="text-[10px] text-primary block mb-1 font-bold">Isolated</span>
+                      <span className="font-arabic text-2xl text-primary-strong">{selectedLetter.forms.isolated}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Makhraj (Point of Articulation) */}
-                <div className="space-y-1.5 p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40">
-                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
+                <div className="space-y-1.5 p-4 rounded-2xl bg-secondary-subtle border border-secondary/30">
+                  <span className="text-[10px] font-bold text-secondary-strong uppercase tracking-wider block">
                     Makhraj (உச்சரிப்புத் தானம்)
                   </span>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                  <p className="text-xs text-foreground leading-relaxed font-medium">
                     {selectedLetter.makhrajEn}
                   </p>
-                  <p className="text-xs text-emerald-800 dark:text-emerald-300 font-tamil leading-relaxed pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                  <p className="text-xs text-primary-strong font-tamil leading-relaxed pt-1 border-t border-border">
                     {selectedLetter.makhrajTa}
                   </p>
                 </div>
 
                 {/* Sample Quranic Word */}
                 {selectedLetter.sampleWord && (
-                  <div className="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  <div className="space-y-1.5 p-4 rounded-2xl bg-surface border border-border">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                       Sample Vocabulary Word
                     </span>
                     <div className="flex items-center justify-between">
-                      <span className="font-arabic text-3xl text-emerald-700 dark:text-emerald-300">
+                      <span className="font-arabic text-3xl text-primary">
                         {selectedLetter.sampleWord.arabic}
                       </span>
                       <div className="text-right">
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                        <span className="text-xs font-bold text-foreground block">
                           {selectedLetter.sampleWord.transliteration}
                         </span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        <span className="text-[11px] text-muted-foreground">
                           {selectedLetter.sampleWord.translationEn} • {selectedLetter.sampleWord.translationTa}
                         </span>
                       </div>

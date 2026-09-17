@@ -22,7 +22,7 @@ export default async function LessonPage({ params }: LessonPageProps) {
       <div className="flex items-center gap-2">
         <Link
           href="/learn"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>Back to Curriculum Map</span>

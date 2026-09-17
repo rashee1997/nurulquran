@@ -176,16 +176,16 @@ function MemorizationContent() {
   return (
     <div id="memorization-suite" className="space-y-6 animate-in fade-in duration-300">
       {/* Top Header & Surah Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card p-5 rounded-3xl border border-border shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
+          <div className="w-10 h-10 rounded-2xl bg-primary-subtle flex items-center justify-center text-primary font-bold">
             <Brain className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-slate-900 dark:text-slate-100">
+            <h1 className="text-base font-bold text-foreground">
               10 Hifz Memorization Modes
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-muted-foreground">
               Targeted cognitive practice with SM-2 spaced repetition integration
             </p>
           </div>
@@ -193,11 +193,11 @@ function MemorizationContent() {
 
         {/* Surah Dropdown selector */}
         <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-500">Surah:</label>
+          <label className="text-xs font-semibold text-muted-foreground">Surah:</label>
           <select
             value={selectedSurahId}
             onChange={(e) => setSelectedSurahId(Number(e.target.value))}
-            className="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 outline-hidden cursor-pointer"
+            className="text-xs font-semibold px-3 py-2 rounded-xl bg-surface text-foreground border border-border outline-hidden cursor-pointer"
           >
             {SURAHS.slice(0, 30).map((s) => (
               <option key={s.id} value={s.id}>
@@ -219,8 +219,8 @@ function MemorizationContent() {
             }}
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
               activeMode === m.id
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                ? 'bg-primary text-primary-foreground shadow-md'
+                : 'bg-card text-muted-foreground border border-border hover:bg-surface-hover hover:text-foreground'
             }`}
           >
             <span>{m.icon}</span>
@@ -231,7 +231,7 @@ function MemorizationContent() {
 
       {/* Current Verse Navigation Bar */}
       {verses.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-2 bg-slate-100 dark:bg-slate-800/60 rounded-2xl text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <div className="flex items-center justify-between px-4 py-2 bg-surface rounded-2xl border border-border text-xs font-semibold text-muted-foreground">
           <span>
             Ayah {currentVerseIndex + 1} of {verses.length} (Surah {currentVerse?.surah}:{currentVerse?.ayah})
           </span>
@@ -242,7 +242,7 @@ function MemorizationContent() {
                 setCurrentVerseIndex(prev => Math.max(0, prev - 1));
                 resetModeState();
               }}
-              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+              className="px-2.5 py-1 rounded-lg bg-card border border-border hover:bg-surface-hover text-foreground disabled:opacity-40 transition-colors"
             >
               Prev
             </button>
@@ -252,7 +252,7 @@ function MemorizationContent() {
                 setCurrentVerseIndex(prev => Math.min(verses.length - 1, prev + 1));
                 resetModeState();
               }}
-              className="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 disabled:opacity-40"
+              className="px-2.5 py-1 rounded-lg bg-card border border-border hover:bg-surface-hover text-foreground disabled:opacity-40 transition-colors"
             >
               Next
             </button>
@@ -262,31 +262,31 @@ function MemorizationContent() {
 
       {/* Main Interactive Stage for the Selected Mode */}
       {loadingVerses ? (
-        <div className="text-center py-20 text-slate-400">
-          <Brain className="w-8 h-8 mx-auto mb-2 animate-spin text-blue-500" />
+        <div className="text-center py-20 text-muted-foreground">
+          <Brain className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
           <p className="text-xs">Loading authentic verses for Surah {selectedSurahId}...</p>
         </div>
       ) : currentVerse ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
+        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
 
           {/* MODE A: LISTEN & REPEAT */}
           {activeMode === 'A' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode A • Auditory Loop</span>
-                <h3 className="text-lg font-bold">Listen & Repeat</h3>
-                <p className="text-xs text-slate-500">Listen to the Ayah repeatedly, recite along, and internalize the rhythm.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode A • Auditory Loop</span>
+                <h3 className="text-lg font-bold text-foreground">Listen & Repeat</h3>
+                <p className="text-xs text-muted-foreground">Listen to the Ayah repeatedly, recite along, and internalize the rhythm.</p>
               </div>
 
-              <div className="py-8 px-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <p className="font-arabic text-3xl sm:text-4xl text-slate-900 dark:text-slate-100 leading-loose dir-rtl" dir="rtl">
+              <div className="py-8 px-4 bg-surface rounded-2xl border border-border">
+                <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose dir-rtl" dir="rtl">
                   {currentVerse.textUthmani}
                 </p>
-                <p className="text-xs text-slate-500 mt-4 max-w-lg mx-auto">
+                <p className="text-xs text-muted-foreground mt-4 max-w-lg mx-auto">
                   {currentVerse.translationEn}
                 </p>
                 {currentVerse.translationTa && (
-                  <p className="text-xs text-emerald-600 font-tamil mt-1">
+                  <p className="text-xs text-primary font-tamil mt-1">
                     {currentVerse.translationTa}
                   </p>
                 )}
@@ -295,14 +295,14 @@ function MemorizationContent() {
               <div className="flex items-center justify-center gap-3">
                 <button
                   onClick={() => playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border hover:bg-surface-hover text-foreground text-xs font-bold transition-all active:scale-95"
                 >
                   <Volume2 className="w-4 h-4" />
                   <span>Play Recitation</span>
                 </button>
                 <button
                   onClick={() => handleSelfGrade(4)}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all active:scale-95"
+                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Mastered This Verse (+15 XP)</span>
@@ -315,14 +315,14 @@ function MemorizationContent() {
           {activeMode === 'B' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode B • Continuation</span>
-                <h3 className="text-lg font-bold">Complete the Verse</h3>
-                <p className="text-xs text-slate-500">Read the starting words and choose the correct continuation.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode B • Continuation</span>
+                <h3 className="text-lg font-bold text-foreground">Complete the Verse</h3>
+                <p className="text-xs text-muted-foreground">Read the starting words and choose the correct continuation.</p>
               </div>
 
               {/* Prompt showing only first half */}
-              <div className="py-6 px-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border text-center dir-rtl" dir="rtl">
-                <p className="font-arabic text-3xl text-emerald-800 dark:text-emerald-300">
+              <div className="py-6 px-4 bg-surface rounded-2xl border border-border text-center dir-rtl" dir="rtl">
+                <p className="font-arabic text-3xl text-primary-strong">
                   {currentVerse.words.slice(0, Math.max(2, Math.floor(currentVerse.words.length / 2))).map(w => w.arabic).join(' ')} ... ؟
                 </p>
               </div>
@@ -336,10 +336,10 @@ function MemorizationContent() {
                     onClick={() => handleCheckMultipleChoice(opt)}
                     className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
                       isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-emerald-500 text-white border-emerald-600'
+                        ? 'bg-success-subtle text-success-strong border-success/40'
                         : selectedChoice === opt && !isCorrect
-                        ? 'bg-rose-500 text-white border-rose-600'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-blue-500'
+                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
+                        : 'bg-surface border border-border hover:border-primary text-foreground'
                     }`}
                     dir="rtl"
                   >
@@ -354,21 +354,21 @@ function MemorizationContent() {
           {activeMode === 'C' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode C • Syntax Assembly</span>
-                <h3 className="text-lg font-bold">Word Reordering</h3>
-                <p className="text-xs text-slate-500">Assemble the words of this Ayah into their exact canonical order.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode C • Syntax Assembly</span>
+                <h3 className="text-lg font-bold text-foreground">Word Reordering</h3>
+                <p className="text-xs text-muted-foreground">Assemble the words of this Ayah into their exact canonical order.</p>
               </div>
 
               {/* Workspace */}
-              <div className="min-h-[80px] p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
+              <div className="min-h-[80px] p-4 bg-surface rounded-2xl border-2 border-dashed border-border flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
                 {assembledTokens.length === 0 ? (
-                  <span className="text-xs text-slate-400 font-sans" dir="ltr">Tap tokens below in order</span>
+                  <span className="text-xs text-muted-foreground font-sans" dir="ltr">Tap tokens below in order</span>
                 ) : (
                   assembledTokens.map((tok, tIdx) => (
                     <button
                       key={tIdx}
                       onClick={() => setAssembledTokens(prev => prev.filter((_, i) => i !== tIdx))}
-                      className="font-arabic text-2xl px-3 py-1.5 rounded-xl bg-blue-600 text-white shadow-xs hover:bg-rose-500 transition-colors"
+                      className="font-arabic text-2xl px-3 py-1.5 rounded-xl bg-primary text-primary-foreground shadow-xs hover:bg-danger transition-colors"
                     >
                       {tok}
                     </button>
@@ -387,8 +387,8 @@ function MemorizationContent() {
                       onClick={() => setAssembledTokens(prev => [...prev, w.arabic])}
                       className={`font-arabic text-2xl px-4 py-2 rounded-xl border transition-all ${
                         isUsed
-                          ? 'opacity-30 border-slate-200 pointer-events-none'
-                          : 'bg-white dark:bg-slate-800 border-slate-200 hover:border-blue-500'
+                          ? 'opacity-30 border-border pointer-events-none'
+                          : 'bg-surface border border-border hover:border-primary text-foreground'
                       }`}
                     >
                       {w.arabic}
@@ -410,7 +410,7 @@ function MemorizationContent() {
                       awardXP(15);
                     }
                   }}
-                  className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md"
+                  className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md transition-colors"
                 >
                   Check Canonical Order
                 </button>
@@ -422,18 +422,18 @@ function MemorizationContent() {
           {activeMode === 'D' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode D • Initial Trigger</span>
-                <h3 className="text-lg font-bold">First Word Recall</h3>
-                <p className="text-xs text-slate-500">Trigger your memory using just the initial word.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode D • Initial Trigger</span>
+                <h3 className="text-lg font-bold text-foreground">First Word Recall</h3>
+                <p className="text-xs text-muted-foreground">Trigger your memory using just the initial word.</p>
               </div>
 
-              <div className="py-8 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border text-center">
-                <span className="text-xs font-semibold text-slate-400 block mb-2">First Word:</span>
-                <p className="font-arabic text-4xl text-emerald-600 font-bold">
+              <div className="py-8 bg-surface rounded-2xl border border-border text-center">
+                <span className="text-xs font-semibold text-muted-foreground block mb-2">First Word:</span>
+                <p className="font-arabic text-4xl text-primary font-bold">
                   {currentVerse.words[0]?.arabic}
                 </p>
                 {isRevealed && (
-                  <p className="font-arabic text-2xl text-slate-800 dark:text-slate-200 mt-6 leading-loose animate-in fade-in">
+                  <p className="font-arabic text-2xl text-foreground mt-6 leading-loose animate-in fade-in">
                     {currentVerse.textUthmani}
                   </p>
                 )}
@@ -442,7 +442,7 @@ function MemorizationContent() {
               <div className="flex items-center justify-center gap-3">
                 <button
                   onClick={() => setIsRevealed(!isRevealed)}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-800 dark:text-slate-200 text-xs font-bold"
+                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
                 >
                   {isRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   <span>{isRevealed ? 'Hide Full Verse' : 'Reveal Full Verse'}</span>
@@ -455,15 +455,15 @@ function MemorizationContent() {
           {activeMode === 'E' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode E • Auditory Recognition</span>
-                <h3 className="text-lg font-bold">Audio to Ayah Match</h3>
-                <p className="text-xs text-slate-500">Play the audio clip and select which Ayah was recited.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode E • Auditory Recognition</span>
+                <h3 className="text-lg font-bold text-foreground">Audio to Ayah Match</h3>
+                <p className="text-xs text-muted-foreground">Play the audio clip and select which Ayah was recited.</p>
               </div>
 
               <div className="text-center py-4">
                 <button
                   onClick={() => playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md active:scale-95"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md active:scale-95 transition-all"
                 >
                   <Volume2 className="w-5 h-5" />
                   <span>Play Mystery Recitation</span>
@@ -478,10 +478,10 @@ function MemorizationContent() {
                     onClick={() => handleCheckMultipleChoice(opt)}
                     className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
                       isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-emerald-500 text-white border-emerald-600'
+                        ? 'bg-success-subtle text-success-strong border-success/40'
                         : selectedChoice === opt && !isCorrect
-                        ? 'bg-rose-500 text-white border-rose-600'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 hover:border-blue-500'
+                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
+                        : 'bg-surface border border-border hover:border-primary text-foreground'
                     }`}
                     dir="rtl"
                   >
@@ -496,17 +496,17 @@ function MemorizationContent() {
           {activeMode === 'F' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode F • Semantic Association</span>
-                <h3 className="text-lg font-bold">Meaning to Ayah Match</h3>
-                <p className="text-xs text-slate-500">Read the English & Tamil translations, then match with the Arabic text.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode F • Semantic Association</span>
+                <h3 className="text-lg font-bold text-foreground">Meaning to Ayah Match</h3>
+                <p className="text-xs text-muted-foreground">Read the English & Tamil translations, then match with the Arabic text.</p>
               </div>
 
-              <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border space-y-2 text-center">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+              <div className="p-6 bg-surface rounded-2xl border border-border space-y-2 text-center">
+                <p className="text-sm font-medium text-foreground">
                   &ldquo;{currentVerse.translationEn}&rdquo;
                 </p>
                 {currentVerse.translationTa && (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-300 font-tamil">
+                  <p className="text-xs text-primary-strong font-tamil">
                     &ldquo;{currentVerse.translationTa}&rdquo;
                   </p>
                 )}
@@ -520,10 +520,10 @@ function MemorizationContent() {
                     onClick={() => handleCheckMultipleChoice(opt)}
                     className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
                       isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-emerald-500 text-white border-emerald-600'
+                        ? 'bg-success-subtle text-success-strong border-success/40'
                         : selectedChoice === opt && !isCorrect
-                        ? 'bg-rose-500 text-white border-rose-600'
-                        : 'bg-white dark:bg-slate-800 border-slate-200 hover:border-blue-500'
+                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
+                        : 'bg-surface border border-border hover:border-primary text-foreground'
                     }`}
                     dir="rtl"
                   >
@@ -538,16 +538,16 @@ function MemorizationContent() {
           {activeMode === 'G' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode G • Cloze Deletion</span>
-                <h3 className="text-lg font-bold">Missing Segment</h3>
-                <p className="text-xs text-slate-500">Identify the missing word in the verse.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode G • Cloze Deletion</span>
+                <h3 className="text-lg font-bold text-foreground">Missing Segment</h3>
+                <p className="text-xs text-muted-foreground">Identify the missing word in the verse.</p>
               </div>
 
-              <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border text-center dir-rtl" dir="rtl">
-                <p className="font-arabic text-3xl leading-loose">
+              <div className="p-6 bg-surface rounded-2xl border border-border text-center dir-rtl" dir="rtl">
+                <p className="font-arabic text-3xl text-foreground leading-loose">
                   {currentVerse.words.map((w, i) => (
                     i === 1 ? (
-                      <span key={i} className="px-3 py-1 bg-amber-200 dark:bg-amber-900/60 rounded-lg text-amber-900 dark:text-amber-200 mx-1">
+                      <span key={i} className="px-3 py-1 bg-secondary-subtle border border-secondary/30 rounded-lg text-secondary-strong mx-1">
                         [ ؟ ]
                       </span>
                     ) : (
@@ -577,10 +577,10 @@ function MemorizationContent() {
                       }}
                       className={`p-4 rounded-xl border text-center font-arabic text-2xl transition-all ${
                         isAnswerChecked && opt === currentVerse.words[1]?.arabic
-                          ? 'bg-emerald-500 text-white'
+                          ? 'bg-success-subtle text-success-strong border-success/40'
                           : selectedChoice === opt && !isCorrect
-                          ? 'bg-rose-500 text-white'
-                          : 'bg-white dark:bg-slate-800 border-slate-200'
+                          ? 'bg-danger-subtle text-danger-strong border-danger/40'
+                          : 'bg-surface border border-border text-foreground hover:border-primary'
                       }`}
                     >
                       {opt}
@@ -594,18 +594,18 @@ function MemorizationContent() {
           {activeMode === 'H' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode H • Blind Recitation & SM-2 SRS</span>
-                <h3 className="text-lg font-bold">Mental Recitation & Self-Rating</h3>
-                <p className="text-xs text-slate-500">Recite Ayah {currentVerse.surah}:{currentVerse.ayah} from memory, then reveal and rate your retention quality.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode H • Blind Recitation & SM-2 SRS</span>
+                <h3 className="text-lg font-bold text-foreground">Mental Recitation & Self-Rating</h3>
+                <p className="text-xs text-muted-foreground">Recite Ayah {currentVerse.surah}:{currentVerse.ayah} from memory, then reveal and rate your retention quality.</p>
               </div>
 
-              <div className="p-8 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border min-h-[140px] flex flex-col items-center justify-center">
+              <div className="p-8 bg-surface rounded-2xl border border-border min-h-[140px] flex flex-col items-center justify-center">
                 {!isRevealed ? (
                   <div className="space-y-2">
-                    <p className="text-sm font-semibold text-slate-400">Verse hidden for blind recall</p>
+                    <p className="text-sm font-semibold text-muted-foreground">Verse hidden for blind recall</p>
                     <button
                       onClick={() => setIsRevealed(true)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md"
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95"
                     >
                       <Eye className="w-4 h-4" />
                       <span>Reveal Verse</span>
@@ -613,10 +613,10 @@ function MemorizationContent() {
                   </div>
                 ) : (
                   <div className="space-y-3 animate-in fade-in">
-                    <p className="font-arabic text-3xl sm:text-4xl text-slate-900 dark:text-slate-100 leading-loose dir-rtl" dir="rtl">
+                    <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose dir-rtl" dir="rtl">
                       {currentVerse.textUthmani}
                     </p>
-                    <p className="text-xs text-slate-500">{currentVerse.translationEn}</p>
+                    <p className="text-xs text-muted-foreground">{currentVerse.translationEn}</p>
                   </div>
                 )}
               </div>
@@ -624,31 +624,31 @@ function MemorizationContent() {
               {/* SM-2 Rating Buttons */}
               {isRevealed && (
                 <div className="space-y-2 pt-2 animate-in slide-in-from-bottom-2">
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                  <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
                     Grade Your Recall (Spaced Repetition Engine)
                   </span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                     <button
                       onClick={() => handleSelfGrade(1)}
-                      className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-rose-700 dark:text-rose-300 text-xs font-bold hover:bg-rose-100"
+                      className="p-3 rounded-xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 transition-colors"
                     >
                       Again (&lt;1d)
                     </button>
                     <button
                       onClick={() => handleSelfGrade(3)}
-                      className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 text-amber-700 dark:text-amber-300 text-xs font-bold hover:bg-amber-100"
+                      className="p-3 rounded-xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 transition-colors"
                     >
                       Hard (1-2d)
                     </button>
                     <button
                       onClick={() => handleSelfGrade(4)}
-                      className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-100"
+                      className="p-3 rounded-xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 transition-colors"
                     >
                       Good (3-5d)
                     </button>
                     <button
                       onClick={() => handleSelfGrade(5)}
-                      className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-100"
+                      className="p-3 rounded-xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover transition-colors"
                     >
                       Easy (7+d)
                     </button>
@@ -662,14 +662,14 @@ function MemorizationContent() {
           {activeMode === 'I' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode I • Rapid Memory Check</span>
-                <h3 className="text-lg font-bold">Timed Speed Recall (15s)</h3>
-                <p className="text-xs text-slate-500">Check if your neural pathways can recall the verse within 15 seconds.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode I • Rapid Memory Check</span>
+                <h3 className="text-lg font-bold text-foreground">Timed Speed Recall (15s)</h3>
+                <p className="text-xs text-muted-foreground">Check if your neural pathways can recall the verse within 15 seconds.</p>
               </div>
 
               <div className="flex items-center justify-center gap-2">
-                <Clock className="w-5 h-5 text-amber-500" />
-                <span className={`text-2xl font-extrabold ${timerSeconds <= 5 ? 'text-rose-500 animate-ping' : 'text-slate-800 dark:text-slate-200'}`}>
+                <Clock className="w-5 h-5 text-secondary" />
+                <span className={`text-2xl font-extrabold ${timerSeconds <= 5 ? 'text-danger animate-ping' : 'text-foreground'}`}>
                   {timerSeconds}s
                 </span>
               </div>
@@ -680,15 +680,15 @@ function MemorizationContent() {
                     setTimerSeconds(15);
                     setTimerActive(true);
                   }}
-                  className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md"
+                  className="px-6 py-3 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground font-bold text-xs shadow-md transition-colors"
                 >
                   Start 15s Countdown
                 </button>
               )}
 
               {timerActive && (
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border space-y-4">
-                  <p className="font-arabic text-3xl text-slate-900 dark:text-slate-100 leading-loose dir-rtl" dir="rtl">
+                <div className="p-6 bg-surface rounded-2xl border border-border space-y-4">
+                  <p className="font-arabic text-3xl text-foreground leading-loose dir-rtl" dir="rtl">
                     {currentVerse.textUthmani}
                   </p>
                   <button
@@ -697,7 +697,7 @@ function MemorizationContent() {
                       confetti({ particleCount: 60 });
                       awardXP(20);
                     }}
-                    className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md"
+                    className="px-6 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-colors"
                   >
                     I Recited It In Time! (+20 XP)
                   </button>
@@ -710,17 +710,17 @@ function MemorizationContent() {
           {activeMode === 'J' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Mode J • AI Tutor Mentorship</span>
-                <h3 className="text-lg font-bold">AI Guided Hifz Session</h3>
-                <p className="text-xs text-slate-500">Work directly with the AI tutor to identify phonetic pitfalls and mnemonic associations.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode J • AI Tutor Mentorship</span>
+                <h3 className="text-lg font-bold text-foreground">AI Guided Hifz Session</h3>
+                <p className="text-xs text-muted-foreground">Work directly with the AI tutor to identify phonetic pitfalls and mnemonic associations.</p>
               </div>
 
-              <div className="p-6 bg-emerald-50/50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-800/50 text-center space-y-3">
-                <Sparkles className="w-8 h-8 text-amber-500 mx-auto" />
-                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              <div className="p-6 bg-primary-subtle rounded-2xl border border-primary/30 text-center space-y-3">
+                <Sparkles className="w-8 h-8 text-secondary mx-auto" />
+                <h4 className="text-sm font-bold text-foreground">
                   Ready to test Surah {currentVerse.surah}:{currentVerse.ayah}
                 </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto">
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
                   The AI tutor will ask you targeted questions about roots, Tajweed phonetics, and Tamil/English context for this verse.
                 </p>
                 <button
@@ -728,7 +728,7 @@ function MemorizationContent() {
                     setAiTutorPrompt(`Please guide me in memorizing Surah ${currentVerse.surah}:${currentVerse.ayah} ("${currentVerse.textUthmani}"). Give me: 1) Memory anchors / root connections, 2) Tajweed pronunciation watch-outs, 3) Tamil explanation to reinforce meaning.`);
                     setAiTutorOpen(true);
                   }}
-                  className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md"
+                  className="px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-colors"
                 >
                   Start AI Coaching for this Ayah
                 </button>
@@ -751,7 +751,7 @@ function MemorizationContent() {
 
 export default function MemorizationPage() {
   return (
-    <Suspense fallback={<div className="py-20 text-center text-xs text-slate-400">Loading Memorization Suite...</div>}>
+    <Suspense fallback={<div className="py-20 text-center text-xs text-muted-foreground">Loading Memorization Suite...</div>}>
       <MemorizationContent />
     </Suspense>
   );

@@ -4,9 +4,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS } from '@/components/quran/AudioBar';
-import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor } from 'lucide-react';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function SettingsPage() {
+  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [selectedReciter, setSelectedReciter] = useState('ar.alafasy');
   const [showEnglish, setShowEnglish] = useState(true);
@@ -74,46 +76,143 @@ export default function SettingsPage() {
     <div id="settings-page" className="max-w-2xl mx-auto space-y-8 animate-in fade-in duration-300">
       {/* Title */}
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <Settings className="w-6 h-6 text-emerald-600" />
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <Settings className="w-6 h-6 text-primary" />
           <span>Application Settings & Data Ownership</span>
         </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Configure reader preferences, reciter audio, and complete local-first data backup.
+        <p className="text-xs text-muted-foreground">
+          Configure reader preferences, appearance theme, reciter audio, and complete local-first data backup.
         </p>
       </div>
 
+      {/* Appearance & Color Theme Section */}
+      <div id="theme-settings-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-bold text-foreground">
+              Appearance & Color Theme
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Choose your reading ambiance or synchronize with system appearance.
+            </p>
+          </div>
+          <button
+            id="settings-theme-toggle-btn"
+            type="button"
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-surface hover:bg-surface-hover text-xs font-semibold text-foreground transition-colors shadow-2xs"
+          >
+            {resolvedTheme === 'dark' ? (
+              <>
+                <Sun className="w-3.5 h-3.5 text-secondary-strong" />
+                <span>Switch to Light</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-3.5 h-3.5 text-primary-strong" />
+                <span>Switch to Dark</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setTheme('light')}
+            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col items-start justify-between gap-2.5 ${
+              theme === 'light'
+                ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="w-7 h-7 rounded-lg bg-secondary-subtle flex items-center justify-center text-secondary-strong">
+                <Sun className="w-4 h-4" />
+              </div>
+              {theme === 'light' && <Check className="w-4 h-4 text-primary" />}
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">Light Mode</div>
+              <div className="text-[10px] text-muted-foreground">Warm daylight clarity</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('dark')}
+            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col items-start justify-between gap-2.5 ${
+              theme === 'dark'
+                ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="w-7 h-7 rounded-lg bg-surface-muted flex items-center justify-center text-primary">
+                <Moon className="w-4 h-4" />
+              </div>
+              {theme === 'dark' && <Check className="w-4 h-4 text-primary" />}
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">Dark Mode</div>
+              <div className="text-[10px] text-muted-foreground">Nocturnal cypress & obsidian</div>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('system')}
+            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col items-start justify-between gap-2.5 ${
+              theme === 'system'
+                ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <div className="w-7 h-7 rounded-lg bg-surface-muted flex items-center justify-center text-foreground">
+                <Monitor className="w-4 h-4" />
+              </div>
+              {theme === 'system' && <Check className="w-4 h-4 text-primary" />}
+            </div>
+            <div>
+              <div className="text-xs font-bold text-foreground">System Default</div>
+              <div className="text-[10px] text-muted-foreground">Sync with OS theme</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* AI BYOK Callout Card */}
-      <div className="p-6 rounded-3xl bg-linear-to-r from-emerald-900 to-teal-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
+      <div className="p-6 rounded-3xl bg-hero-bg text-hero-fg border border-hero-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-800 text-emerald-200 text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg text-xs font-semibold">
+            <Sparkles className="w-3.5 h-3.5 text-secondary" />
             <span>AI Model Registry</span>
           </div>
           <h3 className="text-base font-bold">Bring Your Own Key (BYOK)</h3>
-          <p className="text-xs text-emerald-200/90 max-w-sm">
+          <p className="text-xs text-hero-muted max-w-sm">
             Configure Gemini, OpenAI, Anthropic, Groq, Mistral, or custom Ollama endpoints with local AES-GCM key encryption.
           </p>
         </div>
 
         <Link
           href="/settings/ai"
-          className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-all shadow-md shrink-0"
+          className="px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground text-xs font-bold transition-all shadow-md shrink-0"
         >
           Manage AI Keys
         </Link>
       </div>
 
       {/* Audio & Reciter Settings */}
-      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-        <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+      <div className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-4">
+        <h3 className="text-sm font-bold text-foreground">
           Default Reciter
         </h3>
         <div className="space-y-2">
           <select
             value={selectedReciter}
             onChange={(e) => setSelectedReciter(e.target.value)}
-            className="w-full text-xs p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-hidden text-slate-800 dark:text-slate-200"
+            className="w-full text-xs p-3 rounded-xl bg-surface border border-border outline-hidden text-foreground focus:ring-2 focus:ring-primary"
           >
             {RECITERS.map((r) => (
               <option key={r.id} value={r.id}>
@@ -121,26 +220,26 @@ export default function SettingsPage() {
               </option>
             ))}
           </select>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-muted-foreground">
             High-quality murattal audio streams verified from CDN sources.
           </p>
         </div>
       </div>
 
       {/* Local-First Data Ownership & Export / Import */}
-      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
+      <div className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-5">
         <div className="space-y-1">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+          <h3 className="text-sm font-bold text-foreground">
             Data Ownership & Offline Backup
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-muted-foreground">
             All your bookmarks, SRS review intervals, and lesson history reside securely in your browser&apos;s IndexedDB. You can export or import at any time.
           </p>
         </div>
 
         {importStatus && (
-          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="p-3.5 rounded-xl bg-success-subtle border border-success/30 text-xs text-success-strong flex items-center gap-2">
+            <Check className="w-4 h-4 text-success shrink-0" />
             <span>{importStatus}</span>
           </div>
         )}
@@ -149,18 +248,18 @@ export default function SettingsPage() {
           {/* Export button */}
           <button
             onClick={handleExport}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors"
+            className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
           >
-            <Download className="w-4 h-4 text-emerald-600" />
+            <Download className="w-4 h-4 text-primary" />
             <span>{exportSuccess ? 'Backup Downloaded!' : 'Export JSON Backup'}</span>
           </button>
 
           {/* Import button */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors"
+            className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
           >
-            <Upload className="w-4 h-4 text-blue-600" />
+            <Upload className="w-4 h-4 text-info" />
             <span>Import JSON Backup</span>
           </button>
           <input
@@ -173,14 +272,14 @@ export default function SettingsPage() {
         </div>
 
         {/* Reset */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="pt-3 border-t border-border flex items-center justify-between">
           <div>
-            <h4 className="text-xs font-bold text-rose-600">Reset Local Learning Database</h4>
-            <p className="text-[11px] text-slate-400">Clears all lesson history and SRS intervals.</p>
+            <h4 className="text-xs font-bold text-destructive">Reset Local Learning Database</h4>
+            <p className="text-[11px] text-muted-foreground">Clears all lesson history and SRS intervals.</p>
           </div>
           <button
             onClick={handleReset}
-            className="px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100"
+            className="px-3.5 py-2 rounded-xl bg-destructive-subtle border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/20 transition-colors"
           >
             Reset Data
           </button>

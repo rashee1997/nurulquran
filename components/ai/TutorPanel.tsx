@@ -136,23 +136,23 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
   return (
     <div
       id="ai-tutor-panel"
-      className="fixed inset-y-0 right-0 z-50 w-full sm:w-[440px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
+      className="fixed inset-y-0 right-0 z-50 w-full sm:w-[440px] bg-card border-l border-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
     >
       {/* Header */}
-      <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/40">
+      <div className="p-4 border-b border-border flex items-center justify-between bg-surface">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+          <div className="w-9 h-9 rounded-xl bg-primary-subtle flex items-center justify-center text-primary-strong">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
               NurulQuran AI Tutor
             </h3>
-            <div className="flex items-center gap-1 text-[10px] text-slate-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
               <span className="truncate max-w-[180px]">{activeProviderName}</span>
               <span>•</span>
-              <Link href="/settings/ai" className="text-emerald-600 hover:underline">
+              <Link href="/settings/ai" className="text-primary hover:underline">
                 BYOK
               </Link>
             </div>
@@ -162,7 +162,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
         <button
           id="close-tutor-panel-btn"
           onClick={onClose}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
@@ -172,21 +172,21 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
       <div ref={chatContainerRef} className="flex-1 p-4 overflow-y-auto space-y-4">
         {messages.length === 0 && (
           <div className="text-center py-8 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950 mx-auto flex items-center justify-center text-emerald-600">
+            <div className="w-12 h-12 rounded-2xl bg-primary-subtle mx-auto flex items-center justify-center text-primary-strong">
               <Bot className="w-6 h-6" />
             </div>
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+              <h4 className="text-sm font-bold text-foreground">
                 Assalamu Alaikum!
               </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+              <p className="text-xs text-muted-foreground max-w-xs mx-auto">
                 I am your scholarly Quran & Arabic tutor. I verify every verse and word root deterministically from authentic sources.
               </p>
             </div>
 
             {/* Quick action chips */}
             <div className="space-y-2 pt-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Suggested Questions
               </span>
               <div className="flex flex-col gap-1.5">
@@ -194,7 +194,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
                   <button
                     key={idx}
                     onClick={() => sendMessage(qp)}
-                    className="text-left text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-colors"
+                    className="text-left text-xs p-2.5 rounded-xl bg-surface hover:bg-primary-subtle border border-border hover:border-primary/40 text-foreground transition-colors"
                   >
                     {qp}
                   </button>
@@ -212,7 +212,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
             }`}
           >
             {m.role !== 'user' && (
-              <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 shrink-0 mt-0.5">
+              <div className="w-7 h-7 rounded-lg bg-primary-subtle flex items-center justify-center text-primary-strong shrink-0 mt-0.5">
                 <Bot className="w-4 h-4" />
               </div>
             )}
@@ -220,15 +220,15 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
             <div
               className={`rounded-2xl p-3.5 max-w-[85%] ${
                 m.role === 'user'
-                  ? 'bg-emerald-600 text-white rounded-tr-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-xs space-y-2'
+                  ? 'bg-primary text-primary-foreground rounded-tr-xs'
+                  : 'bg-surface border border-border text-foreground rounded-tl-xs space-y-2'
               }`}
             >
               <div className="whitespace-pre-wrap">{m.content}</div>
             </div>
 
             {m.role === 'user' && (
-              <div className="w-7 h-7 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0 mt-0.5">
+              <div className="w-7 h-7 rounded-lg bg-surface-muted flex items-center justify-center text-foreground shrink-0 mt-0.5">
                 <User className="w-4 h-4" />
               </div>
             )}
@@ -237,13 +237,13 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
 
         {isLoading && (
           <div className="flex gap-3 text-xs">
-            <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950 flex items-center justify-center text-emerald-600 shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-primary-subtle flex items-center justify-center text-primary-strong shrink-0">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl rounded-tl-xs flex items-center gap-1.5 text-slate-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce" />
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:0.2s]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce [animation-delay:0.4s]" />
+            <div className="p-3 bg-surface border border-border rounded-2xl rounded-tl-xs flex items-center gap-1.5 text-muted-foreground">
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" />
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.2s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.4s]" />
               <span className="ml-1 text-[11px]">Consulting authentic Quran data...</span>
             </div>
           </div>
@@ -256,19 +256,19 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
           e.preventDefault();
           sendMessage(input);
         }}
-        className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2"
+        className="p-3 border-t border-border bg-card flex items-center gap-2"
       >
         <input
           id="tutor-prompt-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask about verses, roots, Tajweed, or Tamil..."
-          className="flex-1 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 text-xs px-3.5 py-2.5 rounded-xl outline-hidden focus:ring-2 focus:ring-emerald-500 placeholder:text-slate-400"
+          className="flex-1 bg-surface border border-border text-foreground text-xs px-3.5 py-2.5 rounded-xl outline-hidden focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
         />
         <button
           type="submit"
           disabled={!input.trim() || isLoading}
-          className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:pointer-events-none text-white transition-colors shadow-xs"
+          className="p-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-40 disabled:pointer-events-none text-primary-foreground transition-colors shadow-xs"
         >
           <Send className="w-4 h-4" />
         </button>

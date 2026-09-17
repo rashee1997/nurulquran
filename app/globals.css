@@ -1,47 +1,284 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Amiri+Quran&family=Scheherazade+New:wght@400;700&family=Noto+Sans+Arabic:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-:root {
+/* ==========================================================================
+   SEMANTIC DESIGN SYSTEM TOKENS - NURULQURAN
+   Tier 1 (Primitives) & Tier 2 (Semantic Roles)
+   Single Source of Truth for Light & Dark Mode
+   ========================================================================== */
+
+@theme {
   --font-arabic: 'Amiri Quran', 'Scheherazade New', 'Noto Sans Arabic', serif;
   --font-tamil: 'Noto Sans Tamil', sans-serif;
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  
-  --background: 45 20% 98%;
-  --foreground: 220 20% 12%;
-  --card: 0 0% 100%;
-  --card-foreground: 220 20% 12%;
-  --primary: 158 64% 32%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 42 78% 55%;
-  --secondary-foreground: 24 50% 15%;
-  --muted: 210 15% 94%;
-  --muted-foreground: 215 16% 45%;
-  --accent: 158 35% 92%;
-  --accent-foreground: 158 64% 25%;
-  --border: 214 20% 88%;
+
+  /* Base Canvas & Typography */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Containers & Surfaces */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-raised: var(--surface-raised);
+
+  /* Structural Boundaries & Dividers */
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+
+  /* Primary Brand (Spiritual Emerald) */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-strong: var(--primary-strong);
+
+  /* Secondary Brand (Illumination Amber & Gold) */
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-subtle: var(--secondary-subtle);
+  --color-secondary-strong: var(--secondary-strong);
+
+  /* Neutrals & Muted Content */
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  /* Accent Roles */
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-subtle: var(--accent-subtle);
+
+  /* Feedback & Alerts */
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-strong: var(--destructive-strong);
+
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-warning-strong: var(--warning-strong);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-success-strong: var(--success-strong);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-info-strong: var(--info-strong);
+
+  /* Dedicated Hero Header & Banner Tokens */
+  --color-hero-bg: var(--hero-bg);
+  --color-hero-fg: var(--hero-fg);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-border: var(--hero-border);
+  --color-hero-pill-bg: var(--hero-pill-bg);
+  --color-hero-pill-fg: var(--hero-pill-fg);
+  --color-hero-card-bg: var(--hero-card-bg);
+
+  /* Tajweed Rule Phonetics Tokens */
+  --color-tajweed-ghunnah: var(--tajweed-ghunnah);
+  --color-tajweed-qalqalah: var(--tajweed-qalqalah);
+  --color-tajweed-ikhfa: var(--tajweed-ikhfa);
+  --color-tajweed-idgham: var(--tajweed-idgham);
+  --color-tajweed-iqlab: var(--tajweed-iqlab);
+  --color-tajweed-madd: var(--tajweed-madd);
+  --color-tajweed-madd-long: var(--tajweed-madd-long);
+  --color-tajweed-silent: var(--tajweed-silent);
 }
 
+/* ==========================================================================
+   TIER 2: SEMANTIC MAPPINGS (LIGHT MODE DEFAULT)
+   Curated with bespoke warm/neutral tones calibrated for daylight clarity
+   ========================================================================== */
+:root {
+  /* Canvas & Base Text (Contrast ratio > 15:1) */
+  --background: #f8faf8;
+  --foreground: #111a15;
+
+  /* Surfaces & Containers */
+  --card: #ffffff;
+  --card-foreground: #111a15;
+  --surface: #ffffff;
+  --surface-hover: #f0f4f1;
+  --surface-muted: #f3f6f4;
+  --surface-raised: #ffffff;
+
+  /* Borders & Dividers */
+  --border: #e1e7e3;
+  --border-subtle: #edf2ef;
+  --border-strong: #c8d3cc;
+
+  /* Primary Emerald */
+  --primary: #059669;
+  --primary-foreground: #ffffff;
+  --primary-hover: #047857;
+  --primary-subtle: #ecfdf5;
+  --primary-strong: #065f46;
+
+  /* Secondary Amber */
+  --secondary: #d97706;
+  --secondary-foreground: #ffffff;
+  --secondary-hover: #b45309;
+  --secondary-subtle: #fffbeb;
+  --secondary-strong: #92400e;
+
+  /* Muted Text & Elements (Contrast ratio > 5:1, WCAG AA) */
+  --muted: #edf2ee;
+  --muted-foreground: #52665a;
+
+  /* Accent */
+  --accent: #ecfdf5;
+  --accent-foreground: #065f46;
+  --accent-subtle: #f0fdf4;
+
+  /* States */
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --destructive-hover: #b91c1c;
+  --destructive-subtle: #fef2f2;
+  --destructive-strong: #991b1b;
+
+  --warning: #d97706;
+  --warning-foreground: #ffffff;
+  --warning-subtle: #fffbeb;
+  --warning-strong: #92400e;
+
+  --success: #059669;
+  --success-foreground: #ffffff;
+  --success-subtle: #ecfdf5;
+  --success-strong: #065f46;
+
+  --info: #2563eb;
+  --info-foreground: #ffffff;
+  --info-subtle: #eff6ff;
+  --info-strong: #1e40af;
+
+  /* Hero Display Section */
+  --hero-bg: #064e3b;
+  --hero-fg: #ffffff;
+  --hero-muted: #a7f3d0;
+  --hero-border: #047857;
+  --hero-pill-bg: #047857;
+  --hero-pill-fg: #d1fae5;
+  --hero-card-bg: rgba(255, 255, 255, 0.12);
+  --pattern-dot: rgba(255, 255, 255, 0.4);
+
+  /* Tajweed Rules */
+  --tajweed-ghunnah: #d97706;
+  --tajweed-qalqalah: #2563eb;
+  --tajweed-ikhfa: #059669;
+  --tajweed-idgham: #0d9488;
+  --tajweed-iqlab: #e11d48;
+  --tajweed-madd: #9333ea;
+  --tajweed-madd-long: #dc2626;
+  --tajweed-silent: #94a3b8;
+}
+
+/* ==========================================================================
+   TIER 2: SEMANTIC MAPPINGS (DARK MODE)
+   Curated deep nocturnal cypress & obsidian palette
+   ========================================================================== */
 .dark {
-  --background: 222 30% 8%;
-  --foreground: 210 20% 96%;
-  --card: 222 25% 12%;
-  --card-foreground: 210 20% 96%;
-  --primary: 158 60% 45%;
-  --primary-foreground: 222 30% 8%;
-  --secondary: 42 78% 60%;
-  --secondary-foreground: 24 50% 10%;
-  --muted: 220 20% 18%;
-  --muted-foreground: 215 15% 65%;
-  --accent: 158 40% 18%;
-  --accent-foreground: 158 60% 75%;
-  --border: 220 20% 20%;
+  /* Canvas & Base Text (Contrast ratio > 14:1) */
+  --background: #09120e;
+  --foreground: #ecf5f0;
+
+  /* Surfaces & Containers */
+  --card: #0f1c16;
+  --card-foreground: #ecf5f0;
+  --surface: #0f1c16;
+  --surface-hover: #162a20;
+  --surface-muted: #13241b;
+  --surface-raised: #182e22;
+
+  /* Borders & Dividers */
+  --border: #1b3327;
+  --border-subtle: #14281f;
+  --border-strong: #274b3a;
+
+  /* Primary Emerald */
+  --primary: #10b981;
+  --primary-foreground: #04251a;
+  --primary-hover: #34d399;
+  --primary-subtle: rgba(16, 185, 129, 0.16);
+  --primary-strong: #6ee7b7;
+
+  /* Secondary Amber */
+  --secondary: #f59e0b;
+  --secondary-foreground: #271403;
+  --secondary-hover: #fbbf24;
+  --secondary-subtle: rgba(245, 158, 11, 0.16);
+  --secondary-strong: #fcd34d;
+
+  /* Muted Text & Elements (Contrast ratio > 5.5:1, WCAG AA) */
+  --muted: #13241b;
+  --muted-foreground: #8aa395;
+
+  /* Accent */
+  --accent: rgba(16, 185, 129, 0.16);
+  --accent-foreground: #6ee7b7;
+  --accent-subtle: rgba(16, 185, 129, 0.08);
+
+  /* States */
+  --destructive: #f87171;
+  --destructive-foreground: #2d0606;
+  --destructive-hover: #ef4444;
+  --destructive-subtle: rgba(248, 113, 113, 0.16);
+  --destructive-strong: #fca5a5;
+
+  --warning: #f59e0b;
+  --warning-foreground: #271403;
+  --warning-subtle: rgba(245, 158, 11, 0.16);
+  --warning-strong: #fcd34d;
+
+  --success: #10b981;
+  --success-foreground: #04251a;
+  --success-subtle: rgba(16, 185, 129, 0.16);
+  --success-strong: #6ee7b7;
+
+  --info: #60a5fa;
+  --info-foreground: #081d38;
+  --info-subtle: rgba(96, 165, 250, 0.16);
+  --info-strong: #93c5fd;
+
+  /* Hero Display Section */
+  --hero-bg: #041f17;
+  --hero-fg: #ffffff;
+  --hero-muted: #6ee7b7;
+  --hero-border: #064e3b;
+  --hero-pill-bg: #064e3b;
+  --hero-pill-fg: #a7f3d0;
+  --hero-card-bg: rgba(255, 255, 255, 0.08);
+  --pattern-dot: rgba(255, 255, 255, 0.3);
+
+  /* Tajweed Rules */
+  --tajweed-ghunnah: #fbbf24;
+  --tajweed-qalqalah: #60a5fa;
+  --tajweed-ikhfa: #34d399;
+  --tajweed-idgham: #2dd4bf;
+  --tajweed-iqlab: #fb7185;
+  --tajweed-madd: #c084fc;
+  --tajweed-madd-long: #f87171;
+  --tajweed-silent: #64748b;
 }
 
+/* ==========================================================================
+   GLOBAL ELEMENT RESETS & TYPOGRAPHY
+   ========================================================================== */
 body {
   font-family: var(--font-sans);
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: var(--background);
+  color: var(--foreground);
   min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .font-arabic {
@@ -56,6 +293,12 @@ body {
   line-height: 1.7;
 }
 
+/* Dot pattern background utility referencing semantic token */
+.bg-pattern-dots {
+  background-image: radial-gradient(var(--pattern-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -65,9 +308,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.25);
+  background: var(--border-strong);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.45);
+  background: var(--muted-foreground);
 }
