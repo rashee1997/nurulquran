@@ -10,6 +10,7 @@ import {
   PCMAudioStreamPlayer,
 } from '@/lib/audio/pcm-audio';
 import { db, UserProfile } from '@/lib/db';
+import { FeedbackLanguage, normalizeFeedbackLanguage } from '@/lib/i18n/language';
 
 export interface TajweedLiveFeedback {
   coachResponseEn: string;
@@ -35,6 +36,8 @@ export interface UseLiveTajweedOptions {
   currentActivityTitle?: string;
   promptArabic?: string;
   targetRule?: string;
+  /** Explicit feedback language override; falls back to the saved profile preference. */
+  language?: FeedbackLanguage;
   onFeedbackReceived?: (feedback: TajweedLiveFeedback) => void;
 }
 
@@ -43,6 +46,7 @@ export function useLiveTajweed({
   currentActivityTitle = 'Letter Pronunciation',
   promptArabic = '',
   targetRule = 'General Tajweed',
+  language,
   onFeedbackReceived,
 }: UseLiveTajweedOptions = {}) {
   const [status, setStatus] = useState<LiveCoachStatus>('idle');
@@ -139,7 +143,7 @@ export function useLiveTajweed({
             targetRule,
             voiceId: userProfile?.aiVoiceId || 'Kore',
             teacherPersona: userProfile?.aiTeacherPersona || 'balanced',
-            language: userProfile?.aiFeedbackLanguage || 'both',
+            language: normalizeFeedbackLanguage(language ?? userProfile?.aiFeedbackLanguage),
           }),
         });
 
@@ -178,6 +182,7 @@ export function useLiveTajweed({
       currentActivityTitle,
       promptArabic,
       targetRule,
+      language,
       userProfile,
       onFeedbackReceived,
     ]

@@ -7,6 +7,11 @@ import { RECITERS } from '@/components/quran/AudioBar';
 import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import { AI_TEACHER_VOICES, playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
+import {
+  FEEDBACK_LANGUAGE_OPTIONS,
+  FeedbackLanguage,
+  normalizeFeedbackLanguage,
+} from '@/lib/i18n/language';
 
 export default function SettingsPage() {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
@@ -19,6 +24,12 @@ export default function SettingsPage() {
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
   const [preferenceSavedNotice, setPreferenceSavedNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Single source of truth: what the AI teacher writes AND what the preview speaks
+  const feedbackLanguage = normalizeFeedbackLanguage(profile?.aiFeedbackLanguage);
+  const activeLanguageOption =
+    FEEDBACK_LANGUAGE_OPTIONS.find((option) => option.id === feedbackLanguage) ||
+    FEEDBACK_LANGUAGE_OPTIONS[0];
 
   useEffect(() => {
     async function load() {
@@ -93,7 +104,7 @@ export default function SettingsPage() {
     setTimeout(() => setPreferenceSavedNotice(null), 3000);
   };
 
-  const handleLanguageChange = async (lang: 'both' | 'en' | 'ta') => {
+  const handleLanguageChange = async (lang: FeedbackLanguage) => {
     if (!profile) return;
     const updated = { ...profile, aiFeedbackLanguage: lang };
     setProfile(updated);
@@ -106,11 +117,11 @@ export default function SettingsPage() {
     e.stopPropagation();
     try {
       setPreviewVoiceId(voiceId);
-      await playVoiceHarmonicPreview(voiceId);
-      // Give sufficient duration for full spoken phrase
+      await playVoiceHarmonicPreview(voiceId, undefined, feedbackLanguage);
+      // Bilingual previews speak English then Tamil, so give them more time before resetting
       setTimeout(() => {
         setPreviewVoiceId((current) => (current === voiceId ? null : current));
-      }, 3500);
+      }, feedbackLanguage === 'both' ? 7000 : 4500);
     } catch (err) {
       console.warn('Voice preview playback error:', err);
       setPreviewVoiceId(null);
@@ -257,7 +268,9 @@ export default function SettingsPage() {
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
               1. Teacher Voice Timbre ({AI_TEACHER_VOICES.length} Options)
             </h4>
-            <span className="text-[11px] text-muted-foreground">Click card to select • Tap preview for real spoken sample</span>
+            <span className="text-[11px] text-muted-foreground">
+              Click card to select • Preview speaks {activeLanguageOption.short}
+            </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -375,21 +388,19 @@ export default function SettingsPage() {
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
               3. Feedback Language Preference
             </h4>
-            <span className="text-[11px] text-muted-foreground">Select oral & written instruction language</span>
+            <span className="text-[11px] text-muted-foreground">
+              Applies to the voice preview, live coach replies &amp; written feedback
+            </span>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            {[
-              { id: 'both', label: 'English & Tamil (இருமொழி)', sub: 'Complete bilingual explanations' },
-              { id: 'en', label: 'English Only', sub: 'Standard international English' },
-              { id: 'ta', label: 'Tamil Only (தமிழ் மட்டும்)', sub: 'முழுமையான தமிழ் விளக்கம்' },
-            ].map((lang) => {
-              const isSelected = (profile?.aiFeedbackLanguage || 'both') === lang.id;
+            {FEEDBACK_LANGUAGE_OPTIONS.map((lang) => {
+              const isSelected = feedbackLanguage === lang.id;
               return (
                 <button
                   key={lang.id}
                   type="button"
-                  onClick={() => handleLanguageChange(lang.id as 'both' | 'en' | 'ta')}
+                  onClick={() => handleLanguageChange(lang.id)}
                   className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1 ${
                     isSelected
                       ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'

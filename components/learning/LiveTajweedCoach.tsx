@@ -19,7 +19,14 @@ import {
   Languages,
 } from 'lucide-react';
 import { useLiveTajweed, TajweedLiveFeedback } from '@/hooks/use-live-tajweed';
-import { playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
+import { db } from '@/lib/db';
+import {
+  FEEDBACK_LANGUAGE_OPTIONS,
+  FeedbackLanguage,
+  isEnglishEnabled,
+  isTamilEnabled,
+  normalizeFeedbackLanguage,
+} from '@/lib/i18n/language';
 
 interface LiveTajweedCoachProps {
   currentLessonTitle?: string;
@@ -44,6 +51,44 @@ interface CoachChatMessage {
   latencyMs?: number;
 }
 
+/** Compact tri-state language picker — English & Tamil / English only / Tamil only. */
+const LanguageSwitcher: React.FC<{
+  value: FeedbackLanguage;
+  onChange: (language: FeedbackLanguage) => void;
+  tone?: 'surface' | 'hero';
+}> = ({ value, onChange, tone = 'surface' }) => (
+  <div
+    className={`flex items-center gap-0.5 p-0.5 rounded-full border shrink-0 ${
+      tone === 'hero' ? 'bg-hero-pill-bg border-hero-border' : 'bg-surface border-border'
+    }`}
+    title="Coach reply language"
+  >
+    <Languages
+      className={`w-3 h-3 ml-1 shrink-0 ${tone === 'hero' ? 'text-hero-muted' : 'text-muted-foreground'}`}
+    />
+    {FEEDBACK_LANGUAGE_OPTIONS.map((option) => {
+      const isActive = option.id === value;
+      return (
+        <button
+          key={option.id}
+          type="button"
+          onClick={() => onChange(option.id)}
+          title={option.previewNote}
+          className={`px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap transition-colors ${
+            isActive
+              ? 'bg-primary text-primary-foreground'
+              : tone === 'hero'
+                ? 'text-hero-muted hover:text-hero-fg'
+                : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {option.short}
+        </button>
+      );
+    })}
+  </div>
+);
+
 export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   currentLessonTitle = 'Tajweed Practice',
   currentActivityTitle = 'Letter Pronunciation',
@@ -65,6 +110,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   ]);
   const [inputQuery, setInputQuery] = useState('');
   const [isTypingLoading, setIsTypingLoading] = useState(false);
+  const [languageOverride, setLanguageOverride] = useState<FeedbackLanguage | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
   // Hook for Web Audio 16kHz PCM streaming and Gemini live evaluation
@@ -85,6 +131,8 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
     currentActivityTitle,
     promptArabic,
     targetRule,
+    // null = follow the saved profile preference (loaded inside the hook)
+    language: languageOverride ?? undefined,
     onFeedbackReceived: (fb: TajweedLiveFeedback) => {
       const coachMsg: CoachChatMessage = {
         id: 'c-' + Date.now(),
@@ -104,6 +152,20 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, status, isTypingLoading]);
+
+  const language = languageOverride ?? normalizeFeedbackLanguage(userProfile?.aiFeedbackLanguage);
+  const showEnglish = isEnglishEnabled(language);
+  const showTamil = isTamilEnabled(language);
+
+  // Switching language here persists the same preference used by Settings and the voice preview
+  const handleLanguageChange = async (next: FeedbackLanguage) => {
+    setLanguageOverride(next);
+    try {
+      await db.userProfile.update('default_user', { aiFeedbackLanguage: next });
+    } catch (err) {
+      console.warn('Failed to persist feedback language preference:', err);
+    }
+  };
 
   // Send typed query to coach
   const sendTypedQuery = async (queryText?: string) => {
@@ -135,7 +197,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           targetRule,
           voiceId: userProfile?.aiVoiceId || 'Kore',
           teacherPersona: userProfile?.aiTeacherPersona || 'balanced',
-          language: userProfile?.aiFeedbackLanguage || 'both',
+          language,
         }),
       });
 
@@ -199,6 +261,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <LanguageSwitcher value={language} onChange={handleLanguageChange} />
             {latencyMs && (
               <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
                 <Zap className="w-3 h-3 text-secondary" />
@@ -302,19 +365,25 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                 )}
               </div>
 
-              <p className="text-xs text-foreground leading-relaxed">{latestFeedback.coachResponseEn}</p>
+              {showEnglish && latestFeedback.coachResponseEn && (
+                <p className="text-xs text-foreground leading-relaxed">{latestFeedback.coachResponseEn}</p>
+              )}
 
-              {latestFeedback.coachResponseTa && (
+              {showTamil && latestFeedback.coachResponseTa && (
                 <p className="font-tamil text-[11px] text-muted-foreground pt-1 border-t border-border leading-relaxed">
                   <span className="font-sans font-bold text-primary-strong text-[10px] mr-1">தமிழ்:</span>
                   {latestFeedback.coachResponseTa}
                 </p>
               )}
 
-              {latestFeedback.makhrajTip && (
+              {((showEnglish && latestFeedback.makhrajTip) || (showTamil && latestFeedback.makhrajTipTa)) && (
                 <div className="p-2 rounded-lg bg-secondary-subtle border border-secondary/30 text-secondary-strong text-[11px] flex items-start gap-1.5">
                   <span className="shrink-0">💡</span>
-                  <span>{latestFeedback.makhrajTip}</span>
+                  <span>
+                    {showEnglish
+                      ? latestFeedback.makhrajTip
+                      : latestFeedback.makhrajTipTa}
+                  </span>
                 </div>
               )}
             </div>
@@ -342,6 +411,11 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg">
                   Voice: {userProfile?.aiVoiceId || 'Kore'}
                 </span>
+                <LanguageSwitcher
+                  value={language}
+                  onChange={handleLanguageChange}
+                  tone="hero"
+                />
               </div>
               <p className="text-[11px] text-hero-muted truncate max-w-[260px]">
                 {currentLessonTitle} • {currentActivityTitle}
@@ -404,9 +478,9 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                       : 'bg-primary text-primary-foreground font-medium'
                   }`}
                 >
-                  <p>{m.textEn}</p>
+                  {(!isCoach || showEnglish) && <p>{m.textEn}</p>}
 
-                  {m.textTa && (
+                  {isCoach && showTamil && m.textTa && (
                     <p className="font-tamil text-foreground pt-1 border-t border-border">
                       <span className="font-sans font-bold text-primary-strong text-[10px] block mb-0.5">
                         தமிழ் விளக்கம்:
@@ -415,12 +489,14 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                     </p>
                   )}
 
-                  {m.makhrajTip && (
+                  {((showEnglish && m.makhrajTip) || (showTamil && m.makhrajTipTa)) && (
                     <div className="p-2 rounded-lg bg-secondary-subtle border border-secondary/30 text-secondary-strong text-[11px] flex items-start gap-1.5">
                       <span className="shrink-0">💡</span>
-                      <div>
-                        <span className="font-bold block text-[10px] uppercase">Makhraj Alignment:</span>
-                        <span>{m.makhrajTip}</span>
+                      <div className={showEnglish ? '' : 'font-tamil'}>
+                        <span className="font-bold block text-[10px] uppercase font-sans">
+                          {showEnglish ? 'Makhraj Alignment:' : 'மக்ரிஜ் சீரமைப்பு:'}
+                        </span>
+                        <span>{showEnglish ? m.makhrajTip : m.makhrajTipTa}</span>
                       </div>
                     </div>
                   )}
@@ -457,30 +533,36 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
         {/* Quick Question Chips */}
         <div className="px-4 py-2 border-t border-border bg-card flex gap-2 overflow-x-auto no-scrollbar shrink-0">
-          <button
-            onClick={() =>
-              sendTypedQuery('How do I articulate this clearly from its primary Makhraj point?')
-            }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
-          >
-            How to articulate?
-          </button>
-          <button
-            onClick={() =>
-              sendTypedQuery('Explain this Tajweed rule and vowel timing in Tamil (தமிழ் விளக்கம்).')
-            }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors font-tamil"
-          >
-            தமிழ் விளக்கம்
-          </button>
-          <button
-            onClick={() =>
-              sendTypedQuery('What common mistakes do students make with this letter or rule?')
-            }
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
-          >
-            Common mistakes
-          </button>
+          {showEnglish && (
+            <button
+              onClick={() =>
+                sendTypedQuery('How do I articulate this clearly from its primary Makhraj point?')
+              }
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
+            >
+              How to articulate?
+            </button>
+          )}
+          {showTamil && (
+            <button
+              onClick={() =>
+                sendTypedQuery('Explain this Tajweed rule and vowel timing in Tamil (தமிழ் விளக்கம்).')
+              }
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors font-tamil"
+            >
+              தமிழ் விளக்கம்
+            </button>
+          )}
+          {showEnglish && (
+            <button
+              onClick={() =>
+                sendTypedQuery('What common mistakes do students make with this letter or rule?')
+              }
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-surface border border-border text-muted-foreground hover:text-foreground hover:bg-surface-hover whitespace-nowrap transition-colors"
+            >
+              Common mistakes
+            </button>
+          )}
         </div>
 
         {/* Input & Voice Controls */}

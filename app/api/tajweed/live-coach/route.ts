@@ -18,6 +18,7 @@ interface LiveCoachRequestBody {
 
 export async function POST(req: NextRequest) {
   const startTime = performance.now();
+  let feedbackLanguage: 'both' | 'en' | 'ta' = 'both';
 
   try {
     const body = (await req.json()) as LiveCoachRequestBody;
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
       teacherPersona = 'balanced',
       language = 'both',
     } = body;
+    feedbackLanguage = language;
 
     const apiKey = process.env.GEMINI_API_KEY;
 
@@ -64,20 +66,23 @@ TEACHER PERSONA: Balanced Mentor.
     // Define language instructions
     let languageGuidance = '';
     if (language === 'en') {
-      languageGuidance = 'Provide coach responses primarily in English. Tamil can be brief.';
+      languageGuidance =
+        'FEEDBACK LANGUAGE: English only. Write every response in English and return empty strings for all Tamil fields (coachResponseTa, makhrajTipTa).';
     } else if (language === 'ta') {
-      languageGuidance = 'Provide coach responses comprehensively in authentic Tamil (தமிழ் விளக்கம்), with English summary.';
+      languageGuidance =
+        'FEEDBACK LANGUAGE: Tamil only. Write every response in authentic Tamil (தமிழ் விளக்கம்) and return empty strings for all English fields (coachResponseEn, makhrajTip).';
     } else {
-      languageGuidance = 'Provide both a high-clarity English explanation and an authentic Tamil explanation (தமிழ் வழிகாட்டல்) for bilingual comprehension.';
+      languageGuidance =
+        'FEEDBACK LANGUAGE: Bilingual. Provide a high-clarity English explanation and an equally complete authentic Tamil explanation (தமிழ் வழிகாட்டல்).';
     }
 
     if (!apiKey) {
       const serverLatency = Math.round(performance.now() - startTime);
       return NextResponse.json({
-        coachResponseEn: `For "${promptArabic || currentLessonTitle}": Pronounce clearly from its primary articulation point (Makhraj). Maintain consistent Harakah count and smooth airflow.`,
-        coachResponseTa: `"${promptArabic || currentLessonTitle}" க்கான வழிகாட்டல்: அதன் சரியான உச்சரிப்பு தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரிக்கவும். ஹரக்கத் அளவைச் சரியாகப் பேணவும்.`,
-        makhrajTip: 'Relax jaw and align tongue firmly with the designated palate or dental ridge.',
-        makhrajTipTa: 'தாடையைத் தளர்த்தி, நாவை மேல் அண்ணம் அல்லது பல்லடியுடன் சரியாகப் பொருத்தவும்.',
+        coachResponseEn: language === 'ta' ? '' : `For "${promptArabic || currentLessonTitle}": Pronounce clearly from its primary articulation point (Makhraj). Maintain consistent Harakah count and smooth airflow.`,
+        coachResponseTa: language === 'en' ? '' : `"${promptArabic || currentLessonTitle}" க்கான வழிகாட்டல்: அதன் சரியான உச்சரிப்பு தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரிக்கவும். ஹரக்கத் அளவைச் சரியாகப் பேணவும்.`,
+        makhrajTip: language === 'ta' ? '' : 'Relax jaw and align tongue firmly with the designated palate or dental ridge.',
+        makhrajTipTa: language === 'en' ? '' : 'தாடையைத் தளர்த்தி, நாவை மேல் அண்ணம் அல்லது பல்லடியுடன் சரியாகப் பொருத்தவும்.',
         tajweedRuleName: targetRule || 'Makharij & Tajweed Precision',
         accuracyRating: 'Good',
         suggestedPractice: 'Recite 3 times steadily with full breath.',
@@ -119,10 +124,10 @@ EVALUATION CRITERIA:
 OUTPUT FORMAT:
 Respond ONLY in valid, parseable JSON matching:
 {
-  "coachResponseEn": "<2-3 clear, constructive, encouraging sentences in English>",
-  "coachResponseTa": "<2-3 accurate sentences in Tamil explaining the pronunciation and correction>",
-  "makhrajTip": "<Specific physical/anatomical tip for tongue, throat, or lips>",
-  "makhrajTipTa": "<Physical anatomical tip in Tamil>",
+  "coachResponseEn": "<2-3 clear, constructive, encouraging sentences in English — or an empty string when the feedback language is Tamil only>",
+  "coachResponseTa": "<2-3 accurate sentences in Tamil explaining the pronunciation and correction — or an empty string when the feedback language is English only>",
+  "makhrajTip": "<Specific physical/anatomical tip for tongue, throat, or lips — or an empty string for Tamil only>",
+  "makhrajTipTa": "<Physical anatomical tip in Tamil — or an empty string for English only>",
   "tajweedRuleName": "<Exact Tajweed rule name>",
   "accuracyRating": "<Excellent | Good | Needs Practice | Polished>",
   "suggestedPractice": "<1 concise practice exercise for the student>",
@@ -166,6 +171,15 @@ Respond ONLY in valid, parseable JSON matching:
       };
     }
 
+    // Guarantee the reply matches the learner's selected language(s)
+    if (language === 'en') {
+      result.coachResponseTa = '';
+      result.makhrajTipTa = '';
+    } else if (language === 'ta') {
+      result.coachResponseEn = '';
+      result.makhrajTip = '';
+    }
+
     const serverLatency = Math.round(performance.now() - startTime);
     result.latencyMs = serverLatency;
     result.voiceId = voiceId;
@@ -179,11 +193,21 @@ Respond ONLY in valid, parseable JSON matching:
     return NextResponse.json(
       {
         coachResponseEn:
-          'Remember to articulate clearly from the primary articulation point (Makhraj) and hold vowel lengths evenly.',
+          feedbackLanguage === 'ta'
+            ? ''
+            : 'Remember to articulate clearly from the primary articulation point (Makhraj) and hold vowel lengths evenly.',
         coachResponseTa:
-          'எழுத்தின் அசல் தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரித்து, ஹரக்கத் கால அளவைச் சரியாகப் பேணவும்.',
-        makhrajTip: 'Keep mouth relaxed and focus breath at the exact point of articulation.',
-        makhrajTipTa: 'வாயைத் தளர்த்தி, உச்சரிப்பு தானத்தில் கவனத்தைச் செலுத்தவும்.',
+          feedbackLanguage === 'en'
+            ? ''
+            : 'எழுத்தின் அசல் தானத்திலிருந்து (மக்ரிஜ்) தெளிவாக உச்சரித்து, ஹரக்கத் கால அளவைச் சரியாகப் பேணவும்.',
+        makhrajTip:
+          feedbackLanguage === 'ta'
+            ? ''
+            : 'Keep mouth relaxed and focus breath at the exact point of articulation.',
+        makhrajTipTa:
+          feedbackLanguage === 'en'
+            ? ''
+            : 'வாயைத் தளர்த்தி, உச்சரிப்பு தானத்தில் கவனத்தைச் செலுத்தவும்.',
         tajweedRuleName: 'Makharij & Tajweed Foundation',
         accuracyRating: 'Good',
         suggestedPractice: 'Repeat 3 times with steady breath control.',

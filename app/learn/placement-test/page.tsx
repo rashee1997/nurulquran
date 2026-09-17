@@ -21,6 +21,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { isEnglishEnabled, isTamilEnabled, normalizeFeedbackLanguage } from '@/lib/i18n/language';
 
 interface DiagnosticQuestion {
   id: string;
@@ -115,6 +116,11 @@ export default function TajweedPlacementExamPage() {
     loadUser();
   }, []);
 
+  // Exam feedback follows the same saved feedback-language preference as the coach
+  const feedbackLanguage = normalizeFeedbackLanguage(profile?.aiFeedbackLanguage);
+  const showEnglishFeedback = isEnglishEnabled(feedbackLanguage);
+  const showTamilFeedback = isTamilEnabled(feedbackLanguage);
+
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
@@ -195,6 +201,7 @@ export default function TajweedPlacementExamPage() {
           targetRule: 'Makharij, Noon Sakinah, Madd Lazim, Tarqeeq/Tafkheem',
           answers: selectedAnswers,
           userLevel: profile?.level || 1,
+          language: feedbackLanguage,
         }),
       });
 
@@ -557,35 +564,43 @@ export default function TajweedPlacementExamPage() {
             </p>
           </div>
 
-          {/* Feedback & Tajweed Rules */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-surface border border-border space-y-2">
-              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                English Evaluation & Makhraj Tips
-              </h4>
-              <p className="text-xs text-foreground leading-relaxed">
-                {evalResult.feedbackEn}
-              </p>
-              {evalResult.makhrajTipsEn && (
-                <p className="text-[11px] text-primary-strong font-medium pt-1">
-                  💡 Tip: {evalResult.makhrajTipsEn}
+          {/* Feedback & Tajweed Rules — rendered in the learner's selected language(s) */}
+          <div
+            className={`grid grid-cols-1 gap-4 ${
+              showEnglishFeedback && showTamilFeedback ? 'md:grid-cols-2' : ''
+            }`}
+          >
+            {showEnglishFeedback && (
+              <div className="p-4 rounded-2xl bg-surface border border-border space-y-2">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  English Evaluation & Makhraj Tips
+                </h4>
+                <p className="text-xs text-foreground leading-relaxed">
+                  {evalResult.feedbackEn}
                 </p>
-              )}
-            </div>
+                {evalResult.makhrajTipsEn && (
+                  <p className="text-[11px] text-primary-strong font-medium pt-1">
+                    💡 Tip: {evalResult.makhrajTipsEn}
+                  </p>
+                )}
+              </div>
+            )}
 
-            <div className="p-4 rounded-2xl bg-surface border border-border space-y-2 font-tamil">
-              <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-sans">
-                தமிழ் மதிப்பீடு மற்றும் வழிகாட்டல்
-              </h4>
-              <p className="text-xs text-foreground leading-relaxed">
-                {evalResult.feedbackTa}
-              </p>
-              {evalResult.makhrajTipsTa && (
-                <p className="text-[11px] text-primary-strong font-medium pt-1">
-                  💡 உச்சரிப்பு குறிப்பு: {evalResult.makhrajTipsTa}
+            {showTamilFeedback && (
+              <div className="p-4 rounded-2xl bg-surface border border-border space-y-2 font-tamil">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider font-sans">
+                  தமிழ் மதிப்பீடு மற்றும் வழிகாட்டல்
+                </h4>
+                <p className="text-xs text-foreground leading-relaxed">
+                  {evalResult.feedbackTa}
                 </p>
-              )}
-            </div>
+                {evalResult.makhrajTipsTa && (
+                  <p className="text-[11px] text-primary-strong font-medium pt-1">
+                    💡 உச்சரிப்பு குறிப்பு: {evalResult.makhrajTipsTa}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Rules Observed */}

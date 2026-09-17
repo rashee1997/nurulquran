@@ -4,6 +4,8 @@
  * and gapless 24kHz PCM scheduled playback.
  */
 
+import type { FeedbackLanguage } from '@/lib/i18n/language';
+
 // Audio sample rate constraints
 export const RECORDING_SAMPLE_RATE = 16000; // Gemini Live expects 16kHz Mono PCM
 export const PLAYBACK_SAMPLE_RATE = 24000;  // Gemini Live returns 24kHz Mono PCM
@@ -283,12 +285,17 @@ export const AI_TEACHER_VOICES: AITeacherVoice[] = [
 
 /**
  * Plays an authentic spoken speech preview using the real Gemini Live TTS API (`gemini-3.1-flash-tts-preview`).
+ * The spoken phrase follows the learner's feedback-language preference (English & Tamil, English only, or Tamil only).
  * Plays via the high-fidelity 24kHz PCMAudioStreamPlayer.
  * Seamlessly falls back to the harmonic overtone preview if offline or server API key is absent.
  */
 let activePreviewPlayer: PCMAudioStreamPlayer | null = null;
 
-export async function playVoiceHarmonicPreview(voiceId: string, customPhrase?: string): Promise<void> {
+export async function playVoiceHarmonicPreview(
+  voiceId: string,
+  customPhrase?: string,
+  language: FeedbackLanguage = 'both'
+): Promise<void> {
   if (typeof window === 'undefined') return;
 
   // Stop any currently active preview playback
@@ -302,7 +309,7 @@ export async function playVoiceHarmonicPreview(voiceId: string, customPhrase?: s
     const res = await fetch('/api/tajweed/voice-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voiceId, customText: customPhrase }),
+      body: JSON.stringify({ voiceId, customText: customPhrase, language }),
     });
 
     if (res.ok) {

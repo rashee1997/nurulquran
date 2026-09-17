@@ -3,7 +3,25 @@ import { GoogleGenAI } from '@google/genai';
 
 export const maxDuration = 60;
 
+type FeedbackLanguage = 'both' | 'en' | 'ta';
+
+/** Blank out the language the learner did not ask for, so results stay truly single-language. */
+function alignFeedbackWithLanguage(
+  payload: Record<string, any>,
+  language: FeedbackLanguage
+): Record<string, any> {
+  if (language === 'en') {
+    payload.feedbackTa = '';
+    payload.makhrajTipsTa = '';
+  } else if (language === 'ta') {
+    payload.feedbackEn = '';
+    payload.makhrajTipsEn = '';
+  }
+  return payload;
+}
+
 export async function POST(req: NextRequest) {
+  let feedbackLanguage: FeedbackLanguage = 'both';
   try {
     const body = await req.json();
     const {
@@ -14,22 +32,29 @@ export async function POST(req: NextRequest) {
       answers,
       examType = 'placement',
       userLevel = 1,
+      language = 'both',
     } = body;
+    feedbackLanguage = language === 'en' || language === 'ta' ? language : 'both';
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       // Return structured pedagogical evaluation fallback if key not configured
-      return NextResponse.json({
-        score: 88,
-        passed: true,
-        feedbackEn: 'Makharij precision is strong. Accurate execution of Noon Sakinah and Qalqalah observed.',
-        feedbackTa: 'மக்ரிஜ் உச்சரிப்பு சிறப்பாக உள்ளது. நூன் சாகினா மற்றும் கல்கலா விதிமுறைகள் சரியாகப் பின்பற்றப்பட்டுள்ளன.',
-        tajweedRulesObserved: ['Izhar Halqi', 'Qalqalah Kubra', 'Madd Asli 2 Harakat'],
-        makhrajTipsEn: 'Ensure full elevation of the back of the tongue when pronouncing Qaf (ق).',
-        makhrajTipsTa: 'காஃப் (ق) உச்சரிக்கும்போது நாவின் பின்பகுதியை மேல் அண்ணத்தை நோக்கி நன்கு உயர்த்தவும்.',
-        unlockedLevel: 10,
-        bonusXp: 150,
-      });
+      return NextResponse.json(
+        alignFeedbackWithLanguage(
+          {
+            score: 88,
+            passed: true,
+            feedbackEn: 'Makharij precision is strong. Accurate execution of Noon Sakinah and Qalqalah observed.',
+            feedbackTa: 'மக்ரிஜ் உச்சரிப்பு சிறப்பாக உள்ளது. நூன் சாகினா மற்றும் கல்கலா விதிமுறைகள் சரியாகப் பின்பற்றப்பட்டுள்ளன.',
+            tajweedRulesObserved: ['Izhar Halqi', 'Qalqalah Kubra', 'Madd Asli 2 Harakat'],
+            makhrajTipsEn: 'Ensure full elevation of the back of the tongue when pronouncing Qaf (ق).',
+            makhrajTipsTa: 'காஃப் (ق) உச்சரிக்கும்போது நாவின் பின்பகுதியை மேல் அண்ணத்தை நோக்கி நன்கு உயர்த்தவும்.',
+            unlockedLevel: 10,
+            bonusXp: 150,
+          },
+          feedbackLanguage
+        )
+      );
     }
 
     const ai = new GoogleGenAI({
@@ -41,9 +66,18 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const languageGuidance =
+      feedbackLanguage === 'en'
+        ? 'Write the feedback in English only. Leave every Tamil field as an empty string.'
+        : feedbackLanguage === 'ta'
+          ? 'Write the feedback in authentic Tamil (தமிழ்) only. Leave every English field as an empty string.'
+          : 'Write the feedback in both clear English and authentic Tamil (தமிழ்), keeping them equivalent.';
+
     const promptText = `
 You are a senior world-class Quranic Tajweed Examiner, Sanad Holder, and Arabic Linguist.
 Evaluate the student's Tajweed placement test submission or recitation.
+
+FEEDBACK LANGUAGE: ${languageGuidance}
 
 EXAMINATION CONTEXT:
 - Target Verse / Text: "${targetVerseArabic || 'Surah Al-Fatihah / Juz Amma test passage'}"
@@ -116,22 +150,25 @@ YOU MUST RESPOND ONLY IN VALID JSON matching this exact structure:
       };
     }
 
-    return NextResponse.json(parsedResult);
+    return NextResponse.json(alignFeedbackWithLanguage(parsedResult, feedbackLanguage));
   } catch (error: any) {
     console.error('Tajweed Evaluation API Error:', error);
     return NextResponse.json(
-      {
-        score: 80,
-        passed: true,
-        accuracyPercent: 82,
-        feedbackEn: 'Recitation verified with satisfactory Tajweed execution. Advanced levels unlocked.',
-        feedbackTa: 'தஜ்வீத் விதிகளுடன் திருப்திகரமாக ஓதப்பட்டது. மேம்பட்ட பாடங்கள் திறக்கப்பட்டுள்ளன.',
-        tajweedRulesObserved: ['Izhar', 'Qalqalah', 'Madd'],
-        makhrajTipsEn: 'Maintain consistent 2-count duration on natural madd.',
-        makhrajTipsTa: 'இயற்கையான மத்தில் 2 ஹரக்கத் கால அளவை சீராகப் பேணவும்.',
-        unlockedLevel: 10,
-        bonusXp: 150,
-      },
+      alignFeedbackWithLanguage(
+        {
+          score: 80,
+          passed: true,
+          accuracyPercent: 82,
+          feedbackEn: 'Recitation verified with satisfactory Tajweed execution. Advanced levels unlocked.',
+          feedbackTa: 'தஜ்வீத் விதிகளுடன் திருப்திகரமாக ஓதப்பட்டது. மேம்பட்ட பாடங்கள் திறக்கப்பட்டுள்ளன.',
+          tajweedRulesObserved: ['Izhar', 'Qalqalah', 'Madd'],
+          makhrajTipsEn: 'Maintain consistent 2-count duration on natural madd.',
+          makhrajTipsTa: 'இயற்கையான மத்தில் 2 ஹரக்கத் கால அளவை சீராகப் பேணவும்.',
+          unlockedLevel: 10,
+          bonusXp: 150,
+        },
+        feedbackLanguage
+      ),
       { status: 200 }
     );
   }
