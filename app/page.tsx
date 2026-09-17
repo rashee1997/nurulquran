@@ -58,16 +58,16 @@ export default function DashboardPage() {
   ];
 
   const hifzModes = [
-    { mode: 'A', name: 'Listen & Repeat', desc: 'Loop Ayah with audio', icon: '🎧' },
+    { mode: 'A', name: 'Listen & Repeat', desc: 'Loop the ayah with audio', icon: '🎧' },
     { mode: 'B', name: 'Complete Verse', desc: 'Fill the prompt gap', icon: '✍️' },
     { mode: 'C', name: 'Word Reordering', desc: 'Assemble words in order', icon: '🧩' },
-    { mode: 'D', name: 'First Word Prompt', desc: 'Recall from initial token', icon: '💡' },
-    { mode: 'E', name: 'Audio to Ayah', desc: 'Identify verse from audio', icon: '🔊' },
-    { mode: 'F', name: 'Meaning to Ayah', desc: 'English & Tamil matching', icon: '🌐' },
-    { mode: 'G', name: 'Missing Segment', desc: 'Supply deleted tokens', icon: '🔍' },
-    { mode: 'H', name: 'Blind Recitation', desc: 'Self-rating with SM-2 SRS', icon: '🙈' },
-    { mode: 'I', name: 'Timed Speed Recall', desc: 'Rapid memory check', icon: '⚡' },
-    { mode: 'J', name: 'AI Guided Hifz', desc: 'Interactive tutor coaching', icon: '🤖' },
+    { mode: 'D', name: 'First Word Prompt', desc: 'Recall from the first word', icon: '💡' },
+    { mode: 'E', name: 'Audio to Ayah', desc: 'Identify the verse from audio', icon: '🔊' },
+    { mode: 'F', name: 'Meaning to Ayah', desc: 'Match English and Tamil meanings', icon: '🌐' },
+    { mode: 'G', name: 'Missing Segment', desc: 'Fill in missing words', icon: '🔍' },
+    { mode: 'H', name: 'Blind Recitation', desc: 'Self-rated recall with spaced repetition', icon: '🙈' },
+    { mode: 'I', name: 'Timed Speed Recall', desc: 'Recall within a time limit', icon: '⚡' },
+    { mode: 'J', name: 'Guided Session', desc: 'Work through the verse with the assistant', icon: '📖' },
   ];
 
   return (
@@ -79,14 +79,13 @@ export default function DashboardPage() {
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-hero-pill-bg text-hero-pill-fg text-xs font-semibold backdrop-blur-xs">
-              <Sparkles className="w-3.5 h-3.5 text-secondary" />
               <span>Level {levelInfo.level} • {levelInfo.title} ({levelInfo.titleArabic})</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Bismillah, Welcome to NurulQuran
             </h1>
             <p className="text-hero-muted text-xs sm:text-sm max-w-xl">
-              Master Arabic reading, Tajweed rules, and Quranic memorization with deterministic spaced repetition and authentic English & Tamil meanings.
+              Study Arabic reading, Tajweed and memorization with spaced repetition, plus English and Tamil translations.
             </p>
           </div>
 
@@ -101,7 +100,7 @@ export default function DashboardPage() {
               <p className="text-xl font-extrabold text-hero-fg">
                 {profile?.streakCount || 1} Day Streak
               </p>
-              <span className="text-[10px] text-secondary font-medium">Keep it glowing today!</span>
+              <span className="text-[10px] text-secondary font-medium">Practise today to keep your streak.</span>
             </div>
           </div>
         </div>
@@ -114,7 +113,7 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-primary-strong bg-primary-subtle px-2.5 py-1 rounded-lg">
-                Curriculum Progression
+                Curriculum
               </span>
               <span className="text-xs text-muted-foreground font-medium">Level 1</span>
             </div>
@@ -142,15 +141,15 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-secondary-strong bg-secondary-subtle px-2.5 py-1 rounded-lg">
-                Spaced Repetition (SM-2)
+                Spaced Repetition
               </span>
               <span className="text-xs text-muted-foreground font-medium">{dueReviewCount} due</span>
             </div>
             <h3 className="text-base font-bold text-foreground">
-              Hifz Retention Queue
+              Review Queue
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Strengthen memory traces before decay. Includes verses from Surah Al-Fatihah and Juz Amma.
+              Verses scheduled for review today, from Al-Fatihah and Juz Amma.
             </p>
           </div>
 
@@ -170,15 +169,15 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-info-strong bg-info-subtle px-2.5 py-1 rounded-lg">
-                10 Memorization Modes
+                Memorization
               </span>
-              <span className="text-xs text-muted-foreground font-medium">Hifz Suite</span>
+              <span className="text-xs text-muted-foreground font-medium">Ten modes</span>
             </div>
             <h3 className="text-base font-bold text-foreground">
-              Multi-Sensory Practice
+              Ten practice modes
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              From listen & repeat to blind recitation and AI guided sessions with instant feedback.
+              From listen-and-repeat to blind recitation and assistant-guided sessions.
             </p>
           </div>
 
@@ -188,7 +187,7 @@ export default function DashboardPage() {
               className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-info hover:bg-info/90 text-info-foreground text-xs font-bold transition-all shadow-md active:scale-98"
             >
               <Brain className="w-4 h-4" />
-              <span>Launch 10 Hifz Modes</span>
+              <span>Open Memorization Modes</span>
             </Link>
           </div>
         </div>
@@ -198,7 +197,7 @@ export default function DashboardPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-primary-strong bg-primary-subtle px-2.5 py-1 rounded-lg">
-                New &bull; Classical &#8596; Spoken
+                Classical &#8596; Spoken
               </span>
               <span className="text-xs text-muted-foreground font-medium">A1&Acirc;&ndash;A8</span>
             </div>
@@ -230,13 +229,13 @@ export default function DashboardPage() {
           <div className="space-y-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold">
               <Gamepad2 className="w-3.5 h-3.5" />
-              <span>New &bull; 2D Canvas Quran Games</span>
+              <span>Three games</span>
             </div>
             <h2 className="text-xl font-bold text-foreground">
-              Celestial Quran Mini-Games Arcade
+              Practice Games
             </h2>
             <p className="text-xs text-muted-foreground max-w-xl">
-              Reinforce your Ayah retention with 60 FPS HTML5 Canvas physics, Uthmani word sequencing, Mutashabihat twin radar, and active recall matrix.
+              Reinforce memorization with word ordering, similar-verse discrimination and recall matching.
             </p>
           </div>
 
@@ -244,7 +243,7 @@ export default function DashboardPage() {
             href="/games"
             className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity shrink-0"
           >
-            <span>Play All Games</span>
+            <span>Open games</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -255,11 +254,11 @@ export default function DashboardPage() {
             className="p-4 rounded-2xl bg-card border border-border hover:border-emerald-500/50 flex flex-col justify-between gap-3 transition-all hover:shadow-xs group"
           >
             <div className="flex items-center justify-between">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-                ✦
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <Gamepad2 className="w-4 h-4" />
               </div>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                Orbital Physics
+                Word order
               </span>
             </div>
             <div>
@@ -267,7 +266,7 @@ export default function DashboardPage() {
                 Celestial Ayah Assembly
               </h4>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Connect orbiting words in true Quranic sequence with recitation playback.
+                Connect words in Quranic sequence with recitation playback.
               </p>
             </div>
           </Link>
@@ -281,7 +280,7 @@ export default function DashboardPage() {
                 <Radar className="w-4 h-4" />
               </div>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
-                Radar Sweep
+                Similar verses
               </span>
             </div>
             <div>
@@ -289,7 +288,7 @@ export default function DashboardPage() {
                 Mutashabihat Radar
               </h4>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Target and master similar verses to eliminate hesitation during Salah.
+                Distinguish similar verses to reduce hesitation during Salah.
               </p>
             </div>
           </Link>
@@ -299,11 +298,11 @@ export default function DashboardPage() {
             className="p-4 rounded-2xl bg-card border border-border hover:border-amber-500/50 flex flex-col justify-between gap-3 transition-all hover:shadow-xs group"
           >
             <div className="flex items-center justify-between">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                ۞
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <Brain className="w-4 h-4" />
               </div>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                Active Recall Grid
+                Recall matching
               </span>
             </div>
             <div>
@@ -311,7 +310,7 @@ export default function DashboardPage() {
                 Ayah Memory Matrix
               </h4>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                3D-perspective canvas tiles matching verse stems with completions.
+                Match a verse opening with its completion.
               </p>
             </div>
           </Link>
@@ -323,10 +322,10 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-foreground">
-              10 Memorization & Hifz Game Modes
+              Ten Memorization Modes
             </h2>
             <p className="text-xs text-muted-foreground">
-              Pedagogically structured exercises targeting auditory, visual, and associative recall.
+              Exercises for auditory, visual and associative recall.
             </p>
           </div>
           <Link
@@ -372,7 +371,7 @@ export default function DashboardPage() {
               Daily Surahs & Reader
             </h2>
             <p className="text-xs text-muted-foreground">
-              Read authentic Uthmani script with color-coded Tajweed, audio, and English & Tamil translations.
+              Read the Uthmani script with colour-coded Tajweed, audio, and English and Tamil translations.
             </p>
           </div>
           <Link

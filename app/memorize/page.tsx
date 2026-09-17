@@ -171,7 +171,7 @@ function MemorizationContent() {
     { id: 'G', name: 'Missing Segment', icon: '🔍' },
     { id: 'H', name: 'Blind Recitation (SRS)', icon: '🙈' },
     { id: 'I', name: 'Speed Recall (15s)', icon: '⚡' },
-    { id: 'J', name: 'AI Guided Hifz', icon: '🤖' },
+    { id: 'J', name: 'Guided Session', icon: '📖' },
   ];
 
   return (
@@ -184,10 +184,10 @@ function MemorizationContent() {
           </div>
           <div>
             <h1 className="text-base font-bold text-foreground">
-              10 Hifz Memorization Modes
+              Memorization Modes
             </h1>
             <p className="text-xs text-muted-foreground">
-              Targeted cognitive practice with SM-2 spaced repetition integration
+              Ten recall drills linked to spaced repetition
             </p>
           </div>
         </div>
@@ -275,7 +275,7 @@ function MemorizationContent() {
       {loadingVerses ? (
         <div className="text-center py-20 text-muted-foreground">
           <Brain className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-          <p className="text-xs">Loading authentic verses for Surah {selectedSurahId}...</p>
+          <p className="text-xs">Loading verses for Surah {selectedSurahId}…</p>
         </div>
       ) : currentVerse ? (
         <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
@@ -286,7 +286,7 @@ function MemorizationContent() {
               <div className="space-y-1">
                 <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode A • Auditory Loop</span>
                 <h3 className="text-lg font-bold text-foreground">Listen & Repeat</h3>
-                <p className="text-xs text-muted-foreground">Listen to the Ayah repeatedly, recite along, and internalize the rhythm.</p>
+                <p className="text-xs text-muted-foreground">Listen to the ayah repeatedly and recite along.</p>
               </div>
 
               <div className="py-8 px-4 bg-surface rounded-2xl border border-border">
@@ -367,7 +367,7 @@ function MemorizationContent() {
               <div className="text-center space-y-1">
                 <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode C • Syntax Assembly</span>
                 <h3 className="text-lg font-bold text-foreground">Word Reordering</h3>
-                <p className="text-xs text-muted-foreground">Assemble the words of this Ayah into their exact canonical order.</p>
+                <p className="text-xs text-muted-foreground">Assemble the words of this ayah in order.</p>
               </div>
 
               {/* Workspace */}
@@ -438,7 +438,7 @@ function MemorizationContent() {
               <div className="space-y-1">
                 <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode D • Initial Trigger</span>
                 <h3 className="text-lg font-bold text-foreground">First Word Recall</h3>
-                <p className="text-xs text-muted-foreground">Trigger your memory using just the initial word.</p>
+                <p className="text-xs text-muted-foreground">Recall the ayah from its first word.</p>
               </div>
 
               <div className="py-8 bg-surface rounded-2xl border border-border text-center">
@@ -471,7 +471,7 @@ function MemorizationContent() {
               <div className="text-center space-y-1">
                 <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode E • Auditory Recognition</span>
                 <h3 className="text-lg font-bold text-foreground">Audio to Ayah Match</h3>
-                <p className="text-xs text-muted-foreground">Play the audio clip and select which Ayah was recited.</p>
+                <p className="text-xs text-muted-foreground">Play the clip and choose which ayah was recited.</p>
               </div>
 
               <div className="text-center py-4">
@@ -510,7 +510,7 @@ function MemorizationContent() {
           {activeMode === 'F' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode F • Semantic Association</span>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode F • Meaning match</span>
                 <h3 className="text-lg font-bold text-foreground">Meaning to Ayah Match</h3>
                 <p className="text-xs text-muted-foreground">Read the English & Tamil translations, then match with the Arabic text.</p>
               </div>
@@ -552,7 +552,7 @@ function MemorizationContent() {
           {activeMode === 'G' && (
             <div className="space-y-6">
               <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode G • Cloze Deletion</span>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode G • Missing words</span>
                 <h3 className="text-lg font-bold text-foreground">Missing Segment</h3>
                 <p className="text-xs text-muted-foreground">Identify the missing word in the verse.</p>
               </div>
@@ -608,7 +608,7 @@ function MemorizationContent() {
           {activeMode === 'H' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode H • Blind Recitation & SM-2 SRS</span>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode H • Blind recitation</span>
                 <h3 className="text-lg font-bold text-foreground">Mental Recitation & Self-Rating</h3>
                 <p className="text-xs text-muted-foreground">Recite Ayah {currentVerse.surah}:{currentVerse.ayah} from memory, then reveal and rate your retention quality.</p>
               </div>
@@ -676,9 +676,9 @@ function MemorizationContent() {
           {activeMode === 'I' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode I • Rapid Memory Check</span>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode I • Speed recall</span>
                 <h3 className="text-lg font-bold text-foreground">Timed Speed Recall (15s)</h3>
-                <p className="text-xs text-muted-foreground">Check if your neural pathways can recall the verse within 15 seconds.</p>
+                <p className="text-xs text-muted-foreground">See whether you can recall the verse within 15 seconds.</p>
               </div>
 
               <div className="flex items-center justify-center gap-2">
@@ -720,13 +720,13 @@ function MemorizationContent() {
             </div>
           )}
 
-          {/* MODE J: AI GUIDED HIFZ SESSION */}
+          {/* MODE J: GUIDED SESSION */}
           {activeMode === 'J' && (
             <div className="space-y-6 text-center">
               <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode J • AI Tutor Mentorship</span>
-                <h3 className="text-lg font-bold text-foreground">AI Guided Hifz Session</h3>
-                <p className="text-xs text-muted-foreground">Work directly with the AI tutor to identify phonetic pitfalls and mnemonic associations.</p>
+                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode J • Guided session</span>
+                <h3 className="text-lg font-bold text-foreground">Guided Recitation Session</h3>
+                <p className="text-xs text-muted-foreground">Work through the verse with the assistant to identify phonetic pitfalls and mnemonic associations.</p>
               </div>
 
               <div className="p-6 bg-primary-subtle rounded-2xl border border-primary/30 text-center space-y-3">
@@ -735,7 +735,7 @@ function MemorizationContent() {
                   Ready to test Surah {currentVerse.surah}:{currentVerse.ayah}
                 </h4>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  The AI tutor will ask you targeted questions about roots, Tajweed phonetics, and Tamil/English context for this verse.
+                  The assistant asks about roots, Tajweed phonetics and the Tamil or English meaning of this verse.
                 </p>
                 <button
                   onClick={() => {
@@ -744,7 +744,7 @@ function MemorizationContent() {
                   }}
                   className="px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-colors"
                 >
-                  Start AI Coaching for this Ayah
+                  Start guided session
                 </button>
               </div>
             </div>
@@ -753,7 +753,7 @@ function MemorizationContent() {
         </div>
       ) : null}
 
-      {/* Floating AI Tutor Panel when triggered */}
+      {/* Floating Study Assistant when triggered */}
       <TutorPanel
         isOpen={aiTutorOpen}
         onClose={() => setAiTutorOpen(false)}
@@ -765,7 +765,7 @@ function MemorizationContent() {
 
 export default function MemorizationPage() {
   return (
-    <Suspense fallback={<div className="py-20 text-center text-xs text-muted-foreground">Loading Memorization Suite...</div>}>
+    <Suspense fallback={<div className="py-20 text-center text-xs text-muted-foreground">Loading memorization modes…</div>}>
       <MemorizationContent />
     </Suspense>
   );

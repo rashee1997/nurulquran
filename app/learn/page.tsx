@@ -65,13 +65,13 @@ export default function CurriculumMapPage() {
           <div className="space-y-1">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[11px] font-bold">
               <BookOpen className="w-3.5 h-3.5" />
-              <span>Quranic Pedagogy • 10 Stepped Levels</span>
+              <span>Ten levels</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
               Tajweed & Hifz Curriculum
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground max-w-xl">
-              From Arabic phonetics and articulation points (Makharij) to advanced Sifaat, Ghunnah, and Juz 30 mastery.
+              From Arabic phonetics and articulation points (Makharij) through Sifaat and Ghunnah to Juz 30.
             </p>
           </div>
 
@@ -112,20 +112,20 @@ export default function CurriculumMapPage() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary-subtle text-secondary-strong border border-secondary/30 text-[10px] font-bold">
-                <Sparkles className="w-3 h-3 text-secondary" />
-                <span>Gemini Live Oral Exam</span>
+                <Award className="w-3 h-3 text-secondary" />
+                <span>Oral assessment</span>
               </div>
               {isCertified && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-success-subtle text-success-strong">
-                  Certified • All Levels Open
+                  Placed • Levels 2–10 open
                 </span>
               )}
             </div>
             <h2 className="text-sm sm:text-base font-bold text-foreground">
-              Tajweed Placement & Level Bypass
+              Place a Level by Reciting
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Already know Quranic reading? Recite live to the AI Tajweed examiner to test out of lower levels immediately.
+              Already read Quranic Arabic? Recite aloud and the assessment can place you above the introductory levels.
             </p>
           </div>
 
@@ -135,7 +135,7 @@ export default function CurriculumMapPage() {
           >
             <div className="flex items-center gap-2">
               <Award className="w-4 h-4" />
-              <span>{isCertified ? 'Review Placement Results' : 'Take Oral Placement Exam'}</span>
+              <span>{isCertified ? 'Review placement results' : 'Start oral assessment'}</span>
             </div>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
@@ -146,13 +146,13 @@ export default function CurriculumMapPage() {
           <div className="space-y-1.5">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[10px] font-bold">
               <Volume2 className="w-3 h-3 text-primary" />
-              <span>Phonetics & Ear Trainer</span>
+              <span>Twenty-eight letters</span>
             </div>
             <h2 className="text-sm sm:text-base font-bold text-foreground">
-              Arabic Alphabet Pronunciation Studio
+              Arabic Alphabet
             </h2>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              All 28 Arabic letters with authentic human audio, throat & tongue Makharij diagrams, and Tamil transliteration.
+              All 28 letters with recorded audio, Makharij diagrams for throat and tongue, and Tamil transliteration.
             </p>
           </div>
 
@@ -162,7 +162,7 @@ export default function CurriculumMapPage() {
           >
             <div className="flex items-center gap-2">
               <Volume2 className="w-4 h-4" />
-              <span>Open Alphabet Audio Studio</span>
+              <span>Open alphabet</span>
             </div>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
@@ -241,7 +241,7 @@ export default function CurriculumMapPage() {
 
                     {unlockStatus.unlockedByCertification && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-secondary-subtle text-secondary-strong border border-secondary/30">
-                        Exam Bypass
+                        Placed by assessment
                       </span>
                     )}
                   </div>
@@ -281,7 +281,7 @@ export default function CurriculumMapPage() {
                   <div className="flex items-center gap-2 text-secondary-strong">
                     <Lock className="w-4 h-4 shrink-0 text-secondary" />
                     <span>
-                      Earn <strong>{unlockStatus.remainingXp} more XP</strong> in earlier lessons, or bypass instantly via the Gemini Live Placement Exam.
+                      Earn <strong>{unlockStatus.remainingXp} more XP</strong> in earlier lessons, or take the oral assessment to place higher.
                     </span>
                   </div>
                   <Link
@@ -350,7 +350,7 @@ export default function CurriculumMapPage() {
                             className="w-full flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold bg-surface border border-border text-muted-foreground hover:bg-secondary-subtle hover:text-secondary-strong transition-colors"
                           >
                             <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span>Locked • Take Test</span>
+                            <span>Locked • Take assessment</span>
                           </Link>
                         )}
                       </div>

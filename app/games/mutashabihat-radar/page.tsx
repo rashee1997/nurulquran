@@ -2,7 +2,7 @@ import { MutashabihatRadarCanvas } from '@/components/games/MutashabihatRadarCan
 
 export const metadata = {
   title: 'Mutashabihat Radar | NurulQuran Games',
-  description: 'AI-assisted twin verse discernment mini-game targeting similar verses with 2D canvas radar sweep.',
+  description: 'Practice telling similar verses apart.',
 };
 
 export default function MutashabihatRadarPage() {

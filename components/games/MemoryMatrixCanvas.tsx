@@ -466,14 +466,14 @@ export const MemoryMatrixCanvas: React.FC = () => {
       {/* Finished Game Screen */}
       {isFinished && (
         <div className="p-8 rounded-2xl bg-card border border-border text-center flex flex-col items-center gap-4 animate-in zoom-in-95 duration-300 shadow-md">
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-3xl shadow-md">
-            ✨
+          <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-md">
+            <Trophy className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-bold text-foreground">
-            Memory Matrix Conquered!
+            Round complete
           </h2>
           <p className="text-sm text-muted-foreground max-w-md">
-            Excellent recall! You paired all 6 Ayahs in {moves} moves under {elapsedSeconds} seconds.
+            You paired all 6 ayahs in {moves} moves and {elapsedSeconds} seconds.
           </p>
           <div className="flex items-center gap-6 py-2">
             <div>

@@ -235,7 +235,6 @@ export const AyahAssemblyCanvas: React.FC = () => {
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('✦', renderX - node.width / 2 + 16, renderY - node.height / 2 + 16);
 
         // Arabic Word Text
         ctx.fillStyle = '#0F172A';
@@ -502,7 +501,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
             </div>
             <div>
               <h3 className="font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-400">
-                Ayah {currentVerse.ayahNumber} Perfectly Assembled!
+                Ayah {currentVerse.ayahNumber} assembled
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5 max-w-xl line-clamp-2">
                 &ldquo;{currentVerse.translationEn}&rdquo;

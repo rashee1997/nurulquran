@@ -169,10 +169,10 @@ export default function AIProviderSettingsPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Bot className="w-6 h-6 text-primary" />
-            <span>Bring Your Own Key (BYOK)</span>
+            <span>AI Providers</span>
           </h1>
           <p className="text-xs text-muted-foreground">
-            Configure dynamic AI models with client-side AES-GCM encryption in IndexedDB.
+            Use your own API key. Keys are stored only in this browser.
           </p>
         </div>
 
@@ -186,7 +186,7 @@ export default function AIProviderSettingsPage() {
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95 self-start sm:self-center"
         >
           <Plus className="w-4 h-4" />
-          <span>Add AI Provider</span>
+          <span>Add provider</span>
         </button>
       </div>
 
@@ -195,10 +195,10 @@ export default function AIProviderSettingsPage() {
         <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <div className="space-y-0.5 text-xs">
           <h4 className="font-bold text-foreground">
-            Zero Cloud Storage of API Keys
+            Keys stay in this browser
           </h4>
           <p className="text-muted-foreground leading-relaxed">
-            All user-provided API keys are encrypted with standard AES-GCM in your browser using the Web Crypto API. Keys are only sent to the model resolver in transient request headers and never stored on a server database.
+            API keys are encrypted with AES-GCM in your browser and sent only with the requests that need them. They are never stored on a server.
           </p>
         </div>
       </div>
@@ -294,14 +294,13 @@ export default function AIProviderSettingsPage() {
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay backdrop-blur-xs animate-in fade-in">
           <div className="bg-card border border-border rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-5 text-foreground">
-            <h2 className="text-base font-bold text-foreground">
-              Configure New AI Provider
-            </h2>
+            <h2 className="text-base font-bold text-foreground">                  Add provider
+                </h2>
 
             <form onSubmit={handleSaveProvider} className="space-y-4 text-xs">
               <div>
                 <label className="font-semibold text-foreground block mb-1">
-                  Provider Ecosystem
+                  Provider
                 </label>
                 <select
                   value={newType}
@@ -311,7 +310,7 @@ export default function AIProviderSettingsPage() {
                   <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic (Claude)</option>
-                  <option value="groq">Groq (Ultra-fast)</option>
+                  <option value="groq">Groq</option>
                   <option value="mistral">Mistral AI</option>
                   <option value="openrouter">OpenRouter</option>
                   <option value="custom">Custom (Ollama / vLLM / Local)</option>
@@ -327,14 +326,14 @@ export default function AIProviderSettingsPage() {
                   required
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. My Fast Groq"
+                  placeholder="e.g. My Gemini key"
                   className="w-full p-2.5 rounded-xl bg-surface border border-border text-foreground outline-hidden focus:ring-2 focus:ring-primary"
                 />
               </div>
 
               <div>
                 <label className="font-semibold text-foreground block mb-1">
-                  Target Model Identifier
+                  Model
                 </label>
                 <input
                   type="text"

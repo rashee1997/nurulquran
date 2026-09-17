@@ -3,17 +3,17 @@ import './globals.css';
 import { NavigationHeader } from '@/components/NavigationHeader';
 
 export const metadata: Metadata = {
-  title: 'NurulQuran - Quran Learning & Hifz Engine',
-  description: 'Local-first gamified Quran learning, Arabic reading, and memorization platform with 10 Hifz modes, spaced repetition, English and Tamil translations, word morphology, and BYOK AI tutor.',
+  title: 'NurulQuran — Quran Reading & Memorization',
+  description: 'Local-first Quran reading and memorization: Tajweed and Arabic lessons, ten memorization modes, spaced repetition, English and Tamil translations, and word morphology.',
   openGraph: {
-    title: 'NurulQuran - Quran Learning & Hifz Engine',
-    description: 'Local-first gamified Quran learning, Arabic reading, and memorization platform with 10 Hifz modes, spaced repetition, English and Tamil translations, word morphology, and BYOK AI tutor.',
+    title: 'NurulQuran — Quran Reading & Memorization',
+    description: 'Local-first Quran reading and memorization: Tajweed and Arabic lessons, ten memorization modes, spaced repetition, English and Tamil translations, and word morphology.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'NurulQuran - Quran Learning & Hifz Engine',
-    description: 'Local-first gamified Quran learning, Arabic reading, and memorization platform with 10 Hifz modes, spaced repetition, English and Tamil translations, word morphology, and BYOK AI tutor.',
+    title: 'NurulQuran — Quran Reading & Memorization',
+    description: 'Local-first Quran reading and memorization: Tajweed and Arabic lessons, ten memorization modes, spaced repetition, English and Tamil translations, and word morphology.',
   },
 };
 

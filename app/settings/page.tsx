@@ -64,24 +64,24 @@ export default function SettingsPage() {
       const text = await file.text();
       const res = await importDatabaseJson(text);
       if (res.success) {
-        setImportStatus('Successfully imported all learning data!');
+        setImportStatus('Backup imported.');
         const p = await db.userProfile.get('default_user');
         if (p) setProfile(p);
       } else {
-        setImportStatus(`Import error: ${res.error}`);
+        setImportStatus(`Import failed: ${res.error}`);
       }
     } catch (err) {
-      setImportStatus('Failed to read backup file.');
+      setImportStatus('That file could not be read.');
     }
     setTimeout(() => setImportStatus(null), 4000);
   };
 
   const handleReset = async () => {
-    if (confirm('Are you sure you want to reset all your learning progress and database? This action cannot be undone.')) {
+    if (confirm('Reset all learning progress? This cannot be undone.')) {
       await resetDatabase();
       const p = await db.userProfile.get('default_user');
       if (p) setProfile(p);
-      setImportStatus('Database reset to defaults.');
+      setImportStatus('Progress reset.');
       setTimeout(() => setImportStatus(null), 3000);
     }
   };
@@ -91,7 +91,7 @@ export default function SettingsPage() {
     const updated = { ...profile, aiVoiceId: voiceId };
     setProfile(updated);
     await db.userProfile.update('default_user', { aiVoiceId: voiceId });
-    setPreferenceSavedNotice(`AI Teacher voice updated to ${voiceId}`);
+    setPreferenceSavedNotice('Voice updated.');
     setTimeout(() => setPreferenceSavedNotice(null), 3000);
   };
 
@@ -100,7 +100,7 @@ export default function SettingsPage() {
     const updated = { ...profile, aiTeacherPersona: persona };
     setProfile(updated);
     await db.userProfile.update('default_user', { aiTeacherPersona: persona });
-    setPreferenceSavedNotice(`Teaching style set to ${persona}`);
+    setPreferenceSavedNotice('Feedback level updated.');
     setTimeout(() => setPreferenceSavedNotice(null), 3000);
   };
 
@@ -109,7 +109,7 @@ export default function SettingsPage() {
     const updated = { ...profile, aiFeedbackLanguage: lang };
     setProfile(updated);
     await db.userProfile.update('default_user', { aiFeedbackLanguage: lang });
-    setPreferenceSavedNotice(`Feedback language set to ${lang === 'both' ? 'English & Tamil' : lang === 'ta' ? 'Tamil Only' : 'English Only'}`);
+    setPreferenceSavedNotice('Feedback language updated.');
     setTimeout(() => setPreferenceSavedNotice(null), 3000);
   };
 
@@ -134,10 +134,10 @@ export default function SettingsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Settings className="w-6 h-6 text-primary" />
-          <span>Application Settings & Data Ownership</span>
+          <span>Settings</span>
         </h1>
         <p className="text-xs text-muted-foreground">
-          Configure reader preferences, appearance theme, reciter audio, and complete local-first data backup.
+          Reader preferences, appearance, audio, language and a local backup of your data.
         </p>
       </div>
 
@@ -146,10 +146,10 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <h3 className="text-sm font-bold text-foreground">
-              Appearance & Color Theme
+              Appearance
             </h3>
             <p className="text-xs text-muted-foreground">
-              Choose your reading ambiance or synchronize with system appearance.
+              Choose a theme or match your system.
             </p>
           </div>
           <button
@@ -190,7 +190,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <div className="text-xs font-bold text-foreground">Light Mode</div>
-              <div className="text-[10px] text-muted-foreground">Warm daylight clarity</div>
+              <div className="text-[10px] text-muted-foreground">Always light</div>
             </div>
           </button>
 
@@ -211,7 +211,7 @@ export default function SettingsPage() {
             </div>
             <div>
               <div className="text-xs font-bold text-foreground">Dark Mode</div>
-              <div className="text-[10px] text-muted-foreground">Nocturnal cypress & obsidian</div>
+              <div className="text-[10px] text-muted-foreground">Always dark</div>
             </div>
           </button>
 
@@ -242,15 +242,11 @@ export default function SettingsPage() {
       <div id="ai-teacher-voice-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="space-y-0.5">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary-subtle text-primary-strong text-[11px] font-bold">
-              <Sparkles className="w-3.5 h-3.5 text-secondary" />
-              <span>Gemini Live Tajweed Coach</span>
-            </div>
             <h3 className="text-base font-bold text-foreground">
-              AI Tajweed Teacher & Voice Settings
+              Recitation Guide
             </h3>
             <p className="text-xs text-muted-foreground">
-              Customize your oral Tajweed coach&apos;s voice tone, teaching rigor, and bilingual language feedback.
+              Choose the voice, feedback level and language used by the Recitation Guide.
             </p>
           </div>
 
@@ -266,10 +262,10 @@ export default function SettingsPage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
-              1. Teacher Voice Timbre ({AI_TEACHER_VOICES.length} Options)
+              1. Qari voice
             </h4>
             <span className="text-[11px] text-muted-foreground">
-              Click card to select • Preview speaks {activeLanguageOption.short}
+              Select a voice • Samples speak {activeLanguageOption.short}
             </span>
           </div>
 
@@ -308,13 +304,13 @@ export default function SettingsPage() {
                         onClick={(e) => handlePlayVoicePreview(e, v.id)}
                         className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
                           isPlaying
-                            ? 'bg-primary text-primary-foreground animate-pulse'
+                            ? 'bg-primary text-primary-foreground'
                             : 'bg-surface-muted hover:bg-card border border-border text-foreground'
                         }`}
-                        title={`Listen to sample of ${v.name}`}
+                        title={`Play a sample of ${v.name}`}
                       >
-                        <Volume2 className={`w-3.5 h-3.5 ${isPlaying ? 'animate-bounce' : 'text-primary'}`} />
-                        <span>{isPlaying ? 'Playing...' : 'Preview'}</span>
+                        <Volume2 className="w-3.5 h-3.5 text-primary" />
+                        <span>{isPlaying ? 'Playing' : 'Play sample'}</span>
                       </button>
 
                       {isSelected && (
@@ -338,25 +334,25 @@ export default function SettingsPage() {
         {/* Teaching Persona & Style */}
         <div className="space-y-3 pt-2 border-t border-border">
           <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
-            2. Pedagogical Style & Rigor
+            2. Feedback level
           </h4>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               {
                 id: 'gentle',
-                name: 'Gentle Encourager',
-                desc: 'Focuses on building confidence. Overlooks minor acoustic nuances for beginners.',
+                name: 'Encouraging',
+                desc: 'Overlooks minor pronunciation details while you build confidence.',
               },
               {
                 id: 'balanced',
-                name: 'Balanced Mentor',
-                desc: 'Recommended. Evaluates Makhraj accuracy, vowel counts, and common reciting slips.',
+                name: 'Standard',
+                desc: 'Checks Makhraj, vowel counts and common slips. Recommended.',
               },
               {
                 id: 'strict',
-                name: 'Strict Qari / Hafiz',
-                desc: 'Hafs standard. Enforces exact Ghunnah counts, precise Sifaat, and crisp stops.',
+                name: 'Strict',
+                desc: 'Hafs standard. Enforces Ghunnah counts, Sifaat and stops exactly.',
               },
             ].map((p) => {
               const isSelected = (profile?.aiTeacherPersona || 'balanced') === p.id;
@@ -389,7 +385,7 @@ export default function SettingsPage() {
               3. Feedback Language Preference
             </h4>
             <span className="text-[11px] text-muted-foreground">
-              Applies to the voice preview, live coach replies &amp; written feedback
+              Applies to voice samples, Recitation Guide replies and written feedback
             </span>
           </div>
 
@@ -420,15 +416,10 @@ export default function SettingsPage() {
       </div>
 
       {/* AI BYOK Callout Card */}
-      <div className="p-6 rounded-3xl bg-hero-bg text-hero-fg border border-hero-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg text-xs font-semibold">
-            <Sparkles className="w-3.5 h-3.5 text-secondary" />
-            <span>AI Model Registry</span>
-          </div>
-          <h3 className="text-base font-bold">Bring Your Own Key (BYOK)</h3>
+      <div className="p-6 rounded-3xl bg-hero-bg text-hero-fg border border-hero-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">          <div className="space-y-1">
+          <h3 className="text-base font-bold">AI providers</h3>
           <p className="text-xs text-hero-muted max-w-sm">
-            Configure Gemini, OpenAI, Anthropic, Groq, Mistral, or custom Ollama endpoints with local AES-GCM key encryption.
+            Use your own API key with Gemini, OpenAI, Anthropic, Groq, Mistral or a local Ollama endpoint. Keys stay in this browser.
           </p>
         </div>
 
@@ -436,7 +427,7 @@ export default function SettingsPage() {
           href="/settings/ai"
           className="px-4 py-2.5 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground text-xs font-bold transition-all shadow-md shrink-0"
         >
-          Manage AI Keys
+          Manage providers
         </Link>
       </div>
 
@@ -458,7 +449,7 @@ export default function SettingsPage() {
             ))}
           </select>
           <p className="text-[11px] text-muted-foreground">
-            High-quality murattal audio streams verified from CDN sources.
+            Murattal recordings stream on demand.
           </p>
         </div>
       </div>
@@ -467,10 +458,10 @@ export default function SettingsPage() {
       <div className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-5">
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-foreground">
-            Data Ownership & Offline Backup
+            Data and backup
           </h3>
           <p className="text-xs text-muted-foreground">
-            All your bookmarks, SRS review intervals, and lesson history reside securely in your browser&apos;s IndexedDB. You can export or import at any time.
+            Bookmarks, review intervals and lesson history are stored in this browser. Export or import them at any time.
           </p>
         </div>
 
@@ -488,7 +479,7 @@ export default function SettingsPage() {
             className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
           >
             <Download className="w-4 h-4 text-primary" />
-            <span>{exportSuccess ? 'Backup Downloaded!' : 'Export JSON Backup'}</span>
+            <span>{exportSuccess ? 'Backup downloaded' : 'Export backup'}</span>
           </button>
 
           {/* Import button */}
@@ -497,7 +488,7 @@ export default function SettingsPage() {
             className="flex items-center justify-center gap-2 p-3.5 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
           >
             <Upload className="w-4 h-4 text-info" />
-            <span>Import JSON Backup</span>
+            <span>Import backup</span>
           </button>
           <input
             ref={fileInputRef}
@@ -511,8 +502,8 @@ export default function SettingsPage() {
         {/* Reset */}
         <div className="pt-3 border-t border-border flex items-center justify-between">
           <div>
-            <h4 className="text-xs font-bold text-destructive">Reset Local Learning Database</h4>
-            <p className="text-[11px] text-muted-foreground">Clears all lesson history and SRS intervals.</p>
+            <h4 className="text-xs font-bold text-destructive">Reset progress</h4>
+            <p className="text-[11px] text-muted-foreground">Clears all lesson history and review intervals.</p>
           </div>
           <button
             onClick={handleReset}

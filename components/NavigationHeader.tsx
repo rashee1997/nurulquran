@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
   BookOpen, 
-  Sparkles, 
+  MessagesSquare, 
   Brain, 
   Compass, 
   Clock, 
@@ -46,25 +46,25 @@ const NAV_CATEGORIES: NavCategory[] = [
   {
     category: 'Core Study',
     items: [
-      { href: '/dashboard', label: 'Dashboard', desc: 'Overview, daily streaks & activity heatmap', icon: Compass },
-      { href: '/quran', label: 'Quran Reader', desc: 'Medina Mushaf with audio, word morphology & tafsir', icon: BookOpen },
-      { href: '/learn', label: 'Curriculum', desc: 'Interactive Tajweed & Arabic lessons syllabus', icon: BookOpen },
-      { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Dual-track Quranic + spoken Arabic, writing & iʿrāb', icon: Languages, badge: 'New' },
+      { href: '/dashboard', label: 'Dashboard', desc: 'Progress, streak and recent activity', icon: Compass },
+      { href: '/quran', label: 'Quran Reader', desc: 'Uthmani text with audio, morphology and translations', icon: BookOpen },
+      { href: '/learn', label: 'Curriculum', desc: 'Tajweed and Arabic lessons, Levels 1–10', icon: BookOpen },
+      { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Quranic and spoken Arabic, writing and iʿrāb', icon: Languages },
     ],
   },
   {
-    category: 'Hifz & Practice',
+    category: 'Memorization',
     items: [
-      { href: '/games', label: 'Mini-Games Arcade', desc: '2D Canvas Ayah Assembly, Radar & Matrix games', icon: Gamepad2, badge: 'New' },
-      { href: '/memorize', label: '10 Hifz Modes', desc: 'Blur, first-letter, audio-echo & recitation drills', icon: Brain },
-      { href: '/memorize/planner', label: 'Hifz Planner', desc: 'Personalized pacing, targets & target forecasting', icon: Layers },
-      { href: '/review', label: 'SRS Queue', desc: 'SM-2 spaced repetition daily revision queue', icon: Clock },
+      { href: '/games', label: 'Practice Games', desc: 'Word order, similar-verse and recall drills', icon: Gamepad2 },
+      { href: '/memorize', label: 'Memorization Modes', desc: 'Ten recall drills linked to spaced repetition', icon: Brain },
+      { href: '/memorize/planner', label: 'Hifz Planner', desc: 'Daily portions and memorization targets', icon: Layers },
+      { href: '/review', label: 'Review Queue', desc: 'Today’s spaced-repetition review queue', icon: Clock },
     ],
   },
   {
     category: 'Preferences',
     items: [
-      { href: '/settings', label: 'Settings', desc: 'Reciter audio, font size, themes & backups', icon: Settings },
+      { href: '/settings', label: 'Settings', desc: 'Audio, language, theme and data backup', icon: Settings },
     ],
   },
 ];
@@ -199,7 +199,7 @@ export const NavigationHeader: React.FC = () => {
                   NurulQuran
                 </span>
                 <span className="hidden sm:block text-[9px] text-primary font-bold tracking-wider uppercase mt-0.5">
-                  Hifz & Arabic AI
+                  Quran & Arabic study
                 </span>
               </div>
             </Link>
@@ -240,9 +240,8 @@ export const NavigationHeader: React.FC = () => {
                   <div className="px-2 py-1.5 flex items-center justify-between border-b border-border/60">
                     <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                       <LayoutGrid className="w-3 h-3 text-primary" />
-                      <span>Modules & Navigation</span>
+                      <span>Go to</span>
                     </span>
-                    <span className="text-[10px] text-muted-foreground">Select destination</span>
                   </div>
 
                   {NAV_CATEGORIES.map((cat, catIdx) => (
@@ -343,10 +342,11 @@ export const NavigationHeader: React.FC = () => {
               id="open-tutor-btn"
               onClick={() => setIsAiOpen(true)}
               type="button"
+              aria-label="Open Study Assistant"
               className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-md shadow-primary/20 active:scale-95 transition-all shrink-0"
             >
-              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-              <span className="hidden sm:inline">AI Tutor</span>
+              <MessagesSquare className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Study Assistant</span>
             </button>
 
             {/* Mobile Drawer Menu Toggle */}

@@ -189,14 +189,14 @@ export default function AlphabetStudioPage() {
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-subtle text-primary text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5 text-secondary" />
-              <span>Interactive Noorani Qaida & Makharij Studio</span>
+              <Volume2 className="w-3.5 h-3.5 text-secondary" />
+              <span>Noorani Qaida & Makharij</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-              Arabic Alphabet Pronunciation
+              Arabic Alphabet
             </h1>
             <p className="text-muted-foreground text-xs sm:text-sm max-w-xl leading-relaxed">
-              Listen to authentic isolated recordings of all 28 letters, practice throat and tongue makharij, and explore Harakat (Fatha, Kasra, Damma) with Tamil phonetics.
+              Listen to recordings of all 28 letters, practise throat and tongue makharij, and explore harakat (fatha, kasra, damma) with Tamil phonetics.
             </p>
           </div>
 

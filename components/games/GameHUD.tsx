@@ -60,7 +60,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           <Link
             href="/games"
             className="p-2 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title="Back to Mini-Games Arcade"
+            title="Back to games"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -88,7 +88,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         <div className="flex items-center gap-2 sm:gap-4 ml-auto">
           {/* Combo Multiplier */}
           {combo > 1 && (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-extrabold text-xs animate-bounce">
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-extrabold text-xs">
               <Flame className="w-3.5 h-3.5 fill-amber-500" />
               <span>{combo}x COMBO</span>
             </div>
@@ -113,7 +113,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               onClick={onPlayRecitation}
               type="button"
               className="p-2 rounded-xl border border-primary/20 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-              title="Play verse audio recitation"
+              title="Play recitation"
             >
               <Volume2 className="w-4 h-4" />
             </button>
@@ -124,7 +124,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             onClick={onToggleSound}
             type="button"
             className="p-2 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title={soundEnabled ? 'Mute Game SFX' : 'Enable Game SFX'}
+            title={soundEnabled ? 'Mute sound' : 'Enable sound'}
           >
             {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
@@ -134,7 +134,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             onClick={onRestart}
             type="button"
             className="p-2 rounded-xl border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title="Restart Challenge"
+            title="Restart"
           >
             <RotateCcw className="w-4 h-4" />
           </button>

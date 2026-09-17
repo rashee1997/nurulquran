@@ -166,7 +166,7 @@ export default function SrsReviewPage() {
     return (
       <div className="text-center py-20 text-muted-foreground">
         <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-        <p className="text-xs">Assembling your spaced repetition queue...</p>
+        <p className="text-xs">Building today’s review queue…</p>
       </div>
     );
   }
@@ -183,7 +183,7 @@ export default function SrsReviewPage() {
             Queue Clear! Alhamdulillah
           </h2>
           <p className="text-xs text-muted-foreground">
-            You reviewed {reviewedCount} items today. Your memory consolidation is on track.
+            You reviewed {reviewedCount} items today.
           </p>
         </div>
 
@@ -192,7 +192,7 @@ export default function SrsReviewPage() {
             href="/memorize"
             className="flex-1 py-3 px-4 rounded-xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover transition-colors"
           >
-            10 Hifz Modes
+            Memorization modes
           </Link>
           <Link
             href="/"
@@ -321,7 +321,7 @@ export default function SrsReviewPage() {
           ) : isVerseLoading ? (
             <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              <span className="text-xs">Fetching verified Quran text & translation...</span>
+              <span className="text-xs">Loading verse…</span>
             </div>
           ) : currentVerseData ? (
             <div className="space-y-4 animate-in fade-in w-full">
@@ -356,7 +356,7 @@ export default function SrsReviewPage() {
             </div>
           ) : (
             <div className="text-center py-6 space-y-3">
-              <p className="text-xs text-danger font-semibold">Network offline or verse could not be fetched.</p>
+              <p className="text-xs text-danger font-semibold">You appear to be offline. This verse could not be loaded.</p>
               <button
                 onClick={handleRetryLoadVerse}
                 className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-surface border border-border text-foreground hover:bg-surface-hover text-xs font-bold transition-colors"
@@ -372,7 +372,7 @@ export default function SrsReviewPage() {
         {isRevealed && (
           <div className="space-y-3 pt-2 animate-in slide-in-from-bottom-2">
             <div className="flex justify-between text-xs text-muted-foreground font-semibold px-1">
-              <span>Rate Your Recall Precision</span>
+              <span>How well did you remember?</span>
               <span className="text-primary-strong font-bold">SM-2 Spaced Algorithm</span>
             </div>
 

@@ -89,11 +89,12 @@ export const AyahItem: React.FC<AyahItemProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Quick AI Explanation */}
+          {/* Ask the Study Assistant about this ayah */}
           <button
             onClick={() => onAskAi(verse)}
             className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-surface-hover transition-colors"
-            title="Ask AI Tutor about this Ayah"
+            aria-label="Ask the Study Assistant about this ayah"
+            title="Ask the Study Assistant about this ayah"
           >
             <Sparkles className="w-4 h-4" />
           </button>

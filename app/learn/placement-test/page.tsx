@@ -258,14 +258,14 @@ export default function TajweedPlacementExamPage() {
       {/* Top Banner */}
       <div className="bg-card rounded-3xl p-6 sm:p-8 text-foreground border border-border shadow-xs space-y-3">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary-subtle text-primary text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5 text-secondary" />
-          <span>Gemini Live AI Placement & Tajweed Oral Exam</span>
+          <Award className="w-3.5 h-3.5 text-secondary" />
+          <span>Oral assessment</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-          Tajweed Placement & Skip-Ahead Certification
+          Place a Level by Reciting
         </h1>
         <p className="text-muted-foreground text-xs sm:text-sm max-w-xl leading-relaxed">
-          Already know Arabic letters and Tajweed rules? Take this live AI examination to test out of introductory tiers and unlock all advanced levels immediately.
+          Already know the letters and Tajweed rules? Recite aloud to be placed above the introductory levels.
         </p>
       </div>
 
@@ -275,23 +275,23 @@ export default function TajweedPlacementExamPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
               <ShieldCheck className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-bold text-foreground">Zero-Hallucination AI</h3>
+              <h3 className="text-sm font-bold text-foreground">Fixed rule set</h3>
               <p className="text-xs text-muted-foreground">
-                Grounded Tajweed evaluation with Hafs &apos;an &apos;Asim classical rules.
+                Evaluation is limited to the rules of the Hafs &apos;an &apos;Asim reading.
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
               <Mic className="w-5 h-5 text-secondary" />
-              <h3 className="text-sm font-bold text-foreground">Live Voice Recitation</h3>
+              <h3 className="text-sm font-bold text-foreground">Recorded recitation</h3>
               <p className="text-xs text-muted-foreground">
-                Gemini analyzes your microphone audio for makharij, vowels, and ghunnah.
+                Your microphone audio is assessed for makharij, vowels and ghunnah.
               </p>
             </div>
             <div className="p-4 rounded-2xl bg-surface border border-border space-y-1">
               <Unlock className="w-5 h-5 text-primary" />
-              <h3 className="text-sm font-bold text-foreground">Instant Unlocking</h3>
+              <h3 className="text-sm font-bold text-foreground">Levels opened by assessment</h3>
               <p className="text-xs text-muted-foreground">
-                Score 75% or higher to unlock Levels 2 through 10 and gain +150 bonus XP!
+                Score 75% or higher to place into Levels 2–10 and gain 150 XP.
               </p>
             </div>
           </div>
@@ -419,13 +419,13 @@ export default function TajweedPlacementExamPage() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary-subtle text-secondary-strong text-xs font-bold">
               <Mic className="w-3 h-3" />
-              <span>Section 2 of 2: Live AI Recitation Test</span>
+              <span>Section 2 of 2: Recitation</span>
             </div>
             <h2 className="text-lg sm:text-xl font-bold text-foreground">
               Recite the Test Passage Aloud
             </h2>
             <p className="text-xs text-muted-foreground">
-              Press Record, recite the verse below clearly into your microphone, and press Stop. Gemini will evaluate your Makharij, Madd, and Tajweed adherence.
+              Press Record, recite the verse below into your microphone, then press Stop. Makharij, Madd and Tajweed are then assessed.
             </p>
           </div>
 
@@ -510,8 +510,8 @@ export default function TajweedPlacementExamPage() {
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 text-secondary" />
-                  <span>Submit for Gemini Live AI Evaluation</span>
+                  <Award className="w-4 h-4 text-secondary" />
+                  <span>Submit for assessment</span>
                 </>
               )}
             </button>
@@ -526,10 +526,10 @@ export default function TajweedPlacementExamPage() {
             <Sparkles className="w-8 h-8 text-primary" />
           </div>
           <h2 className="text-xl font-bold text-foreground">
-            Gemini Live AI Analyzing Recitation & Rules...
+            Analyzing recitation and rules…
           </h2>
           <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-            Evaluating throat and tongue articulation points, checking Noon Sakinah nasalization, measuring Madd length, and scoring Tajweed proficiency.
+            Checking articulation points, Noon Sakinah nasalization and Madd length.
           </p>
         </div>
       )}
@@ -554,12 +554,12 @@ export default function TajweedPlacementExamPage() {
             </div>
             <h2 className="text-xl sm:text-2xl font-extrabold">
               {evalResult.passed
-                ? 'Placement Certified: Advanced Levels Unlocked!'
-                : 'Great Effort! Keep Practicing'}
+                ? 'Placement complete'
+                : 'Not placed yet'}
             </h2>
             <p className="text-xs opacity-90 max-w-lg mx-auto">
               {evalResult.passed
-                ? `You scored ${evalResult.score}/100. Gemini has officially certified your Tajweed proficiency and unlocked Levels 2 through 10!`
+                ? `You scored ${evalResult.score}/100. Levels 2–10 are now open.`
                 : `You scored ${evalResult.score}/100. We recommend starting with Level 1 or 2 to reinforce makharij foundations.`}
             </p>
           </div>
@@ -573,14 +573,14 @@ export default function TajweedPlacementExamPage() {
             {showEnglishFeedback && (
               <div className="p-4 rounded-2xl bg-surface border border-border space-y-2">
                 <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  English Evaluation & Makhraj Tips
+                  English feedback & Makhraj tips
                 </h4>
                 <p className="text-xs text-foreground leading-relaxed">
                   {evalResult.feedbackEn}
                 </p>
                 {evalResult.makhrajTipsEn && (
                   <p className="text-[11px] text-primary-strong font-medium pt-1">
-                    💡 Tip: {evalResult.makhrajTipsEn}
+                    Tip: {evalResult.makhrajTipsEn}
                   </p>
                 )}
               </div>
@@ -634,14 +634,14 @@ export default function TajweedPlacementExamPage() {
               className="text-xs font-bold text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Retake Examination</span>
+              <span>Retake assessment</span>
             </button>
 
             <Link
               href="/learn"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md active:scale-95 transition-all"
             >
-              <span>Explore Unlocked Levels in Curriculum</span>
+              <span>Open the curriculum</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

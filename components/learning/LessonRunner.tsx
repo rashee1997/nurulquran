@@ -206,10 +206,10 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
             <button
               onClick={() => setIsCoachOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-[11px] shadow-xs active:scale-95 transition-all"
-              title="Open Live Gemini Tajweed Coach"
+              title="Open Recitation Guide"
             >
               <Sparkles className="w-3 h-3 text-secondary" />
-              <span>AI Tajweed Coach</span>
+              <span>Recitation Guide</span>
             </button>
             <span className="hidden sm:inline font-medium text-foreground">{lesson.title}</span>
           </div>
@@ -253,8 +253,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
               >
                 {isPlayingAudio ? (
                   <>
-                    <Volume2 className="w-4 h-4 animate-bounce" />
-                    <span>Playing Authentic Audio...</span>
+                    <Volume2 className="w-4 h-4" />
+                    <span>Playing recitation…</span>
                   </>
                 ) : (
                   <>

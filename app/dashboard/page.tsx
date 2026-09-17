@@ -100,13 +100,13 @@ export default function DashboardPage() {
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-2">
             <TrendingUp className="w-3.5 h-3.5" />
-            <span>Hifz Command Center</span>
+            <span>Progress</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
-            Memorization & Streak Dashboard
+            Memorization & Review Dashboard
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Real-time synchronization between 2D canvas mini-games, spaced repetition queue, and Hifz milestones.
+            Games, review queue and memorization milestones in one place.
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function DashboardPage() {
           className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity"
         >
           <Gamepad2 className="w-4 h-4" />
-          <span>Play Mini-Games</span>
+          <span>Open Practice Games</span>
         </Link>
       </div>
 
@@ -143,7 +143,7 @@ export default function DashboardPage() {
         {/* Level & XP Card */}
         <div className="p-5 rounded-2xl bg-card border border-border flex flex-col justify-between gap-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Hifz Rank</span>
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Level</span>
             <div className="p-2 rounded-xl bg-primary/10 text-primary">
               <Trophy className="w-5 h-5" />
             </div>
@@ -161,7 +161,7 @@ export default function DashboardPage() {
         {/* Game Accuracy */}
         <div className="p-5 rounded-2xl bg-card border border-border flex flex-col justify-between gap-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Game Accuracy</span>
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Practice Accuracy</span>
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <Brain className="w-5 h-5" />
             </div>
@@ -171,7 +171,7 @@ export default function DashboardPage() {
               {avgAccuracy > 0 ? `${avgAccuracy}%` : '100%'}
             </div>
             <span className="text-[11px] text-muted-foreground font-medium block mt-1">
-              Across {totalGames} Active Sessions
+              Across {totalGames} sessions
             </span>
           </div>
         </div>
@@ -179,9 +179,9 @@ export default function DashboardPage() {
         {/* Max Combo */}
         <div className="p-5 rounded-2xl bg-card border border-border flex flex-col justify-between gap-3 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Best Combo</span>
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Best Streak</span>
             <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400">
-              <Sparkles className="w-5 h-5" />
+              <TrendingUp className="w-5 h-5" />
             </div>
           </div>
           <div>
@@ -189,7 +189,7 @@ export default function DashboardPage() {
               {maxCombo > 0 ? `${maxCombo}x` : '1x'}
             </div>
             <span className="text-[11px] text-muted-foreground font-medium block mt-1">
-              High Score: {highestScore} pts
+              Best score: {highestScore} pts
             </span>
           </div>
         </div>
@@ -201,10 +201,10 @@ export default function DashboardPage() {
           <div>
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Calendar className="w-4 h-4 text-muted-foreground" />
-              <span>Hifz Consistency & Activity Heatmap</span>
+              <span>Practice Activity</span>
             </h3>
             <p className="text-xs text-muted-foreground">
-              Daily practice activity generated from mini-games, lessons, and spaced repetition revisions.
+              Daily activity from games, lessons and reviews.
             </p>
           </div>
 
@@ -253,7 +253,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Gamepad2 className="w-4 h-4 text-primary" />
-              <span>2D Mini-Games Arcade</span>
+              <span>Practice Games</span>
             </h3>
             <Link href="/games" className="text-xs text-primary font-semibold hover:underline">
               View All
@@ -271,7 +271,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-foreground">Celestial Ayah Assembly</h4>
-                  <span className="text-[11px] text-muted-foreground">Orbital 2D word physics & recitation</span>
+                  <span className="text-[11px] text-muted-foreground">Word order with recitation</span>
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -287,7 +287,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-foreground">Mutashabihat Radar</h4>
-                  <span className="text-[11px] text-muted-foreground">Twin verse discernment & mnemonics</span>
+                  <span className="text-[11px] text-muted-foreground">Similar-verse discrimination</span>
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -303,7 +303,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-foreground">Ayah Memory Matrix</h4>
-                  <span className="text-[11px] text-muted-foreground">Active recall card matching</span>
+                  <span className="text-[11px] text-muted-foreground">Recall matching</span>
                 </div>
               </div>
               <ArrowRight className="w-4 h-4 text-muted-foreground" />
@@ -316,7 +316,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-500" />
-              <span>Spaced Repetition (SRS) Status</span>
+              <span>Review Queue</span>
             </h3>
             <Link href="/review" className="text-xs text-primary font-semibold hover:underline">
               Open Queue
@@ -339,14 +339,14 @@ export default function DashboardPage() {
           </div>
 
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Verses are scheduled using the SM-2 algorithm. Mini-game completions directly reinforce retention and reduce lapse rates.
+            Verses are scheduled with spaced repetition. Practice sessions also reinforce retention.
           </p>
 
           <Link
             href="/review"
             className="w-full py-2 px-4 rounded-xl bg-card border border-border hover:bg-muted text-foreground font-semibold text-xs flex items-center justify-center gap-2 transition-colors"
           >
-            <span>Start Daily SRS Revision</span>
+            <span>Start today’s review</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -356,12 +356,12 @@ export default function DashboardPage() {
       <div className="p-6 rounded-2xl bg-card border border-border space-y-4 shadow-xs">
         <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
           <Trophy className="w-4 h-4 text-primary" />
-          <span>Complete Mini-Game History</span>
+          <span>Practice History</span>
         </h3>
 
         {sessions.length === 0 ? (
           <div className="p-8 text-center rounded-xl bg-muted/30 border border-dashed border-border text-xs text-muted-foreground">
-            No games recorded yet. Launch Celestial Ayah Assembly to record your first session!
+            No sessions yet. Play a game to record your first session.
           </div>
         ) : (
           <div className="overflow-x-auto">

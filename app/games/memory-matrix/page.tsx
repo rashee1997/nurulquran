@@ -2,7 +2,7 @@ import { MemoryMatrixCanvas } from '@/components/games/MemoryMatrixCanvas';
 
 export const metadata = {
   title: 'Ayah Memory Matrix | NurulQuran Games',
-  description: 'Fast active recall matching opening verse phrases with endings and meanings on an interactive 2D canvas.',
+  description: 'Match a verse opening with its ending or meaning.',
 };
 
 export default function MemoryMatrixPage() {

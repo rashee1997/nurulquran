@@ -369,7 +369,7 @@ export const MutashabihatRadarCanvas: React.FC = () => {
         })}
       </div>
 
-      {/* Pedagogical Mnemonic Card when Answered */}
+      {/* Mnemonic card shown after answering */}
       {answeredState !== 'idle' && (
         <div className="p-5 rounded-2xl bg-card border border-border shadow-md flex flex-col sm:flex-row items-start justify-between gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-start gap-3">
@@ -378,7 +378,7 @@ export const MutashabihatRadarCanvas: React.FC = () => {
             </div>
             <div>
               <h4 className="text-sm font-bold text-foreground flex items-center gap-2">
-                <span>Hifz Mnemonic Guide:</span>
+                <span>Mnemonic:</span>
                 <span className="text-xs text-muted-foreground font-normal">
                   {currentEntry.topicTitleEn}
                 </span>
@@ -406,14 +406,14 @@ export const MutashabihatRadarCanvas: React.FC = () => {
       {/* Game Finished Modal */}
       {isFinished && (
         <div className="p-8 rounded-2xl bg-card border border-border text-center flex flex-col items-center gap-4 animate-in zoom-in-95 duration-300 shadow-md">
-          <div className="w-16 h-16 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center text-3xl shadow-md">
-            🎯
+          <div className="w-16 h-16 rounded-2xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center shadow-md">
+            <Radar className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-bold text-foreground">
-            Mutashabihat Radar Cleared!
+            Round complete
           </h2>
           <p className="text-sm text-muted-foreground max-w-md">
-            You successfully distinguished between identical verses across the Quran. This drastically reduces hesitation during Salah recitation.
+            You told apart verses that read alike. This reduces hesitation during Salah.
           </p>
           <div className="flex items-center gap-6 py-2">
             <div>

@@ -46,34 +46,34 @@ export default function GamesHubPage() {
       id: 'ayah-assembly',
       title: 'Celestial Ayah Assembly',
       href: '/games/ayah-assembly',
-      badge: '2D Orbital Canvas',
+      badge: 'Word order',
       color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400',
       icon: Sparkles,
       iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-      description: 'Reconstruct Quranic verses by connecting floating words with orbital physics. Features authentic Uthmani script and audio recitations.',
-      mechanics: ['Word Sequencing', 'Kinetic Particles', 'Instant Audio Chimes', 'Mishary Alafasy Recitation'],
+      description: 'Reconstruct verses by placing their words in Quranic order, with Uthmani script and audio recitation.',
+      mechanics: ['Word order', 'Uthmani script', 'Mishary Alafasy recitation'],
     },
     {
       id: 'mutashabihat-radar',
       title: 'Mutashabihat Radar',
       href: '/games/mutashabihat-radar',
-      badge: 'Radar Sweep Discernment',
+      badge: 'Similar verses',
       color: 'from-sky-500/20 to-indigo-500/10 border-sky-500/30 text-sky-600 dark:text-sky-400',
       icon: Radar,
       iconBg: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
-      description: 'Master similar verses (*Mutashabihat*) across different Surahs with an oscillating 2D radar. Eliminates hesitation during Salah.',
-      mechanics: ['Twin Verse Discrimination', 'Canonical Diff Tokens', 'English & Tamil Mnemonics', 'Sonar Waveforms'],
+      description: 'Distinguish similar verses (mutashābihāt) across surahs. Reduces hesitation during Salah.',
+      mechanics: ['Similar verses', 'Differing words', 'English & Tamil hints'],
     },
     {
       id: 'memory-matrix',
       title: 'Ayah Memory Matrix',
       href: '/games/memory-matrix',
-      badge: 'Active Recall Grid',
+      badge: 'Recall matching',
       color: 'from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400',
       icon: Layers,
       iconBg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-      description: 'Rapid card matching testing active recall. Match opening verse phrases with endings and English/Tamil meanings.',
-      mechanics: ['3D-Perspective Card Flips', 'Active Recall Pairing', 'Combo Multipliers', 'Speed & Accuracy Rating'],
+      description: 'Match a verse opening with its ending, or with its English or Tamil meaning.',
+      mechanics: ['Recall matching', 'Combo tracking', 'Accuracy rating'],
     },
   ];
 
@@ -85,13 +85,13 @@ export default function GamesHubPage() {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold">
               <Gamepad2 className="w-3.5 h-3.5" />
-              <span>AI & 2D Canvas Quran Arcade</span>
+              <span>Practice Games</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
-              Gamified Quran Memorization
+              Memorization Practice
             </h1>
             <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
-              Reinforce your Hifz through high-frequency active recall mini-games powered by responsive 60 FPS HTML5 canvas animations, verified Medina Mushaf Uthmani text, and spaced-repetition metrics.
+              Reinforce memorization with word ordering, similar-verse discrimination and recall matching, using Uthmani text and spaced repetition.
             </p>
           </div>
 
@@ -145,7 +145,7 @@ export default function GamesHubPage() {
           className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity shrink-0"
         >
           <Play className="w-3.5 h-3.5 fill-current" />
-          <span>Launch Challenge</span>
+          <span>Start</span>
         </Link>
       </div>
 
@@ -191,7 +191,7 @@ export default function GamesHubPage() {
                 href={g.href}
                 className="w-full mt-2 py-2.5 px-4 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-primary-foreground font-bold text-xs flex items-center justify-center gap-2 transition-colors shadow-xs"
               >
-                <span>Play Game</span>
+                <span>Open</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
@@ -206,20 +206,20 @@ export default function GamesHubPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <Clock className="w-4 h-4 text-muted-foreground" />
-              <span>Recent Mini-Game Sessions</span>
+              <span>Recent Sessions</span>
             </h3>
             <Link
               href="/dashboard"
               className="text-xs text-primary font-semibold hover:underline flex items-center gap-1"
             >
-              <span>Full Analytics</span>
+              <span>Full history</span>
               <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
 
           {recentSessions.length === 0 ? (
             <div className="p-8 text-center rounded-xl bg-muted/30 border border-dashed border-border text-xs text-muted-foreground">
-              No mini-game sessions played yet. Select any game above to start your first session!
+              No sessions yet. Choose a game above to begin.
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -255,23 +255,23 @@ export default function GamesHubPage() {
         <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-3">
           <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold text-sm">
             <ShieldCheck className="w-5 h-5" />
-            <span>Verified Quranic Integrity</span>
+            <span>Text source</span>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            All text tokens, letter shapes, vowel marks (tashkeel), and stop markers across our 2D canvas games are verified against the King Fahd Glorious Quran Printing Complex and Tanzil canonical Uthmani Hafs repository.
+            Letters, vowel marks (tashkeel) and stop markers follow the Tanzil Uthmani Hafs dataset, cross-checked against the King Fahd Glorious Quran Printing Complex mushaf.
           </p>
           <div className="pt-2 border-t border-emerald-500/20 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-1.5 py-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Full Medina Uthmani orthography</span>
+              <span>Medina Uthmani orthography</span>
             </div>
             <div className="flex items-center gap-1.5 py-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Authentic verse boundaries</span>
+              <span>Verse boundaries preserved</span>
             </div>
             <div className="flex items-center gap-1.5 py-1">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Sheikh Alafasy acoustic reference</span>
+              <span>Sheikh Alafasy recitation reference</span>
             </div>
           </div>
         </div>

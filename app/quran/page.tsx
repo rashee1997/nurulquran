@@ -35,7 +35,7 @@ export default function QuranIndexPage() {
           Surah Index & Interactive Reader
         </h1>
         <p className="text-muted-foreground text-xs sm:text-sm max-w-2xl">
-          Explore complete Uthmani text, verified Saheeh International English translation, and John Trust Foundation Tamil translation with audio recitation.
+          Explore the full Uthmani text with Saheeh International English and Tamil translations, plus audio recitation.
         </p>
 
         {/* Search & Filter Bar */}

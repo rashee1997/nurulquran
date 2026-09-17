@@ -97,7 +97,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
             ? {
                 ...m,
                 content:
-                  'Bismillah. I encountered an issue connecting to the AI model. Please verify your connection or BYOK API key in Settings.',
+                  'Could not reach the assistant. Check your connection, or your API key in Settings.',
               }
             : m
         )
@@ -146,14 +146,14 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
           </div>
           <div>
             <h3 className="text-sm font-bold text-foreground flex items-center gap-1.5">
-              NurulQuran AI Tutor
+              Study Assistant
             </h3>
             <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <span className="w-1.5 h-1.5 rounded-full bg-primary" />
               <span className="truncate max-w-[180px]">{activeProviderName}</span>
               <span>•</span>
               <Link href="/settings/ai" className="text-primary hover:underline">
-                BYOK
+                Providers
               </Link>
             </div>
           </div>
@@ -162,6 +162,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
         <button
           id="close-tutor-panel-btn"
           onClick={onClose}
+          aria-label="Close Study Assistant"
           className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-surface-hover transition-colors"
         >
           <X className="w-5 h-5" />
@@ -180,7 +181,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
                 Assalamu Alaikum!
               </h4>
               <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-                I am your scholarly Quran & Arabic tutor. I verify every verse and word root deterministically from authentic sources.
+                Ask about a verse, word root, Tajweed rule or Tamil meaning.
               </p>
             </div>
 
@@ -244,7 +245,7 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose, initial
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" />
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.2s]" />
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:0.4s]" />
-              <span className="ml-1 text-[11px]">Consulting authentic Quran data...</span>
+              <span className="ml-1 text-[11px]">Searching the Quran text…</span>
             </div>
           </div>
         )}

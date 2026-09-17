@@ -2,7 +2,7 @@ import { AyahAssemblyCanvas } from '@/components/games/AyahAssemblyCanvas';
 
 export const metadata = {
   title: 'Celestial Ayah Assembly | NurulQuran Games',
-  description: 'Connect floating 2D words in authentic Quranic sequence with orbital physics and recitation feedback.',
+  description: 'Place the words of a verse in Quranic order.',
 };
 
 export default function AyahAssemblyPage() {

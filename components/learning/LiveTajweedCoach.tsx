@@ -61,7 +61,7 @@ const LanguageSwitcher: React.FC<{
     className={`flex items-center gap-0.5 p-0.5 rounded-full border shrink-0 ${
       tone === 'hero' ? 'bg-hero-pill-bg border-hero-border' : 'bg-surface border-border'
     }`}
-    title="Coach reply language"
+    title="Reply language"
   >
     <Languages
       className={`w-3 h-3 ml-1 shrink-0 ${tone === 'hero' ? 'text-hero-muted' : 'text-muted-foreground'}`}
@@ -103,7 +103,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
     {
       id: 'm-init',
       sender: 'coach',
-      textEn: `As-salamu alaykum! I am your live Gemini Tajweed Coach for "${currentLessonTitle}". Tap the microphone to recite "${promptArabic || 'the exercise'}" aloud for real-time Makhraj and Tajweed analysis.`,
+      textEn: `As-salamu alaykum! This is the Recitation Guide for "${currentLessonTitle}". Tap the microphone to recite "${promptArabic || 'the exercise'}" aloud for Makhraj and Tajweed feedback.`,
       textTa: `அஸ்ஸலாமு அலைக்கும்! நான் உங்கள் நேரலை தஜ்வீத் ஆசிரியர். மைக்ரோஃபோனை அழுத்தி ஓதி உங்கள் உச்சரிப்பை சரிபார்க்கலாம்.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
@@ -252,7 +252,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-foreground">AI Tajweed Live Coach</span>
+                <span className="text-xs font-bold text-foreground">Recitation Guide</span>
                 <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-primary-subtle text-primary-strong">
                   {userProfile?.aiVoiceId || 'Kore'} • {userProfile?.aiTeacherPersona || 'balanced'}
                 </span>
@@ -273,7 +273,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                 type="button"
                 onClick={onExpandModal}
                 className="p-1 rounded-lg hover:bg-surface-muted text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center gap-1 transition-colors"
-                title="Expand to Full AI Coach Dialog"
+                title="Expand chat"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline text-[10px]">Expand</span>
@@ -326,9 +326,9 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
                 </button>
               </div>
             ) : status === 'analyzing' ? (
-              <div className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface-muted border border-border text-xs text-muted-foreground animate-pulse">
+              <div className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-surface-muted border border-border text-xs text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <span>Evaluating Makhraj and Tajweed timing...</span>
+                <span>Checking Makhraj and timing…</span>
               </div>
             ) : (
               <div className="flex-1 flex items-center justify-between gap-2">
@@ -407,7 +407,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold">Gemini Live Tajweed Coach</h3>
+                <h3 className="text-sm font-bold">Recitation Guide</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-hero-pill-bg text-hero-pill-fg">
                   Voice: {userProfile?.aiVoiceId || 'Kore'}
                 </span>
@@ -434,7 +434,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-xl hover:bg-hero-card-bg text-hero-muted hover:text-hero-fg transition-colors"
-                title="Close Coach"
+                title="Close Recitation Guide"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -515,9 +515,9 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           })}
 
           {(status === 'analyzing' || isTypingLoading) && (
-            <div className="flex gap-2.5 items-center text-xs text-muted-foreground animate-pulse">
+            <div className="flex gap-2.5 items-center text-xs text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
-              <span>Gemini is evaluating Makhraj, Harakat, and Tajweed rules...</span>
+              <span>Checking Makhraj, harakat and Tajweed rules…</span>
             </div>
           )}
 
