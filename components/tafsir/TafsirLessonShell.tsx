@@ -2,6 +2,8 @@
 
 import React, { useCallback, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '@/lib/db';
 import { BookMarked, GraduationCap, Library, Sparkles } from 'lucide-react';
 import { TafsirReaderViewport } from './TafsirReaderViewport';
 import { TafsirNavigator } from './TafsirNavigator';
@@ -89,10 +91,21 @@ export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voi
 
   const { segment, failedEditions, state, error, reload } = useTafsirLesson(verse);
 
+  /**
+   * Reuse the learner's saved Tajweed teacher voice so the tafsir storyteller sounds like the
+   * rest of the app. Read live from IndexedDB; an explicit `voiceId` prop still wins.
+   */
+  const savedVoiceId = useLiveQuery(
+    async () => (await db.userProfile.get('default_user'))?.aiVoiceId ?? null,
+    []
+  );
+
   const live = useGeminiLiveTafsir({
     segment,
     language,
-    voiceId,
+    // `||` rather than `??`: an empty saved voice would otherwise be sent as an empty voice
+    // name, which the server quietly replaces with a default.
+    voiceId: voiceId || savedVoiceId || undefined,
   });
 
   // The session reads the lesson context through a ref, so a context that changes mid-session

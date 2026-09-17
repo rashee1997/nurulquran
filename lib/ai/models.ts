@@ -13,31 +13,44 @@ export const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
 export const DEFAULT_GEMINI_TTS_MODEL = 'gemini-3.1-flash-tts-preview';
 
 /**
- * Models the bidirectional Live (storyteller) session is opened with.
+ * Model the bidirectional Live (storyteller) session is opened with.
  *
- * Tried in order. This is a resolution *ladder*, not a claim about any single id: Live
- * audio support is model- and account-specific, so the first entry that successfully
- * mints an ephemeral token is the one actually used, and the route reports the winner back
- * to the client. An operator can pin one by setting `GEMINI_LIVE_MODEL`.
+ * Verified against the live API, not assumed. Two separate facts were established by
+ * probing, and both matter when editing this constant:
+ *
+ *  1. **The id is `gemini-3.8-live`, not `gemini-3.8-flash-live`.** The `-flash-` variant
+ *     does not exist. It is not a Live model that is merely disabled for this key, and it
+ *     is not a naming alias — the service rejects it outright.
+ *
+ *  2. **A successful token mint proves nothing about the model.** `authTokens.create`
+ *     accepted the non-existent id and returned a well-formed `auth_tokens/...` credential;
+ *     the failure only appeared later, as a WebSocket close (1008) on connect:
+ *     "models/gemini-3.8-flash-live is not found for API version v1main, or is not
+ *     supported for bidiGenerateContent". The endpoint that reports this is the one that
+ *     validates the model, so a "does the token mint?" check must never be used to decide
+ *     whether an id is a valid Live model.
+ *
+ * `bidiGenerateContent` models are exposed on `v1alpha`/`v1beta` only — the stable `v1`
+ * surface lists no Live model at all — which is also why the token is minted on `v1alpha`.
+ * The SDK's own guidance for ephemeral tokens is `v1alpha` on the connect side too.
+ *
+ * A single pinned id (rather than a fallback ladder) keeps the model the token is
+ * constrained to and the model the client connects with identical by construction; they
+ * must match or the service rejects the session. `GEMINI_LIVE_MODEL` overrides it.
  */
-export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-flash';
-
-export const GEMINI_LIVE_MODEL_CANDIDATES: readonly string[] = [
-  DEFAULT_GEMINI_LIVE_MODEL,
-  'gemini-2.0-flash-live-001',
-  'gemini-live-2.5-flash-preview',
-];
+export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-live';
 
 /**
- * Resolves the ordered list of Live models to try, with an explicit override first.
- * Returns a single-element list when the operator has pinned a model, so a typo fails
- * visibly instead of silently falling through to a default.
+ * Resolves the Live model on the server, honouring an explicit `GEMINI_LIVE_MODEL` override.
+ * Returning a single value keeps the model the token is constrained to and the model the
+ * client connects with identical by construction — they must match or the service rejects
+ * the session.
  */
-export function resolveServerGeminiLiveModels(): string[] {
+export function resolveServerGeminiLiveModel(): string {
   const override =
     typeof process !== 'undefined' && process.env ? process.env.GEMINI_LIVE_MODEL : undefined;
   const trimmed = override?.trim();
-  return trimmed && trimmed.length > 0 ? [trimmed] : [...GEMINI_LIVE_MODEL_CANDIDATES];
+  return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_GEMINI_LIVE_MODEL;
 }
 
 /** Per-vendor fallback model shown when adding a provider in Settings → AI. */

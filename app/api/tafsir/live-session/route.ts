@@ -8,7 +8,7 @@ import {
   UPSTREAM_UNAVAILABLE,
 } from '@/lib/api/http';
 import { callerKey, checkRateLimit } from '@/lib/api/rate-limit';
-import { resolveServerGeminiLiveModels } from '@/lib/ai/models';
+import { resolveServerGeminiLiveModel } from '@/lib/ai/models';
 import { serverGeminiApiKey } from '@/lib/ai/resolver';
 
 export const maxDuration = 30;
@@ -34,13 +34,15 @@ const SESSION_WINDOW_MS = 30 * 60_000;
  * session.
  *
  * The token deliberately does **not** lock `systemInstruction` (`lockAdditionalFields` is
- * left unset). Lesson context is assembled in the browser from the cached exegesis, and the
- * operator's key is still the only credential involved — locking the instruction would mean
- * shipping lesson text to the server on every ayah change for no security gain.
+ * left unset), so only the fields set here are frozen: the model, audio-only response
+ * modality, and the two transcriptions. The persona, voice and per-ayah context stay
+ * client-controlled, which is what lets the lesson context change without minting a new
+ * single-use token for every ayah — the cost of locking the instruction would be a server
+ * round trip per verse, for no security gain.
  *
- * Live audio support is model-specific, so candidates are tried in order and the model that
- * actually minted the token is reported back. The client must connect with that exact id
- * because the token is constrained to it.
+ * The model is pinned to the Live variant (`DEFAULT_GEMINI_LIVE_MODEL`). It must be a Live
+ * model: naming a plain text model here still mints a token successfully, and the mismatch
+ * only surfaces later as a rejected WebSocket connection.
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const guard = guardRequest(req, { maxBytes: 4_000 });
@@ -68,53 +70,56 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const expireTime = new Date(now + SESSION_WINDOW_MS).toISOString();
   const newSessionExpireTime = new Date(now + NEW_SESSION_WINDOW_MS).toISOString();
 
-  const failures: string[] = [];
+  const model = resolveServerGeminiLiveModel();
 
-  for (const model of resolveServerGeminiLiveModels()) {
-    try {
-      const token = await ai.authTokens.create({
-        config: {
-          uses: 1,
-          expireTime,
-          newSessionExpireTime,
-          liveConnectConstraints: {
-            model,
-            config: {
-              responseModalities: [Modality.AUDIO],
-              // Transcriptions drive the on-screen lesson transcript. They are display-only
-              // and are never fed back as scripture.
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-            },
+  try {
+    const token = await ai.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime,
+        newSessionExpireTime,
+        liveConnectConstraints: {
+          model,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            // Transcriptions drive the on-screen lesson transcript. They are display-only
+            // and are never fed back as scripture.
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
           },
         },
-      });
+      },
+    });
 
-      if (!token.name) {
-        failures.push(`${model}: the token service returned no token`);
-        continue;
-      }
-
-      return NextResponse.json({
-        token: token.name,
-        model,
-        newSessionExpireTime: token.newSessionExpireTime ?? newSessionExpireTime,
-        expiresAt: token.expireTime ?? expireTime,
+    /*
+     * The browser passes this value as the SDK's API key, and the SDK detects an ephemeral
+     * token by its `auth_tokens/` prefix to select the constrained WebSocket endpoint. A name
+     * in any other shape would silently be sent to the unconstrained endpoint and rejected, so
+     * it is checked here rather than discovered as an opaque connection failure in the client.
+     */
+    if (!token.name || !token.name.startsWith('auth_tokens/')) {
+      console.error('Live token service returned an unexpected token shape.');
+      return apiError({
+        status: 503,
+        code: 'upstream_unavailable',
+        message: `${UPSTREAM_UNAVAILABLE} The voice session credential was not in the expected form.`,
+        unavailable: true,
       });
-    } catch (error: unknown) {
-      // One model not supporting Live audio is an expected outcome of the ladder, so it is
-      // recorded and the next candidate is tried rather than failing the request.
-      const detail = error instanceof Error ? error.message : 'unknown error';
-      console.warn(`Live token request failed for model "${model}":`, detail);
-      failures.push(`${model}: ${detail}`);
     }
-  }
 
-  console.error('No Live model could mint a session token.', failures);
-  return apiError({
-    status: 503,
-    code: 'upstream_unavailable',
-    message: `${UPSTREAM_UNAVAILABLE} The voice storyteller needs a model that supports bidirectional audio; set GEMINI_LIVE_MODEL to one enabled for this key.`,
-    unavailable: true,
-  });
+    return NextResponse.json({
+      token: token.name,
+      model,
+      newSessionExpireTime: token.newSessionExpireTime ?? newSessionExpireTime,
+      expiresAt: token.expireTime ?? expireTime,
+    });
+  } catch (error: unknown) {
+    console.error(`Live token request failed for model "${model}":`, error);
+    return apiError({
+      status: 503,
+      code: 'upstream_unavailable',
+      message: `${UPSTREAM_UNAVAILABLE} The voice storyteller could not open a session with the model “${model}”. Set GEMINI_LIVE_MODEL to a Live model enabled for this key.`,
+      unavailable: true,
+    });
+  }
 }

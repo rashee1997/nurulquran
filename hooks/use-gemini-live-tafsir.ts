@@ -42,6 +42,29 @@ import {
 const FLUSH_INTERVAL_MS = 120;
 
 /**
+ * How long to wait for the Live handshake (`setupComplete`) before giving up.
+ *
+ * The SDK's `connect()` awaits `setupComplete` with no timeout of its own, so a socket that
+ * opens and is then rejected leaves `connect()` pending forever: the bar would sit on
+ * "Connecting…" with nothing reported, and the learner would never learn what happened.
+ */
+const HANDSHAKE_TIMEOUT_MS = 15_000;
+
+/**
+ * Renders a socket close into something an operator can act on.
+ *
+ * The code and reason are the only diagnostic the server offers for a rejected session. The
+ * reason string is precisely what identified a non-existent Live model during development, so
+ * it is always surfaced rather than discarded.
+ */
+function describeClose(event: CloseEvent | undefined): string {
+  const reason = event?.reason?.trim();
+  const code = typeof event?.code === 'number' ? event.code : null;
+  if (!reason) return code === null ? 'the connection closed' : `the connection closed (code ${code})`;
+  return `the connection closed (code ${code ?? 'unknown'}): ${reason}`;
+}
+
+/**
  * Inline AudioWorklet processor.
  *
  * `AudioWorkletNode` runs on the audio thread, so capture continues smoothly while React
@@ -126,6 +149,15 @@ export function useGeminiLiveTafsir({
   /** Bumped by `stop` and by unmount so a pending start cannot attach to a dead session. */
   const generationRef = useRef(0);
   const activeRef = useRef(false);
+  /** True only once the server has confirmed the Live handshake (`setupComplete`). */
+  const establishedRef = useRef(false);
+  /**
+   * The most specific failure reported so far.
+   *
+   * `onerror` fires before `onclose` on a failed socket, and `onclose` used to overwrite that
+   * precise message with a generic "session ended" — which is what made this undiagnosable.
+   */
+  const failureRef = useRef<string | null>(null);
   const mutedRef = useRef(false);
   const segmentRef = useRef(segment);
   const languageRef = useRef(language);
@@ -329,14 +361,23 @@ export function useGeminiLiveTafsir({
         const data = part.inlineData?.data;
         if (!data) continue;
 
-        const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
-        // 16-bit PCM is only addressable through Int16Array when the byte count is even.
-        // An odd or empty trailing chunk would make the constructor throw *inside* this
-        // handler, which kills the session's message pump for every later message — so a
-        // malformed chunk is dropped instead.
-        if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue;
+        /*
+         * Nothing in here is allowed to throw.
+         *
+         * This runs inside the Live SDK's message dispatch, so an exception does not merely
+         * lose one frame — it breaks the message pump for the remainder of the session.
+         * Playback is the only step that touches browser audio APIs, so a failure there is
+         * contained and reported instead of being allowed to take the session down.
+         */
+        try {
+          const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+          // 16-bit PCM is only addressable through Int16Array when the byte count is even.
+          if (bytes.byteLength < 2 || bytes.byteLength % 2 !== 0) continue;
 
-        playerRef.current?.queuePCM16Chunk(new Int16Array(bytes.buffer));
+          playerRef.current?.queuePCM16Chunk(new Int16Array(bytes.buffer));
+        } catch (error: unknown) {
+          console.warn('A Live audio chunk could not be played:', error);
+        }
       }
       if (parts.some((part) => part.inlineData?.data)) {
         setStatus((previous) => (previous === 'idle' ? previous : 'speaking'));
@@ -356,7 +397,15 @@ export function useGeminiLiveTafsir({
       }
 
       if (message.goAway) {
-        console.warn('Gemini Live will close this session soon:', message.goAway.timeLeft);
+        /*
+         * The server announces the end of a session before closing it. The token is
+         * single-use, so there is nothing to reconnect with here — the learner is told to
+         * start a fresh lesson rather than being left with a session that dies mid-sentence.
+         */
+        console.warn('Gemini Live will close this session soon:', message.goAway.timeLeft ?? '(no time given)');
+        setErrorMessage(
+          'This voice session is reaching its time limit. Tap start to continue the lesson.'
+        );
       }
     },
     [appendTranscript]
@@ -374,16 +423,28 @@ export function useGeminiLiveTafsir({
 
   const tellCurrentStory = useCallback((): void => {
     const session = sessionRef.current;
+    if (!session) return;
+
     const packet = currentContextPacket();
-    if (!session || !packet) return;
     openLineRef.current.ameen = null;
+
+    /*
+     * The opening turn is always sent, even before the lesson has finished assembling.
+     *
+     * Returning silently when the packet was not ready left the child with a live session and
+     * total silence, because the microphone prompt can be answered long before the exegesis
+     * has loaded. The fallback asks Ameen only to greet and carries no scripture, so nothing
+     * can be recited that was not verified.
+     */
     session.sendClientContent({
       turns: [
         {
           role: 'user',
           parts: [
             {
-              text: `${packet}\n\nNow tell me the story of this ayah, as we agreed.`,
+              text: packet
+                ? `${packet}\n\nNow tell me the story of this ayah, as we agreed.`
+                : 'The lesson for this ayah is still being prepared. Greet the child warmly as Ustadh Ameen and tell them you are getting the ayah ready. Do not recite or paraphrase any Quranic text yet.',
             },
           ],
         },
@@ -550,8 +611,23 @@ export function useGeminiLiveTafsir({
     generationRef.current += 1;
     const generation = generationRef.current;
     activeRef.current = true;
+    establishedRef.current = false;
+    failureRef.current = null;
     setErrorMessage(null);
     setStatus('requesting_token');
+
+    /**
+     * The model the token was constrained to, kept outside the try so a connection failure
+     * can name it. "The voice session could not be started" is unactionable; naming the model
+     * is what tells an operator that `GEMINI_LIVE_MODEL` points at a non-Live model.
+     */
+    let liveModel: string | null = null;
+
+    /**
+     * The in-flight `connect()`, tracked outside the `try` so a handshake that times out can
+     * still be closed if the server eventually completes it.
+     */
+    let pendingConnect: Promise<Session> | null = null;
 
     void (async () => {
       try {
@@ -577,6 +653,7 @@ export function useGeminiLiveTafsir({
         }
 
         const ticket = ticketParsed.data;
+        liveModel = ticket.model;
 
         if (generation !== generationRef.current) return;
         setStatus('connecting');
@@ -594,29 +671,80 @@ export function useGeminiLiveTafsir({
         const player = new PCMAudioStreamPlayer(PLAYBACK_SAMPLE_RATE);
         playerRef.current = player;
 
-        const session = await ai.live.connect({
+        /*
+         * The playback context is created here, inside the click that started the session,
+         * rather than lazily when the first audio chunk arrives. Browsers only allow audio to
+         * begin from a user gesture, so a context built later inside the socket callback stays
+         * suspended: the session looks healthy while Ameen is silently inaudible.
+         */
+        player.prime();
+
+        /**
+         * Rejects the pending `connect()` the moment a close arrives mid-handshake, so the
+         * real reason is reported instead of hanging until the timeout expires.
+         */
+        let rejectHandshake: ((error: Error) => void) | null = null;
+        const handshakeFailed = new Promise<never>((_resolve, reject) => {
+          rejectHandshake = reject;
+        });
+        const handshakeTimer = setTimeout(
+          () =>
+            rejectHandshake?.(
+              new Error(
+                `the server did not confirm the session within ${Math.round(
+                  HANDSHAKE_TIMEOUT_MS / 1000
+                )}s`
+              )
+            ),
+          HANDSHAKE_TIMEOUT_MS
+        );
+
+        const connecting = ai.live.connect({
           // Must match the model the token was constrained to, or the server rejects it.
           model: ticket.model,
           callbacks: {
             onopen: () => {
-              if (generation !== generationRef.current) return;
-              setStatus('active');
+              // Deliberately *not* "active": the socket is merely open. The setup message has
+              // not even been sent yet, so claiming the session is live here is what made a
+              // rejected handshake look like an active lesson that then died.
             },
             onmessage: (message: LiveServerMessage) => handleServerMessage(message, generation),
             onerror: (event: ErrorEvent) => {
               if (generation !== generationRef.current) return;
-              console.error('Gemini Live session error:', event.message);
-              setErrorMessage('The voice session was interrupted. Tap start to reconnect.');
+              const detail = event.message?.trim();
+              console.error('Gemini Live session error:', detail ?? '(no message)');
+              const message = detail
+                ? `The voice session reported an error: ${detail}`
+                : 'The voice session reported an error. Tap start to reconnect.';
+              // Recorded so the close that follows cannot replace it with a vaguer message.
+              failureRef.current = message;
+              setErrorMessage(message);
               setStatus('error');
             },
-            onclose: () => {
+            onclose: (event: CloseEvent) => {
               if (generation !== generationRef.current) return;
-              // A close we did not ask for is worth telling the learner about.
-              if (activeRef.current) {
-                setStatus('idle');
-                setErrorMessage('The voice session ended. Tap start to reconnect.');
-                activeRef.current = false;
+
+              const detail = describeClose(event);
+              console.error(`Gemini Live session closed: ${detail}`);
+              activeRef.current = false;
+
+              // An error the socket already reported is more specific than "it closed".
+              if (failureRef.current) return;
+
+              if (!establishedRef.current) {
+                // The handshake never completed, so this is a connection failure rather than an
+                // interrupted lesson. Reporting it as "the session ended" is what hid the real
+                // reason — which is how a non-existent Live model went unnoticed.
+                const message = `The voice session could not be started because ${detail}.`;
+                failureRef.current = message;
+                rejectHandshake?.(new Error(detail));
+                setErrorMessage(message);
+                setStatus('error');
+                return;
               }
+
+              setStatus('idle');
+              setErrorMessage(`The voice session ended because ${detail}. Tap start to reconnect.`);
             },
           },
           config: {
@@ -640,6 +768,16 @@ export function useGeminiLiveTafsir({
             outputAudioTranscription: {},
           },
         });
+        pendingConnect = connecting;
+
+        /*
+         * `handshakeFailed` settles the instant the socket closes before setup completes (or the
+         * timeout above elapses), so a rejected handshake is reported instead of leaving
+         * `connect()` pending forever on a promise the server will never fulfil.
+         */
+        const session = await Promise.race([connecting, handshakeFailed]).finally(() =>
+          clearTimeout(handshakeTimer)
+        );
 
         if (generation !== generationRef.current) {
           try {
@@ -652,32 +790,71 @@ export function useGeminiLiveTafsir({
         }
 
         sessionRef.current = session;
+        establishedRef.current = true;
         setModel(ticket.model);
+
+        if (generation !== generationRef.current) return;
+
+        // The handshake is done, so the session is genuinely live from here on.
+        setStatus('active');
+
+        /*
+         * Opening beat first, microphone second.
+         *
+         * Attaching the microphone can block on the browser's permission prompt for an
+         * arbitrarily long time. Asking Ameen to begin before that happens means the lesson
+         * starts as soon as the session is live and the child hears the story while answering
+         * the prompt, instead of watching a silent bar.
+         */
+        tellCurrentStory();
 
         try {
           const attached = await attachMicrophone(generation);
           if (!attached) return;
         } catch (error: unknown) {
           console.warn('Microphone could not be started for the live lesson:', error);
-          setErrorMessage(
-            'Microphone access was denied or the device is busy. Enable the microphone and try again.'
-          );
+          const message =
+            'Microphone access was denied or the device is busy, so Ameen cannot hear you. Enable the microphone, then tap start.';
+          // Recorded first so the close that follows cannot overwrite the real reason.
+          failureRef.current = message;
+          setErrorMessage(message);
           setStatus('error');
           activeRef.current = false;
           cleanupSession();
           return;
         }
-
-        if (generation !== generationRef.current) return;
-
-        // Opening beat: hand Ameen this ayah and ask him to begin.
-        tellCurrentStory();
       } catch (error: unknown) {
         if (generation !== generationRef.current) return;
         console.error('Live storyteller could not start:', error);
-        setErrorMessage('The voice storyteller could not be started. Please retry.');
+
+        const detail = error instanceof Error ? error.message.trim() : '';
+        setErrorMessage(
+          liveModel
+            ? `The voice session could not be opened with “${liveModel}”${
+                detail ? ` — ${detail.slice(0, 180)}` : ''
+              }`
+            : 'The voice storyteller could not be started. Please retry.'
+        );
         setStatus('error');
         activeRef.current = false;
+
+        /*
+         * A handshake that timed out may still be completed by the server afterwards. Without
+         * this, that socket would stay open with nobody using it, holding a session open and
+         * consuming the learner's quota until the server gave up on it.
+         */
+        if (pendingConnect) {
+          void pendingConnect
+            .then((late) => {
+              try {
+                late.close();
+              } catch {
+                /* already closed */
+              }
+            })
+            .catch(() => undefined);
+        }
+
         cleanupSession();
       }
     })();

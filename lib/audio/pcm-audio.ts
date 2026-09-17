@@ -136,6 +136,24 @@ export class PCMAudioStreamPlayer {
   }
 
   /**
+   * Creates and resumes the playback context ahead of the first audio chunk.
+   *
+   * Browsers only permit an AudioContext to start from a user gesture. Building it lazily in
+   * `queuePCM16Chunk` means the context is created inside a WebSocket callback, where it stays
+   * suspended and the reply is silently inaudible. Call this from the click that starts a
+   * session so the context is already running when the first chunk arrives.
+   */
+  public prime(): void {
+    try {
+      this.ensureContext();
+    } catch (error: unknown) {
+      // A playback context that cannot be created must not stop the lesson from starting; the
+      // audio path reports its own failure when a chunk actually needs to be played.
+      console.warn('Playback audio context could not be prepared:', error);
+    }
+  }
+
+  /**
    * Schedules a raw PCM 16-bit signed integer buffer for gapless playback.
    */
   public queuePCM16Chunk(pcmData: Int16Array | ArrayBuffer): void {
