@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 
 export type SrsState = 'new' | 'learning' | 'familiar' | 'memorized' | 'review' | 'weak' | 'mastered';
+export type HifzTier = 'sabaq' | 'sabqi' | 'manzil';
 
 export interface UserProfile {
   id: string;
@@ -29,6 +30,7 @@ export interface VerseProgress {
   lapses: number;
   repetitions: number;
   lastReviewedAt?: string;
+  hifzTier?: HifzTier; // 'sabaq' | 'sabqi' | 'manzil'
 }
 
 export interface WordProgress {

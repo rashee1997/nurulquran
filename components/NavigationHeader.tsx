@@ -13,7 +13,8 @@ import {
   Flame, 
   Award,
   Menu,
-  X
+  X,
+  Layers
 } from 'lucide-react';
 import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
@@ -68,9 +69,9 @@ export const NavigationHeader: React.FC = () => {
   const navLinks = [
     { href: '/', label: 'Dashboard', icon: Compass },
     { href: '/learn', label: 'Curriculum', icon: BookOpen },
-    { href: '/learn/alphabet', label: 'Alphabet Studio', icon: Sparkles },
     { href: '/quran', label: 'Quran Reader', icon: BookOpen },
     { href: '/memorize', label: '10 Hifz Modes', icon: Brain },
+    { href: '/memorize/planner', label: 'Hifz Planner', icon: Layers },
     { href: '/review', label: 'SRS Queue', icon: Clock },
     { href: '/settings', label: 'Settings', icon: Settings },
   ];

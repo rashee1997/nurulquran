@@ -5,9 +5,12 @@ import { Chapter, QuranWord, Verse } from '@/lib/quran/types';
 import { AyahItem } from './AyahItem';
 import { WordPopover } from './WordPopover';
 import { AudioBar } from './AudioBar';
+import { MushafPageView } from './MushafPageView';
+import { MutashabihatModal } from './MutashabihatModal';
+import { MutashabihEntry } from '@/lib/quran/mutashabihat';
 import { db, SrsState, VerseProgress } from '@/lib/db';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
-import { Settings2, Volume2, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Settings2, Volume2, Sparkles, ChevronLeft, ChevronRight, BookOpen, Layers } from 'lucide-react';
 import Link from 'next/link';
 
 interface QuranReaderProps {
@@ -23,7 +26,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   verseProgressMap = {},
   onOpenAiTutor,
 }) => {
+  const [viewMode, setViewMode] = useState<'continuous' | 'mushaf'>('continuous');
   const [selectedWord, setSelectedWord] = useState<QuranWord | null>(null);
+  const [activeMutashabih, setActiveMutashabih] = useState<MutashabihEntry | null>(null);
   const [fontSize, setFontSize] = useState(30);
   const [showEnglish, setShowEnglish] = useState(true);
   const [showTamil, setShowTamil] = useState(true);
@@ -109,7 +114,33 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           </p>
 
           {/* Quick Reader Action Bar */}
-          <div className="flex items-center justify-center gap-3 pt-3 flex-wrap">
+          <div className="flex items-center justify-center gap-2.5 pt-3 flex-wrap">
+            {/* View Mode Switcher */}
+            <div className="inline-flex items-center p-1 rounded-full bg-hero-card-bg border border-hero-border backdrop-blur-xs">
+              <button
+                onClick={() => setViewMode('continuous')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  viewMode === 'continuous'
+                    ? 'bg-primary text-primary-foreground shadow-xs'
+                    : 'text-hero-muted hover:text-hero-fg'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Continuous</span>
+              </button>
+              <button
+                onClick={() => setViewMode('mushaf')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  viewMode === 'mushaf'
+                    ? 'bg-secondary text-secondary-foreground shadow-xs'
+                    : 'text-hero-muted hover:text-hero-fg'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>15-Line Mushaf</span>
+              </button>
+            </div>
+
             <button
               onClick={() => handlePlayVerse(verses[0])}
               className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary hover:bg-secondary-hover text-secondary-foreground text-xs font-bold transition-all shadow-md active:scale-95"
@@ -212,31 +243,51 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         </div>
       )}
 
-      {/* Verses List */}
-      <div className="max-w-3xl mx-auto w-full space-y-4">
-        {verses.map((v) => {
-          const key = `${v.surah}:${v.ayah}`;
-          const progress = verseProgressMap[key];
+      {/* Main Content Area: 15-Line Mushaf or Continuous Ayah List */}
+      {viewMode === 'mushaf' ? (
+        <MushafPageView
+          chapter={chapter}
+          verses={verses}
+          fontSize={fontSize}
+          showTajweedColors={showTajweedColors}
+          onSelectVerse={(v) => handlePlayVerse(v)}
+          onOpenAiTutor={onOpenAiTutor}
+        />
+      ) : (
+        <div className="max-w-3xl mx-auto w-full space-y-4">
+          {verses.map((v) => {
+            const key = `${v.surah}:${v.ayah}`;
+            const progress = verseProgressMap[key];
 
-          return (
-            <AyahItem
-              key={key}
-              verse={v}
-              fontSize={fontSize}
-              showEnglish={showEnglish}
-              showTamil={showTamil}
-              showTajweedColors={showTajweedColors}
-              isCurrentAudio={currentVerse.ayah === v.ayah}
-              isPlaying={isPlaying}
-              srsState={progress?.state}
-              onPlay={handlePlayVerse}
-              onWordClick={(word) => setSelectedWord(word)}
-              onMemorizeToggle={handleMemorizeToggle}
-              onAskAi={handleAskAi}
-            />
-          );
-        })}
-      </div>
+            return (
+              <AyahItem
+                key={key}
+                verse={v}
+                fontSize={fontSize}
+                showEnglish={showEnglish}
+                showTamil={showTamil}
+                showTajweedColors={showTajweedColors}
+                isCurrentAudio={currentVerse.ayah === v.ayah}
+                isPlaying={isPlaying}
+                srsState={progress?.state}
+                onPlay={handlePlayVerse}
+                onWordClick={(word) => setSelectedWord(word)}
+                onMemorizeToggle={handleMemorizeToggle}
+                onAskAi={handleAskAi}
+                onOpenMutashabihat={(entry) => setActiveMutashabih(entry)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Mutashabihat Comparative Diff Modal */}
+      {activeMutashabih && (
+        <MutashabihatModal
+          entry={activeMutashabih}
+          onClose={() => setActiveMutashabih(null)}
+        />
+      )}
 
       {/* Word Popover modal */}
       {selectedWord && (

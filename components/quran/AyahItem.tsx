@@ -1,12 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Play, Pause, Bookmark, Sparkles, Check } from 'lucide-react';
+import { Play, Pause, Bookmark, Sparkles, Check, ArrowRightLeft } from 'lucide-react';
 import { QuranWord, Verse } from '@/lib/quran/types';
 import { QuranWordItem } from './QuranWord';
 import { TajweedSpan } from './TajweedSpan';
 import { SrsState } from '@/lib/db';
 import { STATE_LABELS } from '@/lib/learning/srs-engine';
+import { getMutashabihatForVerse, MutashabihEntry } from '@/lib/quran/mutashabihat';
 
 interface AyahItemProps {
   verse: Verse;
@@ -21,6 +22,7 @@ interface AyahItemProps {
   onWordClick: (word: QuranWord) => void;
   onMemorizeToggle: (verse: Verse) => void;
   onAskAi: (verse: Verse) => void;
+  onOpenMutashabihat?: (entry: MutashabihEntry) => void;
 }
 
 export const AyahItem: React.FC<AyahItemProps> = ({
@@ -36,8 +38,10 @@ export const AyahItem: React.FC<AyahItemProps> = ({
   onWordClick,
   onMemorizeToggle,
   onAskAi,
+  onOpenMutashabihat,
 }) => {
   const stateMeta = srsState ? STATE_LABELS[srsState] : null;
+  const mutashabihEntry = getMutashabihatForVerse(verse.surah, verse.ayah);
 
   return (
     <div
@@ -68,6 +72,18 @@ export const AyahItem: React.FC<AyahItemProps> = ({
             >
               <Bookmark className="w-3.5 h-3.5" />
               <span>Add to Hifz</span>
+            </button>
+          )}
+
+          {/* Mutashabihat Similar Verses Indicator */}
+          {mutashabihEntry && onOpenMutashabihat && (
+            <button
+              onClick={() => onOpenMutashabihat(mutashabihEntry)}
+              className="text-[10px] font-bold text-secondary-strong bg-secondary-subtle border border-secondary/30 hover:bg-secondary/20 flex items-center gap-1 transition-all px-2 py-0.5 rounded-md shadow-2xs"
+              title="Compare with similar twin verse (Mutashabihat)"
+            >
+              <ArrowRightLeft className="w-3 h-3 text-secondary" />
+              <span className="hidden sm:inline">Mutashabihat</span>
             </button>
           )}
         </div>

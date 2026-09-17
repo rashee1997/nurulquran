@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { SURAHS } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse, QuranWord } from '@/lib/quran/types';
@@ -37,7 +38,7 @@ function MemorizationContent() {
   const [loadingVerses, setLoadingVerses] = useState(true);
 
   // Mode Specific State
-  const [assembledTokens, setAssembledTokens] = useState<string[]>([]);
+  const [assembledIndices, setAssembledIndices] = useState<number[]>([]);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [isAnswerChecked, setIsAnswerChecked] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
@@ -48,7 +49,7 @@ function MemorizationContent() {
   const [aiTutorPrompt, setAiTutorPrompt] = useState('');
 
   const resetModeState = React.useCallback(() => {
-    setAssembledTokens([]);
+    setAssembledIndices([]);
     setSelectedChoice(null);
     setIsAnswerChecked(false);
     setIsCorrect(false);
@@ -191,20 +192,30 @@ function MemorizationContent() {
           </div>
         </div>
 
-        {/* Surah Dropdown selector */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-muted-foreground">Surah:</label>
-          <select
-            value={selectedSurahId}
-            onChange={(e) => setSelectedSurahId(Number(e.target.value))}
-            className="text-xs font-semibold px-3 py-2 rounded-xl bg-surface text-foreground border border-border outline-hidden cursor-pointer"
+        {/* Surah Dropdown selector & Planner CTA */}
+        <div className="flex items-center gap-3">
+          <Link
+            href="/memorize/planner"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary-subtle text-primary-strong text-xs font-bold border border-primary/20 hover:bg-primary-subtle/80 transition-colors"
           >
-            {SURAHS.slice(0, 30).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.id}. {s.nameSimple} ({s.nameEnglish}) - {s.versesCount} Ayahs
-              </option>
-            ))}
-          </select>
+            <span>Sabaq/Sabqi Plan</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-muted-foreground">Surah:</label>
+            <select
+              value={selectedSurahId}
+              onChange={(e) => setSelectedSurahId(Number(e.target.value))}
+              className="text-xs font-semibold px-3 py-2 rounded-xl bg-surface text-foreground border border-border outline-hidden cursor-pointer"
+            >
+              {SURAHS.slice(0, 30).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.id}. {s.nameSimple} ({s.nameEnglish}) - {s.versesCount} Ayahs
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -361,30 +372,33 @@ function MemorizationContent() {
 
               {/* Workspace */}
               <div className="min-h-[80px] p-4 bg-surface rounded-2xl border-2 border-dashed border-border flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
-                {assembledTokens.length === 0 ? (
+                {assembledIndices.length === 0 ? (
                   <span className="text-xs text-muted-foreground font-sans" dir="ltr">Tap tokens below in order</span>
                 ) : (
-                  assembledTokens.map((tok, tIdx) => (
-                    <button
-                      key={tIdx}
-                      onClick={() => setAssembledTokens(prev => prev.filter((_, i) => i !== tIdx))}
-                      className="font-arabic text-2xl px-3 py-1.5 rounded-xl bg-primary text-primary-foreground shadow-xs hover:bg-danger transition-colors"
-                    >
-                      {tok}
-                    </button>
-                  ))
+                  assembledIndices.map((wordIdx, pos) => {
+                    const word = currentVerse.words[wordIdx];
+                    return (
+                      <button
+                        key={pos}
+                        onClick={() => setAssembledIndices(prev => prev.filter((_, i) => i !== pos))}
+                        className="font-arabic text-2xl px-3 py-1.5 rounded-xl bg-primary text-primary-foreground shadow-xs hover:bg-danger transition-colors"
+                      >
+                        {word?.arabic}
+                      </button>
+                    );
+                  })
                 )}
               </div>
 
               {/* Shuffled Available Tokens */}
               <div className="flex flex-wrap gap-2 justify-center dir-rtl" dir="rtl">
                 {currentVerse.words.map((w, idx) => {
-                  const isUsed = assembledTokens.includes(w.arabic);
+                  const isUsed = assembledIndices.includes(idx);
                   return (
                     <button
                       key={idx}
                       disabled={isUsed || isAnswerChecked}
-                      onClick={() => setAssembledTokens(prev => [...prev, w.arabic])}
+                      onClick={() => setAssembledIndices(prev => [...prev, idx])}
                       className={`font-arabic text-2xl px-4 py-2 rounded-xl border transition-all ${
                         isUsed
                           ? 'opacity-30 border-border pointer-events-none'
@@ -400,7 +414,7 @@ function MemorizationContent() {
               <div className="pt-2">
                 <button
                   onClick={() => {
-                    const ans = assembledTokens.join(' ').trim();
+                    const ans = assembledIndices.map(i => currentVerse.words[i]?.arabic).join(' ').trim();
                     const target = currentVerse.words.map(w => w.arabic).join(' ').trim();
                     const correct = ans === target;
                     setIsCorrect(correct);

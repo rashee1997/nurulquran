@@ -58,7 +58,11 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,7 +71,12 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
   }, [messages, isLoading]);
 
   const stopVoiceRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
@@ -80,11 +89,57 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
       mediaRecorderRef.current = mediaRecorder;
       const chunks: BlobPart[] = [];
 
+      // Setup Web Audio API Analyzer for VAD and live waveform
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      audioContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      let hasStartedSpeaking = false;
+
+      const checkVolume = () => {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / bufferLength;
+        const normalized = Math.min(100, Math.round((avg / 128) * 100));
+        setAudioLevel(normalized);
+
+        // VAD: If volume rises above 15, student has started reciting
+        if (normalized > 15) {
+          hasStartedSpeaking = true;
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        } else if (hasStartedSpeaking && normalized <= 10) {
+          // If silence detected after speaking, schedule auto-stop in 1.5s
+          if (!silenceTimerRef.current) {
+            silenceTimerRef.current = setTimeout(() => {
+              stopVoiceRecording();
+            }, 1500);
+          }
+        }
+
+        if (mediaRecorder.state === 'recording') {
+          animFrameRef.current = requestAnimationFrame(checkVolume);
+        }
+      };
+
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
 
       mediaRecorder.onstop = () => {
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
         const blob = new Blob(chunks, { type: 'audio/webm' });
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -93,11 +148,13 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         };
         reader.readAsDataURL(blob);
         stream.getTracks().forEach((t) => t.stop());
+        setAudioLevel(0);
       };
 
       setRecordingSeconds(0);
-      mediaRecorder.start();
+      mediaRecorder.start(250);
       setIsRecording(true);
+      animFrameRef.current = requestAnimationFrame(checkVolume);
     } catch (err) {
       console.warn('Microphone permission denied:', err);
       alert('Microphone access is unavailable or denied. You can type your questions below.');
@@ -325,47 +382,78 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
         </div>
 
         {/* Input & Voice Controls */}
-        <div className="p-3 sm:p-4 bg-surface border-t border-border flex items-center gap-2 shrink-0">
-          {!isRecording ? (
-            <button
-              onClick={startVoiceRecording}
-              className="p-3 rounded-2xl bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20 active:scale-95 transition-all"
-              title="Record recitation to get live AI feedback"
-            >
-              <Mic className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={stopVoiceRecording}
-              className="px-3 py-2 rounded-2xl bg-danger text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md animate-pulse"
-              title="Stop recording"
-            >
-              <Square className="w-3.5 h-3.5" />
-              <span>Stop ({recordingSeconds}s)</span>
-            </button>
+        <div className="p-3 sm:p-4 bg-surface border-t border-border flex flex-col gap-2 shrink-0">
+          {/* Audio volume level meter when recording */}
+          {isRecording && (
+            <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-danger-subtle border border-danger/30 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-danger animate-ping" />
+                <span className="font-bold text-danger-strong">
+                  Listening... ({recordingSeconds}s)
+                </span>
+                <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                  (Auto-submits when you pause)
+                </span>
+              </div>
+
+              {/* Dynamic waveform meter bars */}
+              <div className="flex items-center gap-0.5 h-4">
+                {[0.4, 0.8, 1.2, 0.7, 1.4, 0.9, 0.5, 1.1].map((factor, idx) => {
+                  const barHeight = Math.max(3, Math.min(16, (audioLevel * factor) / 4));
+                  return (
+                    <div
+                      key={idx}
+                      className="w-1 bg-danger rounded-full transition-all duration-75"
+                      style={{ height: `${barHeight}px` }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           )}
 
-          <input
-            type="text"
-            value={inputQuery}
-            onChange={(e) => setInputQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendToCoach({});
-              }
-            }}
-            placeholder="Ask AI coach or tap mic to recite..."
-            className="flex-1 bg-card border border-border rounded-2xl px-3.5 py-2.5 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
-          />
+          <div className="flex items-center gap-2">
+            {!isRecording ? (
+              <button
+                onClick={startVoiceRecording}
+                className="p-3 rounded-2xl bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20 active:scale-95 transition-all"
+                title="Record recitation to get live AI feedback"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={stopVoiceRecording}
+                className="px-3 py-2.5 rounded-2xl bg-danger text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-md"
+                title="Stop recording"
+              >
+                <Square className="w-3.5 h-3.5" />
+                <span>Stop Now</span>
+              </button>
+            )}
 
-          <button
-            onClick={() => sendToCoach({})}
-            disabled={!inputQuery.trim() || isLoading}
-            className="p-2.5 rounded-2xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground transition-all shadow-xs active:scale-95"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+            <input
+              type="text"
+              value={inputQuery}
+              onChange={(e) => setInputQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendToCoach({});
+                }
+              }}
+              placeholder="Ask AI coach or tap mic to recite..."
+              className="flex-1 bg-card border border-border rounded-2xl px-3.5 py-2.5 text-xs text-foreground focus:outline-hidden focus:ring-2 focus:ring-primary placeholder:text-muted-foreground"
+            />
+
+            <button
+              onClick={() => sendToCoach({})}
+              disabled={!inputQuery.trim() || isLoading}
+              className="p-2.5 rounded-2xl bg-primary hover:bg-primary-hover disabled:opacity-40 text-primary-foreground transition-all shadow-xs active:scale-95"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

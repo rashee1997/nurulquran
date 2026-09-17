@@ -1,17 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { db, VerseProgress } from '@/lib/db';
-import { calculateNextReview, initializeVerseProgress, STATE_LABELS } from '@/lib/learning/srs-engine';
+import React, { useState, useEffect, useMemo } from 'react';
+import { db, HifzTier, VerseProgress } from '@/lib/db';
+import { calculateNextReview, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, STATE_LABELS } from '@/lib/learning/srs-engine';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
 import { evaluateStreak } from '@/lib/learning/xp-engine';
 import confetti from 'canvas-confetti';
-import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
+import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2, Layers, Filter } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SrsReviewPage() {
-  const [dueItems, setDueItems] = useState<VerseProgress[]>([]);
+  const [allItems, setAllItems] = useState<VerseProgress[]>([]);
+  const [activeTierFilter, setActiveTierFilter] = useState<'all' | HifzTier>('all');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentVerseData, setCurrentVerseData] = useState<Verse | null>(null);
   const [isVerseLoading, setIsVerseLoading] = useState(false);
@@ -41,7 +42,7 @@ export default function SrsReviewPage() {
 
         const now = new Date().toISOString();
         const due = items.filter(i => i.dueDate <= now || i.repetitions === 0);
-        setDueItems(due.length > 0 ? due : items);
+        setAllItems(due.length > 0 ? due : items);
         setCurrentIndex(0);
       } catch (e) {
         console.error('Failed to load review queue:', e);
@@ -51,6 +52,11 @@ export default function SrsReviewPage() {
     }
     loadDueQueue();
   }, []);
+
+  const dueItems = useMemo(() => {
+    if (activeTierFilter === 'all') return allItems;
+    return allItems.filter((i) => (i.hifzTier || determineHifzTier(i)) === activeTierFilter);
+  }, [allItems, activeTierFilter]);
 
   // Fetch verse text when currentIndex changes
   useEffect(() => {
@@ -204,7 +210,7 @@ export default function SrsReviewPage() {
   return (
     <div id="srs-review-page" className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-300">
       {/* Header bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-secondary uppercase tracking-wider">
@@ -215,6 +221,11 @@ export default function SrsReviewPage() {
                 {stateMeta.label}
               </span>
             )}
+            {currentItem && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-muted border border-border text-foreground uppercase">
+                {currentItem.hifzTier || determineHifzTier(currentItem)}
+              </span>
+            )}
           </div>
           <h1 className="text-xl font-bold text-foreground">
             Item {currentIndex + 1} of {dueItems.length}
@@ -222,8 +233,67 @@ export default function SrsReviewPage() {
         </div>
 
         <span className="text-xs text-muted-foreground font-medium">
-          Interval: {currentItem.interval}d • Reps: {currentItem.repetitions}
+          Interval: {currentItem?.interval ?? 0}d • Reps: {currentItem?.repetitions ?? 0}
         </span>
+      </div>
+
+      {/* Tier Filter Tabs */}
+      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-card border border-border overflow-x-auto">
+        <button
+          onClick={() => {
+            setActiveTierFilter('all');
+            setCurrentIndex(0);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTierFilter === 'all'
+              ? 'bg-primary text-primary-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          All Due ({allItems.length})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTierFilter('sabaq');
+            setCurrentIndex(0);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTierFilter === 'sabaq'
+              ? 'bg-primary-subtle text-primary-strong border border-primary/40'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {HIFZ_TIER_META.sabaq.titleAr} • Sabaq
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTierFilter('sabqi');
+            setCurrentIndex(0);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTierFilter === 'sabqi'
+              ? 'bg-secondary-subtle text-secondary-strong border border-secondary/40'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {HIFZ_TIER_META.sabqi.titleAr} • Sabqi
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTierFilter('manzil');
+            setCurrentIndex(0);
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+            activeTierFilter === 'manzil'
+              ? 'bg-surface-muted text-foreground border border-border'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          {HIFZ_TIER_META.manzil.titleAr} • Manzil
+        </button>
       </div>
 
       {/* Flashcard Container */}

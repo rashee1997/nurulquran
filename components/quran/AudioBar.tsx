@@ -29,10 +29,17 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [repeatMode, setRepeatMode] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<number>(1); // 1 = play once, 3 = 3x, 5 = 5x, 10 = 10x, 999 = infinite
+  const [currentLoopCount, setCurrentLoopCount] = useState<number>(1);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [selectedReciter, setSelectedReciter] = useState('ar.alafasy');
+  const [prevAyahNumber, setPrevAyahNumber] = useState(currentAyahNumber);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  if (prevAyahNumber !== currentAyahNumber) {
+    setPrevAyahNumber(currentAyahNumber);
+    setCurrentLoopCount(1);
+  }
 
   useEffect(() => {
     if (audioRef.current && audioUrl) {
@@ -64,15 +71,26 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   };
 
   const handleEnded = () => {
-    if (repeatMode && audioRef.current) {
+    const isInfinite = repeatMode === 999;
+    if ((isInfinite || currentLoopCount < repeatMode) && audioRef.current) {
+      setCurrentLoopCount((prev) => prev + 1);
       audioRef.current.currentTime = 0;
       audioRef.current.play();
     } else if (onNextAyah && currentAyahNumber < totalVerses) {
+      setCurrentLoopCount(1);
       onNextAyah();
     } else {
       setIsPlaying(false);
       setProgress(0);
+      setCurrentLoopCount(1);
     }
+  };
+
+  const cycleRepeatMode = () => {
+    const modes = [1, 3, 5, 10, 999];
+    const nextIdx = (modes.indexOf(repeatMode) + 1) % modes.length;
+    setRepeatMode(modes[nextIdx]);
+    setCurrentLoopCount(1);
   };
 
   const cycleSpeed = () => {
@@ -162,15 +180,21 @@ export const AudioBar: React.FC<AudioBarProps> = ({
             </button>
 
             <button
-              onClick={() => setRepeatMode(!repeatMode)}
-              className={`p-2 rounded-full transition-colors ${
-                repeatMode
-                  ? 'bg-primary-subtle text-primary-strong'
+              onClick={cycleRepeatMode}
+              className={`px-2 py-1.5 rounded-xl transition-all flex items-center gap-1 text-xs font-bold ${
+                repeatMode > 1
+                  ? 'bg-secondary text-secondary-foreground shadow-xs'
                   : 'hover:bg-surface-hover text-muted-foreground hover:text-foreground'
               }`}
-              title={repeatMode ? 'Repeat Ayah ON (Hifz loop)' : 'Repeat Ayah OFF'}
+              title={`Hifz Loop Mode: ${repeatMode === 1 ? 'Single play' : repeatMode === 999 ? 'Infinite loop' : `${repeatMode}x repeat`} (Current: ${currentLoopCount}/${repeatMode === 999 ? '∞' : repeatMode})`}
             >
-              <Repeat className="w-4 h-4" />
+              <Repeat className="w-3.5 h-3.5" />
+              <span>{repeatMode === 999 ? '∞' : `${repeatMode}x`}</span>
+              {repeatMode > 1 && (
+                <span className="text-[10px] opacity-80">
+                  ({currentLoopCount})
+                </span>
+              )}
             </button>
 
             <button
