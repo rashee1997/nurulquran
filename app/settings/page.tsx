@@ -107,9 +107,10 @@ export default function SettingsPage() {
     try {
       setPreviewVoiceId(voiceId);
       await playVoiceHarmonicPreview(voiceId);
+      // Give sufficient duration for full spoken phrase
       setTimeout(() => {
         setPreviewVoiceId((current) => (current === voiceId ? null : current));
-      }, 1600);
+      }, 3500);
     } catch (err) {
       console.warn('Voice preview playback error:', err);
       setPreviewVoiceId(null);
@@ -256,7 +257,7 @@ export default function SettingsPage() {
             <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
               1. Teacher Voice Timbre ({AI_TEACHER_VOICES.length} Options)
             </h4>
-            <span className="text-[11px] text-muted-foreground">Click card to select • Tap preview to listen</span>
+            <span className="text-[11px] text-muted-foreground">Click card to select • Tap preview for real spoken sample</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

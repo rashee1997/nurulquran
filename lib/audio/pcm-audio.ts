@@ -282,12 +282,44 @@ export const AI_TEACHER_VOICES: AITeacherVoice[] = [
 ];
 
 /**
- * Plays a resonant vocal harmonic sample for voice selection preview.
- * Simulates the Tajweed cadence of the chosen voice with soothing harmonic overtones.
+ * Plays an authentic spoken speech preview using the real Gemini Live TTS API (`gemini-3.1-flash-tts-preview`).
+ * Plays via the high-fidelity 24kHz PCMAudioStreamPlayer.
+ * Seamlessly falls back to the harmonic overtone preview if offline or server API key is absent.
  */
-export async function playVoiceHarmonicPreview(voiceId: string): Promise<void> {
+let activePreviewPlayer: PCMAudioStreamPlayer | null = null;
+
+export async function playVoiceHarmonicPreview(voiceId: string, customPhrase?: string): Promise<void> {
   if (typeof window === 'undefined') return;
 
+  // Stop any currently active preview playback
+  if (activePreviewPlayer) {
+    activePreviewPlayer.stopAll();
+    activePreviewPlayer.close();
+    activePreviewPlayer = null;
+  }
+
+  try {
+    const res = await fetch('/api/tajweed/voice-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voiceId, customText: customPhrase }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.audioBase64) {
+        const pcmArrayBuffer = base64ToArrayBuffer(data.audioBase64);
+        const player = new PCMAudioStreamPlayer(data.sampleRate || 24000);
+        activePreviewPlayer = player;
+        player.queuePCM16Chunk(pcmArrayBuffer);
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn('Gemini TTS preview API call failed, using acoustic fallback:', err);
+  }
+
+  // Fallback to harmonic cadence preview if network/API unavailable
   const voice = AI_TEACHER_VOICES.find((v) => v.id === voiceId) || AI_TEACHER_VOICES[0];
   const AudioContextClass =
     window.AudioContext ||
@@ -342,3 +374,4 @@ export async function playVoiceHarmonicPreview(voiceId: string): Promise<void> {
     ctx.close().catch(() => {});
   }, (noteTime - now + 0.5) * 1000);
 }
+
