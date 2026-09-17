@@ -19,7 +19,8 @@ import {
   ChevronDown,
   Check,
   LayoutGrid,
-  Languages
+  Languages,
+  Sparkles
 } from 'lucide-react';
 import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
@@ -50,6 +51,7 @@ const NAV_CATEGORIES: NavCategory[] = [
       { href: '/quran', label: 'Quran Reader', desc: 'Uthmani text with audio, morphology and translations', icon: BookOpen },
       { href: '/learn', label: 'Curriculum', desc: 'Tajweed and Arabic lessons, Levels 1–10', icon: BookOpen },
       { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Quranic and spoken Arabic, writing and iʿrāb', icon: Languages },
+      { href: '/lessons/tafsir', label: 'Tafseer Lessons', desc: 'Bilingual exegesis with a live voice storyteller', icon: Sparkles },
     ],
   },
   {
@@ -159,6 +161,9 @@ export const NavigationHeader: React.FC = () => {
     }
     if (pathname.startsWith('/arabic-lab')) {
       return ALL_NAV_ITEMS.find((i) => i.href === '/arabic-lab') || ALL_NAV_ITEMS[0];
+    }
+    if (pathname.startsWith('/lessons/tafsir')) {
+      return ALL_NAV_ITEMS.find((i) => i.href === '/lessons/tafsir') || ALL_NAV_ITEMS[0];
     }
     if (pathname.startsWith('/learn')) {
       return ALL_NAV_ITEMS.find((i) => i.href === '/learn') || ALL_NAV_ITEMS[0];

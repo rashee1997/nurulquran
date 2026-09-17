@@ -192,6 +192,36 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Tafseer Lessons Card */}
+        <div className="p-6 rounded-3xl bg-card border border-border shadow-xs flex flex-col justify-between space-y-4 hover:border-secondary transition-colors">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-secondary-strong bg-secondary-subtle px-2.5 py-1 rounded-lg">
+                Tafseer
+              </span>
+              <span className="text-xs text-muted-foreground font-medium">EN &amp; தமிழ்</span>
+            </div>
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-secondary" />
+              Tafseer Lessons
+            </h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Read each ayah with English and Tamil exegesis, then let Ustadh Ameen explain the
+              meaning as a story — and tell him what you understood.
+            </p>
+          </div>
+
+          <div className="pt-2">
+            <Link
+              href="/lessons/tafsir"
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground text-xs font-bold transition-all shadow-md active:scale-98"
+            >
+              <span>Open Tafseer Lessons</span>
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </div>
+
         {/* Arabic Lab Dual-Track Card */}
         <div className="p-6 rounded-3xl bg-card border border-border shadow-xs flex flex-col justify-between space-y-4 hover:border-primary transition-colors">
           <div className="space-y-2">

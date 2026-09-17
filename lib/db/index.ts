@@ -96,6 +96,35 @@ export interface QuranCacheRecord {
   cachedAt: number;
 }
 
+/**
+ * Cached Tafseer exegesis.
+ *
+ * Addressed by `tafsir:<slug>:<surah>` because the CDN serves a whole chapter in one
+ * response, so caching per-ayah would issue one request per verse for identical data.
+ * Like `quranCache`, this is public upstream content that can always be re-fetched, so it
+ * is deliberately excluded from backups.
+ */
+export interface TafsirCacheRecord {
+  key: string; // e.g. "tafsir:tamil-mokhtasar:112"
+  data: unknown;
+  cachedAt: number;
+}
+
+export type TafsirProgressState = 'visited' | 'reflected' | 'completed';
+
+/** Learner-facing progress for one ayah of a Tafsir lesson. */
+export interface TafsirProgressRecord {
+  /** `<surah>:<ayah>` — mirrors the `verseKey` convention used by the SRS tables. */
+  verseKey: string;
+  surah: number;
+  ayah: number;
+  state: TafsirProgressState;
+  /** How many reflections the learner has submitted for this ayah. */
+  reflectionCount: number;
+  lastReflectionAt?: string;
+  updatedAt: string;
+}
+
 export class NurulQuranDatabase extends Dexie {
   userProfile!: Table<UserProfile, string>;
   verseProgress!: Table<VerseProgress, string>;
@@ -106,6 +135,8 @@ export class NurulQuranDatabase extends Dexie {
   quranCache!: Table<QuranCacheRecord, string>;
   gameSessions!: Table<GameSessionResult, string>;
   arabicLabProgress!: Table<ArabicLabProgress, string>;
+  tafsirCache!: Table<TafsirCacheRecord, string>;
+  tafsirProgress!: Table<TafsirProgressRecord, string>;
 
   constructor() {
     super('NurulQuranDB');
@@ -124,6 +155,11 @@ export class NurulQuranDatabase extends Dexie {
     // Arabic Lab (dual-track Quranic + spoken Arabic). Additive: v1/v2 tables untouched.
     this.version(3).stores({
       arabicLabProgress: 'id',
+    });
+    // Tafseer lesson module. Additive: every earlier table carries forward untouched.
+    this.version(4).stores({
+      tafsirCache: 'key, cachedAt',
+      tafsirProgress: 'verseKey, surah, state',
     });
   }
 }
@@ -233,7 +269,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
  * or hand-edited file write rows that later crashed the reader, the SRS engine and
  * the streak engine on typed field access.
  */
-export const BACKUP_FORMAT_VERSION = 2;
+export const BACKUP_FORMAT_VERSION = 3;
 
 const srsStateSchema = z.enum(['new', 'learning', 'familiar', 'memorized', 'review', 'weak', 'mastered']);
 const hifzTierSchema = z.enum(['sabaq', 'sabqi', 'manzil']);
@@ -342,9 +378,19 @@ const arabicLabProgressRowSchema = z.object({
   updatedAt: z.string().min(1),
 });
 
+const tafsirProgressRowSchema = z.object({
+  verseKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  state: z.enum(['visited', 'reflected', 'completed']),
+  reflectionCount: z.number().int().min(0).max(10_000),
+  lastReflectionAt: z.string().optional(),
+  updatedAt: z.string().min(1),
+});
+
 const backupEnvelopeSchema = z.object({
-  // v1 files predate the game-session and Arabic Lab tables; they are still importable.
-  version: z.union([z.literal(1), z.literal(2)]),
+  // v1 files predate the game-session, Arabic Lab and Tafsir tables; still importable.
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   exportedAt: z.string().optional(),
   userProfile: z.array(userProfileRowSchema).optional(),
   verseProgress: z.array(verseProgressRowSchema).optional(),
@@ -354,6 +400,7 @@ const backupEnvelopeSchema = z.object({
   aiConversations: z.array(aiConversationRowSchema).optional(),
   gameSessions: z.array(gameSessionRowSchema).optional(),
   arabicLabProgress: z.array(arabicLabProgressRowSchema).optional(),
+  tafsirProgress: z.array(tafsirProgressRowSchema).optional(),
 });
 
 /** Every table that holds learner data, in injection order. */
@@ -366,6 +413,7 @@ const PROGRESS_TABLES = [
   db.aiConversations,
   db.gameSessions,
   db.arabicLabProgress,
+  db.tafsirProgress,
 ] as const;
 
 /**
@@ -384,6 +432,7 @@ export async function exportDatabaseJson(): Promise<string> {
     aiConversations,
     gameSessions,
     arabicLabProgress,
+    tafsirProgress,
   ] = await Promise.all([
     db.userProfile.toArray(),
     db.verseProgress.toArray(),
@@ -393,6 +442,7 @@ export async function exportDatabaseJson(): Promise<string> {
     db.aiConversations.toArray(),
     db.gameSessions.toArray(),
     db.arabicLabProgress.toArray(),
+    db.tafsirProgress.toArray(),
   ]);
 
   return JSON.stringify(
@@ -407,6 +457,7 @@ export async function exportDatabaseJson(): Promise<string> {
       aiConversations,
       gameSessions,
       arabicLabProgress,
+      tafsirProgress,
     },
     null,
     2
@@ -481,6 +532,10 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
         await db.arabicLabProgress.clear();
         await db.arabicLabProgress.bulkPut(backup.arabicLabProgress);
       }
+      if (backup.tafsirProgress) {
+        await db.tafsirProgress.clear();
+        await db.tafsirProgress.bulkPut(backup.tafsirProgress);
+      }
     });
 
     // A v1 file may not carry a profile; make sure the app still has a usable one.
@@ -492,6 +547,7 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
       [backup.lessonHistory?.length, 'lesson result'],
       [backup.gameSessions?.length, 'game session'],
       [backup.arabicLabProgress?.length, 'Arabic Lab record'],
+      [backup.tafsirProgress?.length, 'Tafsir lesson record'],
       [backup.aiConversations?.length, 'conversation'],
       [backup.aiProviders?.length, 'provider'],
     ]
