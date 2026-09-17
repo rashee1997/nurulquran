@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { GameSessionResult } from './schemas/streak-schema';
 
 export type SrsState = 'new' | 'learning' | 'familiar' | 'memorized' | 'review' | 'weak' | 'mastered';
 export type HifzTier = 'sabaq' | 'sabqi' | 'manzil';
@@ -89,6 +90,7 @@ export class NurulQuranDatabase extends Dexie {
   aiProviders!: Table<AIProviderRecord, string>;
   aiConversations!: Table<AIConversationRecord, string>;
   quranCache!: Table<QuranCacheRecord, string>;
+  gameSessions!: Table<GameSessionResult, string>;
 
   constructor() {
     super('NurulQuranDB');
@@ -100,6 +102,9 @@ export class NurulQuranDatabase extends Dexie {
       aiProviders: 'id, type, isDefault',
       aiConversations: 'id, updatedAt',
       quranCache: 'key, cachedAt',
+    });
+    this.version(2).stores({
+      gameSessions: 'sessionId, gameId, surahNumber, timestamp',
     });
   }
 }

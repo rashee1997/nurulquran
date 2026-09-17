@@ -13,7 +13,9 @@ import {
   CheckCircle2, 
   Volume2, 
   Compass,
-  Play
+  Play,
+  Gamepad2,
+  Radar
 } from 'lucide-react';
 import { db, UserProfile } from '@/lib/db';
 import { calculateLevel } from '@/lib/learning/xp-engine';
@@ -188,6 +190,100 @@ export default function DashboardPage() {
               <span>Launch 10 Hifz Modes</span>
             </Link>
           </div>
+        </div>
+      </div>
+
+      {/* Featured 2D Mini-Games Arcade Banner */}
+      <div className="p-6 rounded-3xl bg-linear-to-r from-card via-card to-card/60 border border-border shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold">
+              <Gamepad2 className="w-3.5 h-3.5" />
+              <span>New &bull; 2D Canvas Quran Games</span>
+            </div>
+            <h2 className="text-xl font-bold text-foreground">
+              Celestial Quran Mini-Games Arcade
+            </h2>
+            <p className="text-xs text-muted-foreground max-w-xl">
+              Reinforce your Ayah retention with 60 FPS HTML5 Canvas physics, Uthmani word sequencing, Mutashabihat twin radar, and active recall matrix.
+            </p>
+          </div>
+
+          <Link
+            href="/games"
+            className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity shrink-0"
+          >
+            <span>Play All Games</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+          <Link
+            href="/games/ayah-assembly"
+            className="p-4 rounded-2xl bg-card border border-border hover:border-emerald-500/50 flex flex-col justify-between gap-3 transition-all hover:shadow-xs group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
+                ✦
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                Orbital Physics
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                Celestial Ayah Assembly
+              </h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Connect orbiting words in true Quranic sequence with recitation playback.
+              </p>
+            </div>
+          </Link>
+
+          <Link
+            href="/games/mutashabihat-radar"
+            className="p-4 rounded-2xl bg-card border border-border hover:border-sky-500/50 flex flex-col justify-between gap-3 transition-all hover:shadow-xs group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center">
+                <Radar className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                Radar Sweep
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                Mutashabihat Radar
+              </h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Target and master similar verses to eliminate hesitation during Salah.
+              </p>
+            </div>
+          </Link>
+
+          <Link
+            href="/games/memory-matrix"
+            className="p-4 rounded-2xl bg-card border border-border hover:border-amber-500/50 flex flex-col justify-between gap-3 transition-all hover:shadow-xs group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                ۞
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                Active Recall Grid
+              </span>
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-foreground group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                Ayah Memory Matrix
+              </h4>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                3D-perspective canvas tiles matching verse stems with completions.
+              </p>
+            </div>
+          </Link>
         </div>
       </div>
 
