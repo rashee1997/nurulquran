@@ -683,7 +683,14 @@ export interface DatabaseImportResult {
   summary?: string;
 }
 
-export async function importDatabaseJson(jsonString: string): Promise<DatabaseImportResult> {
+export type BackupEnvelope = z.infer<typeof backupEnvelopeSchema>;
+
+/**
+ * Validates a backup file's shape without writing anything — the read-only half of
+ * `importDatabaseJson`, used wherever a backup needs to be inspected rather than
+ * restored (e.g. the teacher/halaqa share viewer).
+ */
+export function parseBackupJson(jsonString: string): { success: true; data: BackupEnvelope } | { success: false; error: string } {
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(jsonString);
@@ -701,7 +708,16 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
     };
   }
 
-  const backup = result.data;
+  return { success: true, data: result.data };
+}
+
+export async function importDatabaseJson(jsonString: string): Promise<DatabaseImportResult> {
+  const parsed = parseBackupJson(jsonString);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error };
+  }
+
+  const backup = parsed.data;
 
   try {
     await db.transaction('rw', PROGRESS_TABLES, async () => {

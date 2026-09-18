@@ -595,6 +595,14 @@ export default function SettingsPage() {
           />
         </div>
 
+        <p className="text-[11px] text-muted-foreground">
+          Sharing progress with a teacher or halaqa leader? Send them the exported file — they can open it at{' '}
+          <Link href="/share" className="font-semibold text-primary hover:underline">
+            /share
+          </Link>{' '}
+          without installing anything or importing it into their own device.
+        </p>
+
         {/* Reset */}
         <div className="pt-3 border-t border-border flex items-center justify-between">
           <div>
