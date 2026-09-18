@@ -21,13 +21,16 @@ import { db, UserProfile, initializeDatabase } from '@/lib/db';
 import { GameSessionResult } from '@/lib/db/schemas/streak-schema';
 import { getGameSessions } from '@/lib/games/game-service';
 import { calculateLevel } from '@/lib/learning/xp-engine';
-import { localDayKey } from '@/lib/time/day';
+import { dailyCounts } from '@/lib/telemetry/events';
+import { localDayKey, shiftLocalDayKey } from '@/lib/time/day';
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sessions, setSessions] = useState<GameSessionResult[]>([]);
   const [dueReviewCount, setDueReviewCount] = useState<number>(0);
   const [memorizedCount, setMemorizedCount] = useState<number>(0);
+  /** Per-local-day activity counts from the ledger, keyed YYYY-MM-DD. */
+  const [activityByDay, setActivityByDay] = useState<Record<string, number>>({});
 
   useEffect(() => {
     async function loadData() {
@@ -35,6 +38,10 @@ export default function DashboardPage() {
       setProfile(p);
       const s = await getGameSessions();
       setSessions(s);
+
+      const to = localDayKey();
+      const from = shiftLocalDayKey(to, -(70 - 1));
+      setActivityByDay(await dailyCounts(from, to));
 
       if (typeof window !== 'undefined') {
         const verses = await db.verseProgress.toArray();
@@ -69,32 +76,34 @@ export default function DashboardPage() {
     : 0;
 
   /**
-   * Ten weeks of activity for the heatmap.
+   * Ten weeks of activity for the heatmap, derived from the activity ledger.
    *
-   * Buckets use the learner's LOCAL calendar day: `toISOString()` produced UTC day
-   * keys, so every session played after 05:30 in UTC+05:30 landed on the previous
-   * column and the streak grid disagreed with the streak counter.
+   * This previously counted *game sessions only* while the caption claimed it covered
+   * games, lessons and reviews — so a day of reviews with no games rendered empty and
+   * contradicted the streak counter. `dailyCounts` reads every ledger event (reviews,
+   * drills, reading, games), so the grid now agrees with the streak. Day keys are the
+   * learner's LOCAL calendar day: `toISOString()` produced UTC keys, so a session played
+   * after 05:30 in UTC+05:30 landed on the previous column.
    */
   const heatmapDays = useMemo(() => {
     const daysInHeatmap = 70; // 10 weeks of cells
     const today = new Date();
-    const sessionDays = sessions.map((session) => localDayKey(new Date(session.timestamp)));
 
     return Array.from({ length: daysInHeatmap }).map((_, index) => {
       const day = new Date(today);
       day.setDate(day.getDate() - (daysInHeatmap - 1 - index));
       const dateKey = localDayKey(day);
-      const sessionsOnDay = sessionDays.filter((key) => key === dateKey).length;
+      const count = activityByDay[dateKey] ?? 0;
       const isToday = index === daysInHeatmap - 1;
 
       return {
         date: dateKey,
-        count: sessionsOnDay + (isToday ? 1 : 0),
+        count,
         isToday,
-        hasActivity: sessionsOnDay > 0 || Boolean(isToday && profile?.streakCount),
+        hasActivity: count > 0 || Boolean(isToday && profile?.streakCount),
       };
     });
-  }, [profile?.streakCount, sessions]);
+  }, [activityByDay, profile?.streakCount]);
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-8">
@@ -228,11 +237,9 @@ export default function DashboardPage() {
           <div className="grid grid-flow-col grid-rows-7 gap-1.5 w-max">
             {heatmapDays.map((day, idx) => {
               let colorClass = 'bg-muted/60';
-              if (day.count > 0) {
-                if (day.count === 1) colorClass = 'bg-primary/40';
-                else if (day.count === 2) colorClass = 'bg-primary/70';
-                else colorClass = 'bg-primary shadow-xs';
-              }
+              if (day.count >= 1) colorClass = 'bg-primary/40';
+              if (day.count >= 3) colorClass = 'bg-primary/70';
+              if (day.count >= 6) colorClass = 'bg-primary shadow-xs';
               if (day.isToday) {
                 colorClass += ' ring-2 ring-primary/40 ring-offset-1';
               }

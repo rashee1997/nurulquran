@@ -117,10 +117,34 @@ export interface RecitationMistakeRecord {
   at: string;
 }
 
+/**
+ * One saved recitation attempt: the learner's own recorded audio plus the mistake count it
+ * produced. Audio stays on this device (it is deliberately excluded from backups and
+ * included in reset), is bounded by eviction, and powers the "replay vs the Qari" loop.
+ */
+export interface RecitationSessionRecord {
+  id: string;
+  verseKey: string;
+  surah: number;
+  ayah: number;
+  /** Raw 16 kHz mono PCM16, base64-encoded (no container header). */
+  audioBase64: string;
+  audioMimeType: string;
+  mistakeCount: number;
+  accuracy: number;
+  createdAt: string;
+}
+
 export type HifzGoalKind = 'memorize' | 'review' | 'read';
 export type HifzGoalCadence = 'daily' | 'weekly';
 
-/** A learner-defined target, e.g. "review Al-Kahf every Friday". */
+/**
+ * A learner-defined target, e.g. "review Al-Kahf every Friday".
+ *
+ * `deadline` turns the goal into a dated one ("finish Juz' 'Amma by 2027-03-01", a local
+ * `YYYY-MM-DD` key): progress is then also measured against the linear pace needed to hit
+ * the date, not just the raw target count.
+ */
 export interface HifzGoalRecord {
   id: string;
   kind: HifzGoalKind;
@@ -130,6 +154,8 @@ export interface HifzGoalRecord {
   surah?: number;
   /** Target count of ayahs for the period. */
   targetAyahs: number;
+  /** Local day key (YYYY-MM-DD) the goal must be complete by; absent for open-ended goals. */
+  deadline?: string;
   createdAt: string;
   archived?: boolean;
 }
@@ -246,6 +272,7 @@ export class NurulQuranDatabase extends Dexie {
   events!: Table<ActivityEvent, number>;
   recitationMistakes!: Table<RecitationMistakeRecord, number>;
   hifzGoals!: Table<HifzGoalRecord, string>;
+  recitationSessions!: Table<RecitationSessionRecord, string>;
 
   constructor() {
     super('NurulQuranDB');
@@ -277,6 +304,10 @@ export class NurulQuranDatabase extends Dexie {
       events: '++id, name, day, at',
       recitationMistakes: '++id, verseKey, surah, at',
       hifzGoals: 'id, kind, archived',
+    });
+    // Saved recitation attempts for the replay loop. Additive: earlier tables untouched.
+    this.version(6).stores({
+      recitationSessions: 'id, verseKey, createdAt',
     });
   }
 }
@@ -390,7 +421,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
  * or hand-edited file write rows that later crashed the reader, the SRS engine and
  * the streak engine on typed field access.
  */
-export const BACKUP_FORMAT_VERSION = 4;
+export const BACKUP_FORMAT_VERSION = 5;
 
 const srsStateSchema = z.enum(['new', 'learning', 'familiar', 'memorized', 'review', 'weak', 'mastered']);
 const hifzTierSchema = z.enum(['sabaq', 'sabqi', 'manzil']);
@@ -487,6 +518,7 @@ const hifzGoalRowSchema = z.object({
   weekday: z.number().int().min(0).max(6).optional(),
   surah: surahNumberSchema.optional(),
   targetAyahs: z.number().int().min(1).max(6236),
+  deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   createdAt: z.string().min(1),
   archived: z.boolean().optional(),
 });
@@ -570,7 +602,7 @@ const tafsirProgressRowSchema = z.object({
 
 const backupEnvelopeSchema = z.object({
   // v1 files predate the game-session, Arabic Lab and Tafsir tables; still importable.
-  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   exportedAt: z.string().optional(),
   userProfile: z.array(userProfileRowSchema).optional(),
   verseProgress: z.array(verseProgressRowSchema).optional(),
@@ -588,7 +620,12 @@ const backupEnvelopeSchema = z.object({
   hifzGoals: z.array(hifzGoalRowSchema).optional(),
 });
 
-/** Every table that holds learner data, in injection order. */
+/**
+ * Every table that holds learner data, in injection order.
+ *
+ * `recitationSessions` holds device-local voice recordings: reset clears it, but a backup
+ * import never touches it because backups do not carry audio.
+ */
 const PROGRESS_TABLES = [
   db.userProfile,
   db.verseProgress,
@@ -604,6 +641,7 @@ const PROGRESS_TABLES = [
   db.events,
   db.recitationMistakes,
   db.hifzGoals,
+  db.recitationSessions,
 ] as const;
 
 /**
@@ -611,6 +649,9 @@ const PROGRESS_TABLES = [
  *
  * Game sessions and Arabic Lab progress were missing from the export, so restoring a
  * backup silently dropped streak history and the Arabic Lab track.
+ *
+ * `recitationSessions` is deliberately NOT exported: it holds the learner's own voice
+ * recordings, which a shareable backup file must not carry. Resetting progress clears it.
  */
 export async function exportDatabaseJson(): Promise<string> {
   const [
@@ -814,6 +855,7 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
  *
  * The game sessions, Arabic Lab progress and the streak records derived from them were
  * previously left behind, so "Reset progress" kept showing the old streak and XP.
+ * Saved recitation audio is cleared with everything else.
  * The Quran text cache is intentionally preserved: it is public, immutable scripture,
  * not learner data.
  */

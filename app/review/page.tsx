@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db, HifzTier, VerseProgress } from '@/lib/db';
-import { calculateNextReview, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, nextDueAt, STATE_LABELS } from '@/lib/learning/srs-engine';
+import { calculateNextReview, currentRetrievability, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, nextDueAt, previewGrades, recentMistakeVerseKeys, STATE_LABELS } from '@/lib/learning/srs-engine';
 import { track } from '@/lib/telemetry/events';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
@@ -38,22 +38,45 @@ export default function SrsReviewPage() {
   const [totalTracked, setTotalTracked] = useState(0);
   const [seeding, setSeeding] = useState(false);
 
+  /** Which mistake-weakened verse was pulled forward, so grading can log the conversion. */
+  const [mistakePriorityKeys, setMistakePriorityKeys] = useState<ReadonlySet<string>>(new Set());
+
   const loadDueQueue = useCallback(async () => {
     setLoading(true);
     try {
-      const items = await db.verseProgress.toArray();
-      setTotalTracked(items.length);
-
-      // Only items that are actually due are shown. Showing everything when nothing was
-      // due (the previous behaviour) defeats spacing: the learner re-graded verses the
-      // scheduler had deliberately parked, and their intervals grew from reviews that
-      // taught nothing.
+      // The `dueDate` index answers "what is due" without materialising every tracked
+      // verse — at Hifz scale (6,236 rows) the old full-table scan was the queue's
+      // dominant cost. New items (repetitions 0) are appended, since a first review is
+      // always wanted regardless of when it is due.
       const now = new Date().toISOString();
-      const due = items.filter((i) => i.dueDate <= now || i.repetitions === 0);
-      setAllItems(due);
-      setNextDue(due.length === 0 ? nextDueAt(items) : null);
+      const due = await db.verseProgress.where('dueDate').belowOrEqual(now).toArray();
+      const newItems = await db.verseProgress.filter((item) => item.repetitions === 0).toArray();
+      const combined = [...due, ...newItems];
+      // Deduplicate by key: a not-yet-reviewed item is both due (dueDate = now) and new.
+      const byKey = new Map<string, VerseProgress>();
+      for (const item of combined) byKey.set(item.verseKey, item);
+
+      // Most-at-risk first: the scheduler's ordering promise. Weakest recall probability
+      // sits at the front of the queue instead of a random position.
+      const ordered = [...byKey.values()].sort(
+        (a, b) => currentRetrievability(a) - currentRetrievability(b)
+      );
+
+      // Priority injection: anything with a recitation mistake in the last two weeks is
+      // pulled to the front. Grading still runs the standard FSRS path — injection only
+      // changes the order, never the schedule.
+      const mistakeKeys = await recentMistakeVerseKeys(14);
+      setMistakePriorityKeys(mistakeKeys);
+      const prioritized = [
+        ...ordered.filter((item) => mistakeKeys.has(item.verseKey)),
+        ...ordered.filter((item) => !mistakeKeys.has(item.verseKey)),
+      ];
+
+      setTotalTracked(await db.verseProgress.count());
+      setAllItems(prioritized);
+      setNextDue(prioritized.length === 0 ? nextDueAt(await db.verseProgress.toArray()) : null);
       setCurrentIndex(0);
-      if (due.length === 0) track('review.empty_state_shown', { tracked: items.length });
+      if (prioritized.length === 0) track('review.empty_state_shown', { tracked: await db.verseProgress.count() });
     } catch (e) {
       console.error('Failed to load review queue:', e);
     } finally {
@@ -166,6 +189,10 @@ export default function SrsReviewPage() {
         const nextProgress = calculateNextReview(currentItem, quality);
         await db.verseProgress.put(nextProgress);
 
+        if (mistakePriorityKeys.has(currentItem.verseKey)) {
+          track('mistakes.priority_review_graded', { verseKey: currentItem.verseKey });
+        }
+
         const xp = quality >= 3 ? 15 : 5;
         await recordActivity({
           xp,
@@ -198,7 +225,7 @@ export default function SrsReviewPage() {
         setIsGrading(false);
       }
     },
-    [currentItem, dueItems.length]
+    [currentItem, dueItems.length, mistakePriorityKeys]
   );
 
   /** Plays the verification recitation, ending on the Arabic synthesizer if needed. */
@@ -485,41 +512,50 @@ export default function SrsReviewPage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-              <button
-                onClick={() => void handleGrade(1)}
-                disabled={isGrading}
-                className="p-3.5 rounded-2xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
-              >
-                <span>Again (1)</span>
-                <span className="text-[10px] font-normal opacity-80">&lt;1 day</span>
-              </button>
+              {(() => {
+                // Interval preview per grade, computed from the same FSRS path grading uses.
+                const p = previewGrades(currentItem);
+                const label = (days: number): string => (days < 1 ? '<1 day' : `${days}d`);
+                return (
+                  <>
+                    <button
+                      onClick={() => void handleGrade(1)}
+                      disabled={isGrading}
+                      className="p-3.5 rounded-2xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
+                    >
+                      <span>Again (1)</span>
+                      <span className="text-[10px] font-normal opacity-80">{label(p.again)}</span>
+                    </button>
 
-              <button
-                onClick={() => void handleGrade(3)}
-                disabled={isGrading}
-                className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
-              >
-                <span>Hard (3)</span>
-                <span className="text-[10px] font-normal opacity-80">shorter interval</span>
-              </button>
+                    <button
+                      onClick={() => void handleGrade(3)}
+                      disabled={isGrading}
+                      className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
+                    >
+                      <span>Hard (3)</span>
+                      <span className="text-[10px] font-normal opacity-80">{label(p.hard)}</span>
+                    </button>
 
-              <button
-                onClick={() => void handleGrade(4)}
-                disabled={isGrading}
-                className="p-3.5 rounded-2xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
-              >
-                <span>Good (4)</span>
-                <span className="text-[10px] font-normal opacity-80">90% recall interval</span>
-              </button>
+                    <button
+                      onClick={() => void handleGrade(4)}
+                      disabled={isGrading}
+                      className="p-3.5 rounded-2xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
+                    >
+                      <span>Good (4)</span>
+                      <span className="text-[10px] font-normal opacity-80">{label(p.good)}</span>
+                    </button>
 
-              <button
-                onClick={() => void handleGrade(5)}
-                disabled={isGrading}
-                className="p-3.5 rounded-2xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
-              >
-                <span>Easy (5)</span>
-                <span className="text-[10px] font-normal opacity-80">longer interval</span>
-              </button>
+                    <button
+                      onClick={() => void handleGrade(5)}
+                      disabled={isGrading}
+                      className="p-3.5 rounded-2xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
+                    >
+                      <span>Easy (5)</span>
+                      <span className="text-[10px] font-normal opacity-80">{label(p.easy)}</span>
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         )}

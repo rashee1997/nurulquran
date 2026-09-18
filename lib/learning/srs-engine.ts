@@ -1,5 +1,6 @@
 import { HifzTier, SrsState, VerseProgress } from '../db';
 import { fsrsReview, gradeFromQuality, memoryFromLegacy, retrievability } from './fsrs';
+import { db } from '../db';
 
 /**
  * Verse scheduler: FSRS underneath, the classical tri-tier Hifz vocabulary on top.
@@ -136,6 +137,28 @@ export function nextDueAt(items: readonly VerseProgress[]): Date | null {
 
 export function isItemDue(dueDateIso: string): boolean {
   return new Date(dueDateIso).getTime() <= Date.now();
+}
+
+/**
+ * The interval each grade would produce, without touching storage — the "Good → 9d"
+ * preview on the grade buttons. Same FSRS path as `calculateNextReview`, so the preview
+ * can never disagree with what grading actually does.
+ */
+export function previewGrades(current: VerseProgress): Record<'again' | 'hard' | 'good' | 'easy', number> {
+  const preview = (grade: 1 | 2 | 3 | 4): number =>
+    calculateNextReview(current, grade === 1 ? 1 : grade === 2 ? 3 : grade === 3 ? 4 : 5, new Date()).interval;
+  return { again: preview(1), hard: preview(2), good: preview(3), easy: preview(4) };
+}
+
+/** Verses with at least one recitation mistake in the last `days` days. */
+export async function recentMistakeVerseKeys(days = 14): Promise<Set<string>> {
+  const cutoff = Date.now() - days * 86_400_000;
+  const rows = await db.recitationMistakes.toArray();
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (new Date(row.at).getTime() >= cutoff) keys.add(row.verseKey);
+  }
+  return keys;
 }
 
 export const STATE_LABELS: Record<SrsState, { label: string; color: string; bg: string }> = {

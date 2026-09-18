@@ -1,12 +1,15 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Eye, Mic, Square, Loader2, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Eye, Mic, Square, Loader2, AlertCircle, CheckCircle2, RotateCcw, Play } from 'lucide-react';
 import { useLiveTajweed, MAX_RECORDING_SECONDS } from '@/hooks/use-live-tajweed';
 import { AudioLevelMeter } from '@/components/learning/AudioLevelMeter';
 import { db } from '@/lib/db';
 import { diffRecitation, qualityFromAccuracy, type RecitationDiff } from '@/lib/learning/recitation-diff';
 import { track } from '@/lib/telemetry/events';
+import { pcm16Base64ToWavDataUrl } from '@/lib/audio/wav';
+import { reciterAudioUrl } from '@/lib/quran/reciters';
+import { getChapterMetadata } from '@/lib/quran/surahs';
 import type { ModeStageProps } from './types';
 
 /**
@@ -24,6 +27,9 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
   const [savedMistakes, setSavedMistakes] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoGraded, setAutoGraded] = useState<number | null>(null);
+  const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
+  const [replayUrl, setReplayUrl] = useState<string | null>(null);
+  const [qariUrl, setQariUrl] = useState<string | null>(null);
   const gradedForRef = useRef<string | null>(null);
 
   const verseKey = `${verse.surah}:${verse.ayah}`;
@@ -85,6 +91,50 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
     onFeedbackReceived: (feedback) => void handleFeedback(feedback),
   });
 
+  /** Persists the graded attempt (audio + outcome) so it can be replayed later. */
+  const saveSession = useCallback(
+    async (result: RecitationDiff) => {
+      const audio = live.lastRecordingBase64;
+      if (!audio) return;
+      try {
+        const id = crypto.randomUUID();
+        await db.recitationSessions.add({
+          id,
+          verseKey,
+          surah: verse.surah,
+          ayah: verse.ayah,
+          audioBase64: audio,
+          audioMimeType: 'audio/pcm;rate=16000',
+          mistakeCount: result.mistakes.length,
+          accuracy: result.accuracy,
+          createdAt: new Date().toISOString(),
+        });
+        setSavedSessionId(id);
+        track('recite.replay_saved', { verseKey });
+      } catch (error) {
+        console.error('Recitation session could not be saved:', error);
+      }
+    },
+    [live.lastRecordingBase64, verse.ayah, verse.surah, verseKey]
+  );
+
+  /** Prepares both clips for the replay-vs-Qari comparison; the learner's own audio is wrapped on-device. */
+  const prepareReplay = useCallback(async (): Promise<void> => {
+    if (!live.lastRecordingBase64) return;
+    const mine = pcm16Base64ToWavDataUrl(live.lastRecordingBase64);
+    if (mine) {
+      setReplayUrl(mine);
+      track('recite.replay_played', { verseKey });
+    }
+    if (qariUrl === null) {
+      let offset = 0;
+      for (let id = 1; id < verse.surah; id++) offset += getChapterMetadata(id).versesCount;
+      const profile = await db.userProfile.get('default_user');
+      const reciterId = profile?.reciterId ?? 'ar.alafasy';
+      setQariUrl(reciterAudioUrl(reciterId, offset + verse.ayah));
+    }
+  }, [live.lastRecordingBase64, qariUrl, verse.ayah, verse.surah, verseKey]);
+
   // Fresh verse: clear the previous result and release the recorder's resources.
   // A `key={verseKey}` remount was considered instead, but `live` (useLiveTajweed) owns
   // microphone/AudioContext handles that must be released deterministically via `reset()`,
@@ -95,6 +145,9 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
     setNotice(null);
     setSavedMistakes(false);
     setAutoGraded(null);
+    setSavedSessionId(null);
+    setReplayUrl(null);
+    setQariUrl(null);
     live.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verseKey]);
@@ -210,6 +263,43 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
                 )}
                 {savedMistakes && diff.mistakes.length > 0 && (
                   <p className="text-[10px] text-muted-foreground">Mistakes saved to your weak-spot map.</p>
+                )}
+              </div>
+            )}
+            {diff && (
+              <div className="pt-2 flex items-center justify-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => void saveSession(diff)}
+                  disabled={savedSessionId !== null}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border text-foreground text-[11px] font-semibold hover:bg-surface-hover disabled:opacity-60"
+                >
+                  <Play className="w-3 h-3" />
+                  {savedSessionId ? 'Attempt saved' : 'Save attempt for replay'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void prepareReplay()}
+                  disabled={!live.lastRecordingBase64}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-card border border-border text-foreground text-[11px] font-semibold hover:bg-surface-hover disabled:opacity-60"
+                >
+                  <Play className="w-3 h-3" /> Hear myself · hear the Qari
+                </button>
+              </div>
+            )}
+            {(replayUrl || qariUrl) && (
+              <div className="pt-2 grid gap-2 sm:grid-cols-2 text-left">
+                {replayUrl && (
+                  <div className="rounded-xl bg-surface border border-border p-2">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Your recitation</p>
+                    <audio controls src={replayUrl} className="w-full h-8" preload="none" />
+                  </div>
+                )}
+                {qariUrl && (
+                  <div className="rounded-xl bg-surface border border-border p-2">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Qari reference</p>
+                    <audio controls src={qariUrl} className="w-full h-8" preload="none" />
+                  </div>
                 )}
               </div>
             )}

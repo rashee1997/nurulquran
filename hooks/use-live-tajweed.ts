@@ -79,6 +79,12 @@ export interface UseLiveTajweedResult {
   micPermissionState: MicPermissionState;
   recordingSeconds: number;
   userProfile: UserProfile | null;
+  /**
+   * The last recording this hook captured, as raw 16 kHz mono PCM16 base64 (or null
+   * before any capture). Lets a caller keep the learner's own attempt for replay without
+   * re-recording; it holds no text and never leaves the device.
+   */
+  lastRecordingBase64: string | null;
   startRecording: () => void;
   stopRecording: () => void;
   reset: () => void;
@@ -160,6 +166,7 @@ export function useLiveTajweed({
   const [micPermissionState, setMicPermissionState] = useState<MicPermissionState>('prompt');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [lastRecordingBase64, setLastRecordingBase64] = useState<string | null>(null);
 
   const audioLevelRef = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -289,6 +296,8 @@ export function useLiveTajweed({
         const base64Audio = arrayBufferToBase64(
           new Uint8Array(int16Pcm.buffer, int16Pcm.byteOffset, int16Pcm.byteLength)
         );
+        // Keep the learner's own attempt so the caller can offer replay-vs-Qari after grading.
+        setLastRecordingBase64(base64Audio);
 
         const response = await fetch('/api/tajweed/live-coach', {
           method: 'POST',
@@ -552,6 +561,7 @@ export function useLiveTajweed({
     micPermissionState,
     recordingSeconds,
     userProfile,
+    lastRecordingBase64,
     startRecording: () => {
       void startRecording();
     },

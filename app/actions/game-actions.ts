@@ -32,6 +32,19 @@ export interface GameSessionActionResult {
 }
 
 /**
+ * XP is derived on the server from the *validated* performance fields, never echoed back
+ * from the client. The previous version returned the client-supplied `xpEarned`, so a
+ * hand-crafted POST could report an arbitrary reward into the UI.
+ */
+function deriveGameXp(session: GameSessionResult): number {
+  const accuracyXp = Math.round((session.accuracy / 100) * 60);
+  const comboXp = Math.min(30, Math.round(session.comboMax / 5));
+  // A small per-second efficiency nudge, capped so marathon sessions cannot farm XP.
+  const efficiencyXp = Math.min(10, Math.round(session.score / 500));
+  return Math.min(100, accuracyXp + comboXp + efficiencyXp);
+}
+
+/**
  * Records a completed game session and deterministically revalidates the surfaces
  * that render session-derived stats.
  */
@@ -48,26 +61,25 @@ export async function recordGameSessionAction(
       }).`,
       xpAwarded: 0,
     };
-  }
+  }    const validated = parsed.data;
+    const xpAwarded = deriveGameXp(validated);
 
-  const validated = parsed.data;
+    try {
+      revalidatePath('/dashboard');
+      revalidatePath('/games');
+      revalidatePath('/');
 
-  try {
-    revalidatePath('/dashboard');
-    revalidatePath('/games');
-    revalidatePath('/');
-
-    return {
-      success: true,
-      message: `Synced ${validated.gameTitle} session (${validated.score} pts, ${validated.accuracy}% accuracy).`,
-      xpAwarded: validated.xpEarned,
-    };
-  } catch (error) {
-    console.error('Error in recordGameSessionAction:', error);
-    return {
-      success: false,
-      message: 'Failed to record the game session on the server.',
-      xpAwarded: 0,
-    };
-  }
+      return {
+        success: true,
+        message: `Synced ${validated.gameTitle} session (${validated.score} pts, ${validated.accuracy}% accuracy).`,
+        xpAwarded,
+      };
+    } catch (error) {
+      console.error('Error in recordGameSessionAction:', error);
+      return {
+        success: false,
+        message: 'Failed to record the game session on the server.',
+        xpAwarded: 0,
+      };
+    }
 }

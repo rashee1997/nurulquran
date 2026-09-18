@@ -13,14 +13,17 @@ import {
   AlertTriangle,
   Bell,
   BellOff,
+  CalendarClock,
   CheckCircle2,
 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { localDayKey, shiftLocalDayKey } from '@/lib/time/day';
-import { dailyCounts } from '@/lib/telemetry/events';
+import { dailyCounts, track } from '@/lib/telemetry/events';
 import { isStreakAtRisk, MAX_FREEZES } from '@/lib/learning/activity';
 import {
+  bumpPlannerPace,
   computeGoalProgress,
+  createDeadlineGoal,
   createGoal,
   archiveGoal,
   deleteGoal,
@@ -48,6 +51,10 @@ export default function ProgressPage() {
   const goalRows = useLiveQuery(() => listActiveGoals(), [], []);
   const mistakeRows = useLiveQuery(() => db.recitationMistakes.toArray(), [], []);
 
+  useEffect(() => {
+    track('mistakes.page_viewed', {});
+  }, []);
+
   const [heatmap, setHeatmap] = useState<Record<string, number>>({});
   const [goalProgress, setGoalProgress] = useState<GoalProgress[]>([]);
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -55,6 +62,15 @@ export default function ProgressPage() {
   const [goalCadence, setGoalCadence] = useState<HifzGoalCadence>('daily');
   const [goalWeekday, setGoalWeekday] = useState(5);
   const [goalTarget, setGoalTarget] = useState(5);
+  const [showDeadlineForm, setShowDeadlineForm] = useState(false);
+  const [deadlineFromSurah, setDeadlineFromSurah] = useState(78);
+  const [deadlineToSurah, setDeadlineToSurah] = useState(114);
+  const [deadlineDate, setDeadlineDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 90);
+    return d.toISOString().slice(0, 10);
+  });
+  const [deadlineStatus, setDeadlineStatus] = useState<string | null>(null);
   const [reminderHour, setReminderHour] = useState(profile?.reminderHour ?? 20);
   const [reminderStatus, setReminderStatus] = useState<string | null>(null);
 
@@ -106,6 +122,19 @@ export default function ProgressPage() {
     await createGoal({ kind: goalKind, cadence: goalCadence, weekday: goalWeekday, targetAyahs: goalTarget });
     setShowGoalForm(false);
     setGoalTarget(5);
+  };
+
+  const handleCreateDeadlineGoal = async () => {
+    const goal = await createDeadlineGoal({
+      kind: 'memorize',
+      fromSurah: deadlineFromSurah,
+      toSurah: deadlineToSurah,
+      deadline: deadlineDate,
+    });
+    setShowDeadlineForm(false);
+    setDeadlineStatus(
+      `Goal created: ${goal.targetAyahs} ayahs by ${goal.deadline}.`
+    );
   };
 
   const handleEnableReminder = async () => {
@@ -191,6 +220,78 @@ export default function ProgressPage() {
           </button>
         </div>
 
+        {/* Deadline (dated) goal form */}
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-foreground flex items-center gap-1.5">
+            <CalendarClock className="w-3.5 h-3.5 text-primary" />
+            <span>Finish by a date</span>
+          </h3>
+          <button
+            type="button"
+            onClick={() => setShowDeadlineForm((v) => !v)}
+            className="px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold"
+          >
+            {showDeadlineForm ? 'Cancel' : 'Set deadline goal'}
+          </button>
+        </div>
+
+        {showDeadlineForm && (
+          <div className="p-4 rounded-xl bg-surface border border-border space-y-3 text-xs">
+            <div className="flex flex-wrap gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground font-medium">From surah</span>
+                <select
+                  value={deadlineFromSurah}
+                  onChange={(e) => setDeadlineFromSurah(Number(e.target.value))}
+                  className="px-2.5 py-1.5 rounded-lg bg-background border border-border font-semibold"
+                >
+                  {SURAHS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.id}. {s.nameSimple}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground font-medium">To surah</span>
+                <select
+                  value={deadlineToSurah}
+                  onChange={(e) => setDeadlineToSurah(Number(e.target.value))}
+                  className="px-2.5 py-1.5 rounded-lg bg-background border border-border font-semibold"
+                >
+                  {SURAHS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.id}. {s.nameSimple}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-muted-foreground font-medium">Complete by</span>
+                <input
+                  type="date"
+                  value={deadlineDate}
+                  min={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => setDeadlineDate(e.target.value)}
+                  className="px-2.5 py-1.5 rounded-lg bg-background border border-border font-semibold"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              The ayah target is counted from the surah range you pick, so you never hand-count it.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleCreateDeadlineGoal()}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground font-bold"
+            >
+              Create deadline goal
+            </button>
+          </div>
+        )}
+
+        {deadlineStatus && <p className="text-[11px] text-success-strong">{deadlineStatus}</p>}
+
         {showGoalForm && (
           <div className="p-4 rounded-xl bg-surface border border-border space-y-3 text-xs">
             <div className="flex flex-wrap gap-3">
@@ -259,10 +360,11 @@ export default function ProgressPage() {
           <p className="text-xs text-muted-foreground">No goals yet. Set one to track a memorize, review or reading target.</p>
         ) : (
           <div className="space-y-2">
-            {goalProgress.map(({ goal, done, isComplete }) => {
+            {goalProgress.map(({ goal, done, isComplete, daysRemaining, behindBy, requiredPerDay }) => {
               const percent = Math.min(100, Math.round((done / goal.targetAyahs) * 100));
+              const overdue = daysRemaining !== undefined && daysRemaining < 0;
               return (
-                <div key={goal.id} className="p-3 rounded-xl bg-surface border border-border">
+                <div key={goal.id} className={`p-3 rounded-xl bg-surface border ${overdue ? 'border-warning/50' : 'border-border'}`}>
                   <div className="flex items-center justify-between text-xs mb-1.5">
                     <span className="font-semibold text-foreground flex items-center gap-1.5">
                       {isComplete && <CheckCircle2 className="w-3.5 h-3.5 text-success" />}
@@ -292,8 +394,62 @@ export default function ProgressPage() {
                     </div>
                   </div>
                   <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div className={`h-full rounded-full ${isComplete ? 'bg-success' : 'bg-primary'}`} style={{ width: `${percent}%` }} />
+                    <div className={`h-full rounded-full ${isComplete ? 'bg-success' : overdue ? 'bg-warning' : 'bg-primary'}`} style={{ width: `${percent}%` }} />
                   </div>
+                  {/* Deadline countdown + gap action */}
+                  {daysRemaining !== undefined && (
+                    <div className="mt-2 space-y-1.5">
+                      {overdue ? (
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-warning-strong font-semibold">
+                            Deadline passed — extend or archive?
+                          </span>
+                          <span className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  const d = new Date();
+                                  d.setDate(d.getDate() + 30);
+                                  const next = d.toISOString().slice(0, 10);
+                                  await db.hifzGoals.update(goal.id, { deadline: next });
+                                  track('goal.extend_or_archived', { action: 'extended' });
+                                })();
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-bold"
+                            >
+                              +30 days
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void archiveGoal(goal.id).then(() => track('goal.extend_or_archived', { action: 'archived' }));
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-muted text-foreground font-bold"
+                            >
+                              Archive
+                            </button>
+                          </span>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {daysRemaining} day{daysRemaining === 1 ? '' : 's'} remaining
+                            {behindBy !== undefined && behindBy > 0 ? ` · ${behindBy} ayah${behindBy === 1 ? '' : 's'} behind pace` : ''}
+                          </span>
+                          {behindBy !== undefined && behindBy > 0 && requiredPerDay !== undefined && (
+                            <button
+                              type="button"
+                              onClick={() => void bumpPlannerPace(requiredPerDay)}
+                              className="px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-bold"
+                            >
+                              Raise planner pace to {requiredPerDay}/day
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -325,6 +481,7 @@ export default function ProgressPage() {
                 <Link
                   key={surah}
                   href={`/memorize?mode=H&surah=${surah}`}
+                  onClick={() => track('mistakes.verse_jump', { surah })}
                   className={`px-3 py-1.5 rounded-lg border text-xs font-semibold ${intensity}`}
                   title={`${count} word mistakes recorded`}
                 >

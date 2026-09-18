@@ -41,7 +41,16 @@ export type EventName =
   | 'recite.session'
   | 'recite.mistake'
   | 'goal.created'
-  | 'goal.completed'
+  | 'goal.pace_bumped'
+  | 'goal.deadline_created'
+  | 'goal.completed_by_deadline'
+  | 'goal.extend_or_archived'
+  | 'mistakes.page_viewed'
+  | 'mistakes.verse_jump'
+  | 'mistakes.priority_review_graded'
+  | 'recite.replay_played'
+  | 'recite.replay_compared_qari'
+  | 'recite.replay_saved'
   | 'reminder.enabled'
   | 'locale.changed';
 
