@@ -1,4 +1,5 @@
-import { streamText, tool, stepCountIs, type ToolSet } from 'ai';
+import { convertToModelMessages, streamText, tool, stepCountIs, type ToolSet, type UIMessage } from 'ai';
+import { getAyahTafsir, getSurahContext, TAFSIR_TOOL_EDITIONS } from '@/lib/ai/scholar-tools';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { resolveAIModel, serverGeminiApiKey } from '@/lib/ai/resolver';
@@ -94,12 +95,20 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // Client-supplied system prompts could override the grounding rules, so only
-  // user/assistant turns are forwarded.
-  const messages = parsed.data.messages.filter(
-    (message): message is { role: 'user' | 'assistant'; content: string } => message.role !== 'system'
-  );
+  // user/assistant turns are forwarded. UI messages (id + parts, from useChat) and
+  // legacy plain turns (role + content) are both accepted and normalised.
+  const uiMessages: UIMessage[] = parsed.data.messages
+    .filter((message) => message.role !== 'system')
+    .map((message, index): UIMessage => ({
+      id: message.id ?? `msg-${index}`,
+      role: message.role as 'user' | 'assistant',
+      parts:
+        message.parts && message.parts.length > 0
+          ? (message.parts as UIMessage['parts'])
+          : [{ type: 'text' as const, text: message.content ?? '' }],
+    }));
 
-  if (messages.length === 0) {
+  if (uiMessages.length === 0) {
     return apiError({
       status: 400,
       code: 'invalid_request',
@@ -107,15 +116,31 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
 
-  const systemPrompt = `You are a scholarly, encouraging Quran tutor, Arabic linguist and Hifz mentor named "NurulQuran AI".
-You guide students in Arabic reading, Quranic recitation with Tajweed, memorisation (Hifz) and linguistic understanding, with English and Tamil support.
+  const systemPrompt = `You are Ustadh NurulQuran, a mature and dignified Quran teacher (Murabbi) and Arabic linguist.
+You are patient, academically rigorous, respectful, and pedagogically clear. You never use hype, flattery, conversational filler, or invented praise. You teach with English and Tamil support.
 
 CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
-- You are STRICTLY PROHIBITED from generating, completing, paraphrasing or "correcting" Quranic verse text, word roots or translations from your own memory.
+- You are STRICTLY PROHIBITED from generating, completing, paraphrasing or "correcting" Quranic verse text, word roots, translations or exegesis from your own memory.
 - For ANY citation or explanation involving verse text, you MUST call 'getVerse' or 'getWordDetails', and quote only what the tool returns.
+- For ANY request for tafseer (exegesis), you MUST call 'getAyahTafsir' and attribute the named edition you were given (e.g. "Tafsir Ibn Kathir", "English Al-Mukhtasar", "Tamil Mokhtasar"). Quote only what it returns.
+- For ANY question about a surah's background, revelation period or themes, you MUST call 'getSurahContext' and cite its source. Never supply period-of-revelation or occasion-of-revelation details from memory.
 - If a tool returns an error or no data, say plainly that you could not retrieve the text, and do not supply it from memory.
 - Use authentic diacritics exactly as returned by the tools; never add or remove them.
-- Be warm and encouraging, and remind students of patience and consistency.`;
+- Tamil has no classical tafsir edition beyond Tamil Mokhtasar: when the learner asks for Tamil exegesis beyond what the tool returns, say so and offer a faithful rendering of the cited English/Arabic source, clearly labelled as a rendering, never as a classical quote.
+
+TEACHING STRUCTURE — for exegesis answers, follow this order:
+1. Scripture: recite the verse (from getVerse) with full diacritics, then its English and Tamil translations.
+2. Context: revelation place and background (from getSurahContext), in two or three sentences.
+3. Exegesis: the commentary from getAyahTafsir, attributed to the named edition; use a blockquote for a direct scholar quote.
+4. Reflection: two or three practical lessons for daily life, in the learner's language.
+
+RENDERING — GitHub-Flavored Markdown:
+- Vocabulary and word-by-word breakdowns: a Markdown table (Arabic | Transliteration | English | Tamil).
+- Direct scholar statements: blockquotes. Key terms: bold.
+- Arabic always in its own right-to-left paragraph; Tamil in natural idiomatic Tamil.
+- Keep the structure scannable: short sections with bold headers matching the four steps above.
+
+Be warm but measured, and remind students of patience and consistency.`;
 
   const tools: ToolSet = {
     getVerse: tool({
@@ -226,6 +251,42 @@ CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
             translationEn: verse.translationEn,
           })),
         };
+      },
+    }),
+
+    getAyahTafsir: tool({
+      description:
+        'Fetch authoritative tafseer (exegesis) for one ayah from a named scholarly edition. Always cite the edition the tool reports. Editions: en-mukhtasar (English, abridged), ta-mokhtasar (Tamil), en-ibn-kathir (English, classical full).',
+      inputSchema: z.object({
+        surah: z.number().int().min(1).max(114),
+        ayah: z.number().int().min(1),
+        edition: z.enum(['en-mukhtasar', 'ta-mokhtasar', 'en-ibn-kathir']).describe('Tafseer edition to consult'),
+      }),
+      execute: async ({ surah, ayah, edition }) => {
+        try {
+          const result = await getAyahTafsir(surah, ayah, edition);
+          if (!result) {
+            return {
+              error: `The ${edition} edition has no entry for ${surah}:${ayah}. State that plainly; do not supply commentary from memory.`,
+            };
+          }
+          return result;
+        } catch {
+          return {
+            error: `Tafseer for ${surah}:${ayah} could not be retrieved right now. Say so; do not supply commentary from memory.`,
+          };
+        }
+      },
+    }),
+
+    getSurahContext: tool({
+      description:
+        "Fetch a surah's names, revelation place (Makki/Madani), verse count, and — when the chapter-info service is reachable — its period of revelation, themes and objectives from Maududi's Tafhim al-Qur'an. Always cite the reported source.",
+      inputSchema: z.object({
+        surah: z.number().int().min(1).max(114),
+      }),
+      execute: async ({ surah }) => {
+        return getSurahContext(surah);
       },
     }),
 
@@ -367,7 +428,7 @@ CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
     const result = streamText({
       model,
       system: systemPrompt,
-      messages,
+      messages: await convertToModelMessages(uiMessages),
       stopWhen: stepCountIs(5),
       tools,
       // Force a deterministic tool call on the first step so the answer is always
@@ -375,7 +436,9 @@ CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
       prepareStep: ({ stepNumber }) => (stepNumber === 0 ? { toolChoice: 'required' as const } : {}),
     });
 
-    return result.toTextStreamResponse();
+    // UI message stream: the client's useChat receives tool invocations as parts, so
+    // verified retrievals render as citation cards instead of vanishing into plain text.
+    return result.toUIMessageStreamResponse();
   } catch (error: unknown) {
     if (error instanceof UnsafeProviderUrlError) {
       return apiError({ status: 400, code: 'invalid_request', message: error.message });

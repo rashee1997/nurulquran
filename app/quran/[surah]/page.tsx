@@ -2,7 +2,7 @@ import React from 'react';
 import { notFound } from 'next/navigation';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { SURAHS } from '@/lib/quran/surahs';
-import { QuranReader } from '@/components/quran/QuranReader';
+import { QuranReaderClient } from '@/components/quran/QuranReaderClient';
 import { Chapter, Verse } from '@/lib/quran/types';
 
 interface SurahPageProps {
@@ -49,7 +49,7 @@ export default async function SurahReaderPage({ params }: SurahPageProps) {
 
   return (
     <div className="w-full">
-      <QuranReader chapter={chapter} verses={verses} />
+      <QuranReaderClient chapter={chapter} verses={verses} />
     </div>
   );
 }

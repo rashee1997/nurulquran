@@ -115,9 +115,20 @@ export const providerConfigSchema = z.object({
   models: z.array(z.string().max(120)).max(40).optional(),
 });
 
+/**
+ * One conversation turn for the study assistant.
+ *
+ * Accepts both a plain text turn (`content`) and the AI SDK UI message shape (`id` +
+ * `parts`), which is what the panel's `useChat` transport sends. Tool invocation parts
+ * are opaque records here: the server never executes client-supplied tool output, it only
+ * forwards turn history to the model provider, which re-derives everything from the
+ * server-side tools.
+ */
 export const chatMessageSchema = z.object({
+  id: z.string().max(160).optional(),
   role: z.enum(['user', 'assistant', 'system']),
-  content: z.string().max(20_000),
+  content: z.string().max(20_000).optional(),
+  parts: z.array(z.record(z.string(), z.unknown())).max(300).optional(),
 });
 
 export const chatRequestSchema = z.object({

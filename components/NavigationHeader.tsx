@@ -28,6 +28,7 @@ import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
 import { AchievementModal } from './gamification/AchievementModal';
 import { TutorPanel } from './ai/TutorPanel';
+import { useAiTutor } from './ai/tutor-bridge';
 import { ThemeToggle } from './ThemeToggle';
 import { CommandPalette } from './system/CommandPalette';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -90,7 +91,9 @@ const ALL_NAV_ITEMS: NavItem[] = NAV_CATEGORIES.flatMap((c) => c.items);
 export const NavigationHeader: React.FC = () => {
   const { t } = useLocale();
   const pathname = usePathname();
-  const [isAiOpen, setIsAiOpen] = useState(false);
+  // The drawer state lives in the app-wide tutor bridge, so any page (the Quran
+  // reader, the memorize planner) can open it with a pre-filled prompt.
+  const { isOpen: isAiOpen, close: closeAi, open: openAiTutor } = useAiTutor();
   const [isAchievementOpen, setIsAchievementOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -419,7 +422,7 @@ export const NavigationHeader: React.FC = () => {
             {/* AI Tutor Trigger Button */}
             <button
               id="open-tutor-btn"
-              onClick={() => setIsAiOpen(true)}
+              onClick={() => openAiTutor()}
               type="button"
               aria-label="Open Study Assistant"
               className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-md shadow-primary/20 active:scale-95 transition-all shrink-0"
@@ -509,7 +512,7 @@ export const NavigationHeader: React.FC = () => {
       </header>
 
       {/* Floating AI Tutor Panel */}
-      <TutorPanel isOpen={isAiOpen} onClose={() => setIsAiOpen(false)} />
+      <TutorPanel isOpen={isAiOpen} onClose={closeAi} />
 
       {/* Achievement & Badges Modal */}
       <AchievementModal

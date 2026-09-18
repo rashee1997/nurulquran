@@ -14,7 +14,7 @@ import { recordActivity } from '@/lib/learning/activity';
 import { track } from '@/lib/telemetry/events';
 import { shuffle } from '@/lib/utils';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
-import { TutorPanel } from '@/components/ai/TutorPanel';
+import { useAiTutor } from '@/components/ai/tutor-bridge';
 import { HIFZ_MODES, isHifzModeKey, type HifzModeKey, type ModeStageProps } from '@/components/memorize/types';
 import { CompleteVerseMode, AudioToAyahMode, MeaningToAyahMode } from '@/components/memorize/ChoiceModes';
 import {
@@ -74,9 +74,11 @@ function MemorizationContent() {
   const [isRevealed, setIsRevealed] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(15);
   const [timerActive, setTimerActive] = useState(false);
-  const [aiTutorOpen, setAiTutorOpen] = useState(false);
-  const [aiTutorPrompt, setAiTutorPrompt] = useState('');
   const [roundComplete, setRoundComplete] = useState(false);
+
+  // The app-wide tutor drawer (in NavigationHeader) is shared through the bridge, so this
+  // page no longer mounts its own duplicate panel.
+  const { open: openAiTutor } = useAiTutor();
 
   const { playUrl, speak } = usePreviewAudio();
 
@@ -275,10 +277,12 @@ function MemorizationContent() {
     setAssembledIndicesState((previous) => updater(previous));
   }, []);
 
-  const openTutor = useCallback((prompt: string) => {
-    setAiTutorPrompt(prompt);
-    setAiTutorOpen(true);
-  }, []);
+  const openTutor = useCallback(
+    (prompt: string) => {
+      openAiTutor(prompt);
+    },
+    [openAiTutor]
+  );
 
   const ModeComponent = MODE_COMPONENTS[activeMode];
 
@@ -508,7 +512,6 @@ function MemorizationContent() {
         </div>
       )}
 
-      <TutorPanel isOpen={aiTutorOpen} onClose={() => setAiTutorOpen(false)} initialPrompt={aiTutorPrompt} />
     </div>
   );
 }

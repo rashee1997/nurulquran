@@ -3,6 +3,7 @@ import './globals.css';
 import { NavigationHeader } from '@/components/NavigationHeader';
 import { ServiceWorkerBootstrap } from '@/components/system/ServiceWorkerBootstrap';
 import { Toaster } from '@/components/system/Toaster';
+import { AiTutorProvider } from '@/components/ai/tutor-bridge';
 
 // `themeColor` moved out of `Metadata` into a dedicated `viewport` export in Next 14+;
 // leaving it in `metadata` triggers a build-time warning and is silently dropped.
@@ -53,13 +54,15 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased flex flex-col">
-        <ServiceWorkerBootstrap />
-        <NavigationHeader />
-        <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
-          {children}
-        </main>
-        {/* Mounted once: every save in the app reports through this one stack. */}
-        <Toaster />
+        <AiTutorProvider>
+          <ServiceWorkerBootstrap />
+          <NavigationHeader />
+          <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
+            {children}
+          </main>
+          {/* Mounted once: every save in the app reports through this one stack. */}
+          <Toaster />
+        </AiTutorProvider>
       </body>
     </html>
   );
