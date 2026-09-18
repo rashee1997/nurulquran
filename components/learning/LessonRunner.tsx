@@ -6,8 +6,7 @@ import confetti from 'canvas-confetti';
 import { Volume2, CheckCircle2, XCircle, ArrowRight, RotateCcw, Award, Sparkles } from 'lucide-react';
 import { Activity, Lesson } from '@/lib/learning/curriculum';
 import { db } from '@/lib/db';
-import { evaluateStreak } from '@/lib/learning/xp-engine';
-import { localDayKey } from '@/lib/time/day';
+import { recordActivity } from '@/lib/learning/activity';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import { playLetterAudio } from '@/lib/audio/alphabet-audio';
 import {
@@ -187,15 +186,11 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
         completedAt: new Date().toISOString(),
       });
 
-      const profile = await db.userProfile.get('default_user');
-      if (profile) {
-        const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
-        await db.userProfile.update('default_user', {
-          totalXp: profile.totalXp + xp,
-          streakCount: streakEval.newStreak,
-          lastActiveDate: localDayKey(),
-        });
-      }
+      await recordActivity({
+        xp,
+        event: 'lesson.completed',
+        props: { lessonId: lesson.id, accuracy },
+      });
     } catch (error) {
       console.error('Failed to record lesson completion:', error);
       setSaveError('This result could not be saved on this device. Your XP was not recorded.');

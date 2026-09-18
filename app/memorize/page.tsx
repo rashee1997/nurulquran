@@ -8,8 +8,7 @@ import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
 import { db } from '@/lib/db';
 import { calculateNextReview, initializeVerseProgress } from '@/lib/learning/srs-engine';
-import { evaluateStreak } from '@/lib/learning/xp-engine';
-import { localDayKey } from '@/lib/time/day';
+import { recordActivity } from '@/lib/learning/activity';
 import { shuffle } from '@/lib/utils';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import confetti from 'canvas-confetti';
@@ -154,19 +153,11 @@ function MemorizationContent() {
   };
 
   const awardXP = async (amount: number) => {
-    try {
-      const profile = await db.userProfile.get('default_user');
-      if (profile) {
-        const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
-        await db.userProfile.update('default_user', {
-          totalXp: profile.totalXp + amount,
-          streakCount: streakEval.newStreak,
-          lastActiveDate: localDayKey(),
-        });
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    await recordActivity({
+      xp: amount,
+      event: 'memorize.graded',
+      props: { mode: activeMode, surah: selectedSurahId },
+    });
   };
 
   const handleSelfGrade = async (quality: number) => {
