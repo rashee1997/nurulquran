@@ -26,6 +26,26 @@ type Listener = () => void;
 
 export type PreviewPlaybackKind = 'audio' | 'speech';
 
+/**
+ * Optional playback shaping.
+ *
+ * `rate` slows a recording down while keeping its pitch, which is how a learner hears the makhraj
+ * of a letter or the length of a Madd: the recitation is the same performance at, say, 0.75 speed.
+ * The rate is bounded because a clip slower than half speed is not a recitation any more, and the
+ * end-guard timeout below is scaled by it so a slow clip is never cut off mid-word.
+ */
+export interface PreviewPlaybackOptions {
+  rate?: number;
+}
+
+const MIN_RATE = 0.5;
+const MAX_RATE = 1.5;
+
+function clampRate(rate: number | undefined): number {
+  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0) return 1;
+  return Math.min(MAX_RATE, Math.max(MIN_RATE, rate));
+}
+
 /** How long a clip may sit un-started before it is treated as unreachable. */
 const START_GUARD_MS = 8_000;
 /** Grace period after a clip's own duration, in case `ended` never fires. */
@@ -120,8 +140,11 @@ class PreviewAudioController {
    * Resolves `true` when a clip played to completion, `false` when every candidate failed
    * — callers use that to fall back or to tell the learner, rather than leaving silence.
    */
-  play = (key: string, source: string | readonly string[]): Promise<boolean> =>
-    this.playSequence(key, [source]);
+  play = (
+    key: string,
+    source: string | readonly string[],
+    options: PreviewPlaybackOptions = {}
+  ): Promise<boolean> => this.playSequence(key, [source], options);
 
   /**
    * Plays candidate groups one after another — used to recite a sequence of words.
@@ -130,7 +153,11 @@ class PreviewAudioController {
    * candidate is skipped rather than aborting the whole run, but the run reports failure
    * when nothing could be played at all, so a caller never claims success over silence.
    */
-  playSequence = (key: string, groups: readonly (string | readonly string[])[]): Promise<boolean> => {
+  playSequence = (
+    key: string,
+    groups: readonly (string | readonly string[])[],
+    options: PreviewPlaybackOptions = {}
+  ): Promise<boolean> => {
     if (typeof window === 'undefined') return Promise.resolve(false);
 
     const normalised = groups
@@ -146,7 +173,7 @@ class PreviewAudioController {
     this.currentKind = 'audio';
     this.emit();
 
-    return this.runSequence(token, normalised).then((playedAny) => {
+    return this.runSequence(token, normalised, clampRate(options.rate)).then((playedAny) => {
       if (this.token === token) {
         this.releaseAudio();
         this.currentKey = null;
@@ -157,7 +184,7 @@ class PreviewAudioController {
     });
   };
 
-  private async runSequence(token: number, groups: readonly string[][]): Promise<boolean> {
+  private async runSequence(token: number, groups: readonly string[][], rate: number): Promise<boolean> {
     let playedAny = false;
 
     for (const [index, group] of groups.entries()) {
@@ -166,7 +193,7 @@ class PreviewAudioController {
       let playedThis = false;
       for (const url of group) {
         if (this.token !== token) return playedAny;
-        if (await this.playUrlOnce(token, url)) {
+        if (await this.playUrlOnce(token, url, rate)) {
           playedThis = true;
           break;
         }
@@ -185,7 +212,7 @@ class PreviewAudioController {
   }
 
   /** Plays one URL to completion. Resolves `false` if it never starts or errors. */
-  private playUrlOnce(token: number, url: string): Promise<boolean> {
+  private playUrlOnce(token: number, url: string, rate = 1): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       if (this.token !== token) {
         resolve(false);
@@ -194,6 +221,11 @@ class PreviewAudioController {
 
       const audio = new Audio(url);
       audio.preload = 'auto';
+      if (rate !== 1) {
+        audio.playbackRate = rate;
+        // Keep the reciter's pitch: this is the same voice, heard more slowly.
+        audio.preservesPitch = true;
+      }
       this.audio = audio;
 
       let settled = false;
@@ -227,7 +259,9 @@ class PreviewAudioController {
         // reporting it, which would otherwise leave the UI stuck on "Playing…".
         if (!endGuard) {
           const seconds = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
-          const budget = seconds > 0 ? seconds * 1000 + END_GRACE_MS : UNKNOWN_DURATION_MS;
+          // Wall-clock time, not media time: a clip at 0.75 speed takes a third longer to finish,
+          // and cutting it off early would truncate the very syllable being practised.
+          const budget = seconds > 0 ? (seconds * 1000) / rate + END_GRACE_MS : UNKNOWN_DURATION_MS;
           endGuard = setTimeout(() => settle(false), budget);
         }
       };

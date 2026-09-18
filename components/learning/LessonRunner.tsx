@@ -1,20 +1,16 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import confetti from 'canvas-confetti';
-import { Volume2, CheckCircle2, XCircle, ArrowRight, RotateCcw, Award, Sparkles } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, RotateCcw, Award, Sparkles } from 'lucide-react';
 import { Activity, Lesson } from '@/lib/learning/curriculum';
 import { db } from '@/lib/db';
 import { recordActivity } from '@/lib/learning/activity';
-import { usePreviewAudio } from '@/hooks/use-preview-audio';
-import { playLetterAudio } from '@/lib/audio/alphabet-audio';
-import {
-  spanAudioGroups,
-  spanPlaybackKey,
-  spanWordIndexForToken,
-  wordAudioCandidates,
-} from '@/lib/quran/word-audio';
+import { pronunciationItems, firstArabicPhrase } from '@/lib/learning/pronunciation';
+import { PronunciationLab, type PronunciationPhrase } from '@/components/learning/PronunciationLab';
+import { usePronunciation } from '@/hooks/use-pronunciation';
+import { normalizeForSearch } from '@/lib/quran/arabic-text';
 import { LiveTajweedCoach } from '@/components/learning/LiveTajweedCoach';
 import { TajweedColorKey } from '@/components/quran/TajweedColorKey';
 
@@ -35,10 +31,9 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isCoachOpen, setIsCoachOpen] = useState(false);
 
-  const { playUrl, playSequence, speak } = usePreviewAudio();
+  const { resolve, playItem, playText } = usePronunciation();
   /** Guards against a double-tap awarding the lesson reward twice. */
   const completionRef = useRef(false);
 
@@ -52,85 +47,80 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
   }, [lesson.id]);
 
   /**
-   * Plays "Hear Pronunciation" for an activity.
+   * The Arabic this activity can actually play, ready for the practice panel.
    *
-   * Quranic examples play the audited word-by-word recitation of exactly the anchored words —
-   * the same corpus and the same sequence mechanism the reader uses to recite a line of the
-   * Mushaf. That order matters: this used to try the activity's `promptAudioUrl` and then speak
-   * the text, which meant every Quranic example without a recording (nine of them) fell through
-   * to the platform synthesizer and then to server Gemini TTS, whose quota returns 429 — so the
-   * button most often produced nothing at all.
-   *
-   * Isolated letters keep the letter recording, then the synthesizer, then a tone: a letter is
-   * not a Quranic word, so there is no recitation clip to prefer over it.
+   * Two texts at most: the activity's own prompt, and the verse its instruction quotes. Both are
+   * resolved to real recordings by the panel — the prompt through its verified anchor when it has
+   * one, the quote by locating it in the Mus'haf.
    */
-  const playPromptAudio = useCallback(
-    async (activity: Activity | undefined): Promise<void> => {
-      if (!activity) return;
-      const { promptArabic: text, promptAudioUrl: url, quranAnchor } = activity;
-      if (!url && !text) return;
+  const pronunciationPhrases = useMemo<PronunciationPhrase[]>(() => {
+    if (!currentActivity) return [];
 
-      setIsPlayingAudio(true);
-      try {
-        if (quranAnchor) {
-          const groups = spanAudioGroups(quranAnchor);
-          if (groups.length > 0) {
-            const played = await playSequence(spanPlaybackKey(quranAnchor), groups);
-            if (played) return;
-          }
-        }
-        if (url) {
-          // Keyed by activity id rather than by position: advancing the lesson no longer
-          // changes the key of the clip still playing, which is what let a late listener mark
-          // the wrong activity as playing.
-          const played = await playUrl(`lesson:${lesson.id}:${activity.id}`, url);
-          if (played) return;
-        }
-        if (text) {
-          // No usable recording: speak the letter, then fall back to a tone.
-          await playLetterAudio(text);
-        }
-      } catch (error) {
-        console.warn('Prompt audio could not be played:', error);
-      } finally {
-        setIsPlayingAudio(false);
-      }
-    },
-    [lesson.id, playSequence, playUrl]
-  );
+    const phrases: PronunciationPhrase[] = [];
+    if (currentActivity.promptArabic) {
+      phrases.push({
+        id: 'prompt',
+        label: 'Practice text',
+        arabic: currentActivity.promptArabic,
+        anchor: currentActivity.quranAnchor,
+      });
+    }
+
+    const quoted = firstArabicPhrase(currentActivity.instruction);
+    if (quoted && quoted !== (currentActivity.promptArabic ?? '').trim()) {
+      phrases.push({ id: 'quote', label: 'Quoted in the question', arabic: quoted });
+    }
+
+    return phrases;
+  }, [currentActivity]);
 
   /**
    * Plays one tapped word-order token.
    *
-   * The tokens are an ayah's words, so tapping one plays that word as the Qari recites it —
-   * the same clip the reader plays for the same word. Falling straight to the synthesizer (as
-   * this did) meant a learner building "قُلْ هُوَ ٱللَّهُ أَحَدٌ" heard it in whatever voice their
-   * system happened to have, which is usually an English voice reading Arabic script or, more
-   * often, nothing at all.
+   * The tokens are an ayah's words, so tapping one plays that word as the Qari recites it — the same
+   * clip the reader plays for the same word. The word's clip number comes from the resolved span
+   * rather than from its position in the answer, which is what makes this correct when an activity
+   * anchors into the middle of an ayah. Falling straight to the synthesizer (as this did) meant a
+   * learner building "قُلْ هُوَ ٱللَّهُ أَحَدٌ" heard it in whatever voice their system happened to have,
+   * which is usually an English voice reading Arabic script or, more often, nothing at all.
    */
   const playTokenAudio = useCallback(
     async (token: string, tokenIndex: number): Promise<void> => {
-      const anchor = currentActivity?.quranAnchor;
-      if (anchor && currentActivity) {
-        const wordIndex = spanWordIndexForToken(currentActivity.correctAnswer, token);
-        if (wordIndex !== null) {
-          const single = {
-            surah: anchor.surah,
-            ayah: anchor.ayah,
-            startWord: wordIndex,
-            endWord: wordIndex,
-          };
-          const played = await playUrl(
-            spanPlaybackKey(single),
-            wordAudioCandidates(anchor.surah, anchor.ayah, wordIndex)
-          );
+      const key = `token:${lesson.id}:${currentActivity?.id ?? currentIdx}:${tokenIndex}`;
+
+      if (currentActivity?.quranAnchor) {
+        const resolution = await resolve(currentActivity.correctAnswer, currentActivity.quranAnchor);
+        const items = pronunciationItems(resolution);
+        const wanted = normalizeForSearch(token);
+        const match = items.find((item) => normalizeForSearch(item.text) === wanted);
+        if (match) {
+          const played = await playItem(key, match);
           if (played) return;
         }
       }
-      // Not Quranic text (a letter, or a rule name): the synthesizer is the only source left.
-      await speak(`token:${currentActivity?.id ?? currentIdx}:${tokenIndex}`, token, 'ar-SA');
+
+      // Not Quranic text (a letter, or a rule name): the panel's resolver takes over. Not quiet:
+      // if even the synthesizer has nothing, the learner is told instead of hearing silence.
+      await playText(key, token);
     },
-    [currentActivity, currentIdx, playUrl, speak]
+    [currentActivity, currentIdx, lesson.id, playItem, playText, resolve]
+  );
+
+  /**
+   * Plays a tapped multiple-choice option.
+   *
+   * Options are letters, letter lists, or an English rule name. The first two have recordings — the
+   * same 28 isolated letters the alphabet page uses — and the English ones are spoken by the
+   * platform voice, which is a reasonable use of it. What this replaces was `speak(option, 'ar-SA')`
+   * for every option: on a machine with no Arabic voice that resolves to `false` and plays nothing,
+   * so tapping an option was silently inert.
+   */
+  const playOptionAudio = useCallback(
+    (option: string, optionIndex: number): void => {
+      const key = `option:${lesson.id}:${currentActivity?.id ?? currentIdx}:${optionIndex}`;
+      void playText(key, option);
+    },
+    [currentActivity, currentIdx, lesson.id, playText]
   );
 
   const checkAnswer = useCallback((): void => {
@@ -345,7 +335,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
 
         {currentActivity.promptArabic && (
           <div className="space-y-4">
-            <div className="text-center py-6 px-4 bg-surface rounded-2xl border border-border space-y-3">
+            <div className="text-center py-6 px-4 bg-surface rounded-2xl border border-border">
               <p
                 className="text-5xl sm:text-6xl font-arabic text-foreground select-none py-2 leading-[2.2] tracking-normal"
                 dir="rtl"
@@ -353,19 +343,20 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
               >
                 {currentActivity.promptArabic}
               </p>
-              <button
-                type="button"
-                onClick={() => void playPromptAudio(currentActivity)}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
-                  isPlayingAudio
-                    ? 'bg-secondary text-secondary-foreground shadow-md ring-2 ring-secondary/40'
-                    : 'bg-primary-subtle text-primary-strong hover:bg-primary/20'
-                }`}
-              >
-                <Volume2 className="w-4 h-4" aria-hidden="true" />
-                <span>{isPlayingAudio ? 'Playing…' : 'Hear Pronunciation'}</span>
-              </button>
             </div>
+
+            {pronunciationPhrases.length > 0 && <PronunciationLab phrases={pronunciationPhrases} />}
+
+            {/*
+              The AI guide is still here, and still useful — it is the only thing that can listen to
+              a learner recite — but it is explicitly the second option. Pronunciation practice no
+              longer routes through it, so an unconfigured or rate-limited AI service cannot take
+              practice away.
+            */}
+            <p className="text-[11px] text-muted-foreground text-center leading-snug">
+              The recordings above work on their own — no AI, no microphone. The Recitation Guide
+              below is optional: it listens to your recitation and needs the AI service.
+            </p>
 
             <LiveTajweedCoach
               variant="embedded"
@@ -376,6 +367,11 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
               onExpandModal={() => setIsCoachOpen(true)}
             />
           </div>
+        )}
+
+        {/* An activity with no prompt of its own can still have Arabic quoted in its instruction. */}
+        {!currentActivity.promptArabic && pronunciationPhrases.length > 0 && (
+          <PronunciationLab phrases={pronunciationPhrases} />
         )}
 
         {/* Word order builder */}
@@ -464,7 +460,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                   disabled={isAnswerChecked}
                   onClick={() => {
                     setSelectedOption(option);
-                    void speak(`option:${currentIdx}:${optionIndex}`, option, 'ar-SA');
+                    playOptionAudio(option, optionIndex);
                   }}
                   className={`p-4 rounded-2xl border text-sm font-semibold transition-all text-center flex items-center justify-center gap-2 cursor-pointer ${btnStyle}`}
                 >

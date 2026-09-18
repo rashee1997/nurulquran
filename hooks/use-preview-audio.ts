@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { previewAudio } from '@/lib/audio/preview-audio';
+import { previewAudio, type PreviewPlaybackOptions } from '@/lib/audio/preview-audio';
 
 export interface PreviewAudioApi {
   /** Key of the preview currently playing, or null. */
@@ -13,13 +13,22 @@ export interface PreviewAudioApi {
    * Pass several interchangeable URLs to try them in order — a word's clip is mirrored on
    * more than one host, so failing over is what keeps a single 404 from ending in silence.
    * Resolves `false` when no URL could be played, so callers can fall back.
+   * `options.rate` slows the recording while keeping its pitch, for pronunciation practice.
    */
-  playUrl: (key: string, url: string | readonly string[]) => Promise<boolean>;
+  playUrl: (
+    key: string,
+    url: string | readonly string[],
+    options?: PreviewPlaybackOptions
+  ) => Promise<boolean>;
   /**
    * Plays a sequence of clips back to back, one URL-candidate group per item — used to
    * recite a run of words. Resolves `false` when nothing could be played at all.
    */
-  playSequence: (key: string, groups: readonly (string | readonly string[])[]) => Promise<boolean>;
+  playSequence: (
+    key: string,
+    groups: readonly (string | readonly string[])[],
+    options?: PreviewPlaybackOptions
+  ) => Promise<boolean>;
   /**
    * Speaks text through the platform synthesizer.
    * Resolves `false` when no usable voice exists, so callers can fall back.
@@ -49,12 +58,13 @@ export function usePreviewAudio(): PreviewAudioApi {
 
   const isPlaying = useCallback((key: string) => playingKey === key, [playingKey]);
   const playUrl = useCallback(
-    (key: string, url: string | readonly string[]) => previewAudio.play(key, url),
+    (key: string, url: string | readonly string[], options?: PreviewPlaybackOptions) =>
+      previewAudio.play(key, url, options),
     []
   );
   const playSequence = useCallback(
-    (key: string, groups: readonly (string | readonly string[])[]) =>
-      previewAudio.playSequence(key, groups),
+    (key: string, groups: readonly (string | readonly string[])[], options?: PreviewPlaybackOptions) =>
+      previewAudio.playSequence(key, groups, options),
     []
   );
   const speak = useCallback(

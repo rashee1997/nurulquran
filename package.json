@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "verify:arabic": "bun lib/arabic/validate.ts",
+    "verify:pronunciation": "bun scripts/verify-lesson-pronunciation.ts",
+    "verify:timings": "bun scripts/verify-reciter-timings.ts",
     "clean": "next clean"
   },
   "dependencies": {

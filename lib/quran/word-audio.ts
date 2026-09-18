@@ -1,5 +1,3 @@
-import { normalizeForSearch } from './arabic-text';
-
 /**
  * Word-by-word recitation audio resolution.
  *
@@ -93,6 +91,12 @@ export function wordAudioUrl(surah: number, ayah: number, wordIndex: number): st
  * Gemini TTS, which is metered and in practice returned 429 — so "Hear Pronunciation" on an
  * ayah example produced silence or an English-accented reading of the Uthmani script. An
  * anchor turns the same tap into the same Qari clips the reader plays.
+ *
+ * Turning a span into something playable now lives in `lib/learning/pronunciation`, which resolves
+ * the words of a lesson's text to their clips (and to an explicit "no recording" state when there
+ * is none). The sequencer and key helpers that used to sit here were left with no callers once the
+ * lessons stopped assembling their own audio, so they were removed rather than kept as a second,
+ * divergent copy of that logic.
  */
 export interface RecitationSpan {
   surah: number;
@@ -101,63 +105,4 @@ export interface RecitationSpan {
   startWord: number;
   /** 1-based index of the last word, inclusive. */
   endWord: number;
-}
-
-/**
- * Expands a span into one candidate-URL group per word, ready for a sequence player.
- *
- * Order is preserved and no fetching is involved: the word index addresses the clip directly,
- * which is the property verified above. An empty result means the span itself is impossible
- * (inverted, non-integer, or outside the Quran), so a caller can fall back instead of
- * requesting a path that cannot exist.
- */
-export function spanAudioGroups(span: RecitationSpan): string[][] {
-  const { surah, ayah, startWord, endWord } = span;
-  if (!Number.isInteger(startWord) || !Number.isInteger(endWord)) return [];
-  if (startWord < 1 || endWord < startWord) return [];
-  // One ayah cannot exceed 128 words (2:282, the longest in the Quran); a span longer than that
-  // is a data error rather than a request worth issuing.
-  if (endWord - startWord + 1 > 128) return [];
-
-  const groups: string[][] = [];
-  for (let wordIndex = startWord; wordIndex <= endWord; wordIndex += 1) {
-    const candidates = wordAudioCandidates(surah, ayah, wordIndex);
-    if (candidates.length === 0) return [];
-    groups.push(candidates);
-  }
-  return groups;
-}
-
-/**
- * A stable playback key for a span.
- *
- * Derived from the reference rather than from the text: two lessons that quote the same ayah
- * are the same recording, and a fragment is distinguished by its word range. Keying on the
- * text (as one caller did with a 24-character prefix) collides across verses that open with
- * the same words. `r` marks a range, `w` a single word, so the two can never collide.
- */
-/**
- * Position of `token` within the ordered words of an answer, as a 1-based word index.
- *
- * A word-order activity holds its words as separate tokens and its ordered answer is the span
- * itself, so a tapped token maps to a word index by text. Comparison uses the app's normaliser:
- * the curriculum is hand-authored with precomposed alef forms while the clips are numbered from
- * the Uthmani edition.
- *
- * Returns `null` when the token is not in the answer, so a caller falls back rather than
- * playing whichever word happens to sit at a guessed index.
- */
-export function spanWordIndexForToken(orderedAnswer: string, token: string): number | null {
-  const words = orderedAnswer.split(/\s+/).filter((word) => word.length > 0);
-  const needle = normalizeForSearch(token);
-  if (needle.length === 0) return null;
-  const position = words.findIndex((word) => normalizeForSearch(word) === needle);
-  return position === -1 ? null : position + 1;
-}
-
-export function spanPlaybackKey(span: RecitationSpan): string {
-  const { surah, ayah, startWord, endWord } = span;
-  return startWord === endWord
-    ? `quran:w:${surah}:${ayah}:${startWord}`
-    : `quran:r:${surah}:${ayah}:${startWord}-${endWord}`;
 }

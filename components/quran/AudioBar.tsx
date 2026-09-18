@@ -14,29 +14,26 @@ import {
 } from 'lucide-react';
 import { db } from '@/lib/db';
 import type { QuranWord } from '@/lib/quran/types';
-import { activeWordAt, estimateSegments, loadMeasuredTimings, type WordSegment } from '@/lib/quran/word-timings';
+import {
+  activeWordAt,
+  alignSegmentsToWords,
+  estimateSegments,
+  loadMeasuredTimings,
+  type WordSegment,
+} from '@/lib/quran/word-timings';
+import { DEFAULT_RECITER, RECITERS, reciterAudioUrl, reciterName } from '@/lib/quran/reciters';
 import { getChapterMetadata } from '@/lib/quran/surahs';
+import { showToast } from '@/lib/ui/toast';
 
-export interface ReciterOption {
-  id: string;
-  name: string;
-}
+/**
+ * Re-exported from `lib/quran/reciters` so the reader, the settings screen and the offline
+ * downloader all build audio URLs from one table (see that module for why the bitrate and the
+ * Quran.com recitation id live beside the reciter).
+ */
+export { RECITERS, type ReciterOption } from '@/lib/quran/reciters';
 
-export const RECITERS: readonly ReciterOption[] = [
-  { id: 'ar.alafasy', name: 'Mishary Rashid Alafasy' },
-  { id: 'ar.abdulbasitmurattal', name: 'Abdul Basit (Murattal)' },
-  { id: 'ar.husary', name: 'Mahmoud Khalil Al-Husary' },
-  { id: 'ar.minshawi', name: 'Mohamed Siddiq Al-Minshawi' },
-];
-
-const AUDIO_CDN = 'https://cdn.islamic.network/quran/audio/128';
-const DEFAULT_RECITER = 'ar.alafasy';
 const REPEAT_MODES = [1, 3, 5, 10, 999] as const;
 const PLAYBACK_RATES = [0.75, 1, 1.25, 1.5] as const;
-
-function reciterAudioUrl(reciterId: string, globalAyahNumber: number): string {
-  return `${AUDIO_CDN}/${reciterId}/${globalAyahNumber}.mp3`;
-}
 
 interface AudioBarProps {
   surahNumber: number;
@@ -93,10 +90,12 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   onAyahCompleted,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  /** Measured word timings for this ayah, when a timing source is configured. */
+  /** Measured word timings for this ayah, when a timing source exists for this reciter. */
   const [measuredSegments, setMeasuredSegments] = useState<{ ayah: number; segments: WordSegment[] } | null>(null);
   const [segmentSource, setSegmentSource] = useState<'measured' | 'estimated' | null>(null);
   const lastWordRef = useRef<number | null>(null);
+  /** Which source produced the current highlight, so the badge updates only when it changes. */
+  const segmentSourceRef = useRef<'measured' | 'estimated' | null>(null);
   const [progressState, setProgressState] = useState<{ ayah: number; percent: number }>({
     ayah: currentAyahNumber,
     percent: 0,
@@ -150,10 +149,16 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     };
   }, []);
 
-  // Measured word timings, if a source is configured for this reciter.
+  /**
+   * Measured word timings for the current ayah, when a source exists for this reciter.
+   *
+   * Keyed on the ayah as well as the reciter: the segments for the previous ayah must not be
+   * applied to the new one while this lookup is in flight.
+   */
   useEffect(() => {
     let active = true;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the previous ayah's timings while the new lookup for this reciter/surah is in flight
+    // Clears the previous ayah's timings while the new lookup is in flight, so a stale
+    // segment list can never be matched against the new ayah's words.
     setMeasuredSegments(null);
     loadMeasuredTimings(selectedReciter, surahNumber)
       .then((source) => {
@@ -171,12 +176,11 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
     const session = navigator.mediaSession;
-    const reciterName = RECITERS.find((r) => r.id === selectedReciter)?.name ?? 'Recitation';
     const chapter = getChapterMetadata(surahNumber);
     try {
       session.metadata = new MediaMetadata({
         title: `${chapter.nameSimple} ${surahNumber}:${currentAyahNumber}`,
-        artist: reciterName,
+        artist: reciterName(selectedReciter),
         album: 'NurulQuran',
       });
       session.setActionHandler('play', () => {
@@ -303,6 +307,62 @@ export const AudioBar: React.FC<AudioBarProps> = ({
       });
   }, [audioUrl]);
 
+  /**
+   * Reports the word being recited at the media element's current position.
+   *
+   * `audio.currentTime` is the authoritative clock: it is media time, so it stays correct at
+   * any playback rate and after a seek. Reading it every animation frame keeps the highlight
+   * on the word the Qari is actually reciting — measured timings when the alignment that
+   * ships with this recording is available, and the letter-count estimate otherwise.
+   */
+  const reportActiveWord = useCallback((): void => {
+    const audio = audioRef.current;
+    const wordList = words ?? [];
+    if (!audio || !onActiveWordChange || wordList.length === 0) return;
+
+    const totalSeconds = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : null;
+    if (totalSeconds === null) return;
+
+    // Measured timings are used only when they address exactly the words on screen; a list whose
+    // indexing does not fit this ayah would highlight the wrong word, which is worse than an
+    // estimate. (`alignSegmentsToWords` decides that, and fills in words an alignment omits rather
+    // than discarding the ayah's timings — see it for why.)
+    const measured =
+      measuredSegments?.ayah === currentAyahNumber
+        ? alignSegmentsToWords(measuredSegments.segments, wordList.length)
+        : null;
+
+    const nextSource = measured ? 'measured' : 'estimated';
+    if (segmentSourceRef.current !== nextSource) {
+      segmentSourceRef.current = nextSource;
+      setSegmentSource(nextSource);
+    }
+
+    const segments = measured ?? estimateSegments(wordList, totalSeconds * 1000);
+    const active = activeWordAt(segments, audio.currentTime * 1000);
+    if (active !== lastWordRef.current) {
+      lastWordRef.current = active;
+      onActiveWordChange(active);
+    }
+  }, [currentAyahNumber, measuredSegments, onActiveWordChange, words]);
+
+  /**
+   * Word highlight follows the audio clock frame by frame while the ayah plays.
+   *
+   * `timeupdate` fires roughly four times a second, so a word boundary could be reported up to
+   * a quarter of a second late — the highlight visibly trailing the recitation. The loop is
+   * bounded by the playing state, so it costs nothing while paused, and `timeupdate` still
+   * calls the same function as a fallback for browsers that throttle frames in a hidden tab.
+   */
+  useEffect(() => {
+    if (!isPlaying || typeof requestAnimationFrame === 'undefined') return;
+    let frame = requestAnimationFrame(function tick() {
+      reportActiveWord();
+      frame = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isPlaying, reportActiveWord]);
+
   const handleTimeUpdate = useCallback((): void => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -315,29 +375,19 @@ export const AudioBar: React.FC<AudioBarProps> = ({
       ayah: currentAyahNumber,
       percent: total ? Math.min(100, (current / total) * 100) : 0,
     });
+    reportActiveWord();
+  }, [currentAyahNumber, reportActiveWord]);
 
-    // Word-synced highlight: measured segments when available, else a letter-weighted
-    // estimate over the known duration.
-    if (onActiveWordChange && words && words.length > 0 && total) {
-      const measured = measuredSegments?.ayah === currentAyahNumber ? measuredSegments.segments : null;
-      const segments = measured ?? estimateSegments(words, total * 1000);
-      const nextSource = measured ? 'measured' : 'estimated';
-      if (nextSource !== segmentSource) setSegmentSource(nextSource);
-      const active = activeWordAt(segments, current * 1000);
-      if (active !== lastWordRef.current) {
-        lastWordRef.current = active;
-        onActiveWordChange(active);
-      }
-    }
-  }, [currentAyahNumber, measuredSegments, onActiveWordChange, segmentSource, words]);
-
-  // Clear the highlight whenever playback stops or the ayah changes.
+  /**
+   * The highlight is dropped when playback stops and when the recitation moves to another ayah.
+   *
+   * The reader applies the reported index to the ayah being recited, so an index left over from
+   * the previous ayah would highlight the wrong word until the next boundary — which is why the
+   * reset is unconditional on both of those transitions rather than only on pause.
+   */
   useEffect(() => {
-    if (isPlaying) return;
-    if (lastWordRef.current !== null) {
-      lastWordRef.current = null;
-      onActiveWordChange?.(null);
-    }
+    lastWordRef.current = null;
+    onActiveWordChange?.(null);
   }, [isPlaying, currentAyahNumber, onActiveWordChange]);
 
   const handleEnded = useCallback((): void => {
@@ -394,12 +444,21 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     setProgressState({ ayah: currentAyahNumber, percent: Number(event.target.value) });
   }, [currentAyahNumber, duration]);
 
+  /**
+   * Switching Qari applies immediately and is stored, then says so.
+   *
+   * The write was silent, and a failed one was indistinguishable from a successful one: the select
+   * showed the new reciter while the profile still held the old one, so the next visit silently
+   * reverted it.
+   */
   const handleReciterChange = useCallback(async (reciterId: string): Promise<void> => {
     setSelectedReciter(reciterId);
     try {
       await db.userProfile.update('default_user', { reciterId });
+      showToast(`Reciter saved — ${reciterName(reciterId)}`);
     } catch (error) {
       console.warn('Could not persist the reciter preference:', error);
+      showToast('The reciter could not be saved on this device.', 'error');
     }
   }, []);
 
@@ -409,7 +468,7 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   return (
     <div
       id="audio-bar"
-      className="sticky bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur-md border-t border-border p-3 shadow-lg"
+      className="fixed bottom-0 inset-x-0 z-40 bg-card/95 backdrop-blur-md border-t border-border p-3 shadow-lg"
     >
       <audio
         ref={audioRef}
@@ -460,7 +519,10 @@ export const AudioBar: React.FC<AudioBarProps> = ({
               <span className="text-xs font-bold text-foreground">
                 Ayah {surahNumber}:{currentAyahNumber}
                 {isPlaying && segmentSource === 'estimated' && (
-                  <span className="ml-1.5 text-[9px] font-semibold text-muted-foreground" title="Word highlight is estimated from the ayah length; measured timings are not configured for this reciter.">
+                  <span
+                    className="ml-1.5 text-[9px] font-semibold text-muted-foreground"
+                    title="Measured word timings are unavailable for this ayah, so the highlight is estimated from its length."
+                  >
                     ~word sync
                   </span>
                 )}

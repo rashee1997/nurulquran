@@ -1,10 +1,9 @@
 import { db } from '@/lib/db';
 import { getChapterMetadata } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
+import { reciterAudioUrl } from '@/lib/quran/reciters';
 import { cacheUrlsViaServiceWorker, evictUrlsViaServiceWorker, type DownloadProgressHandlers } from '@/lib/pwa/register';
 import { track } from '@/lib/telemetry/events';
-
-const AUDIO_CDN = 'https://cdn.islamic.network/quran/audio/128';
 
 /** Global ayah numbers (1–6236) for a whole surah, used to build reciter audio URLs. */
 function globalAyahRange(surahId: number): number[] {
@@ -14,8 +13,16 @@ function globalAyahRange(surahId: number): number[] {
   return Array.from({ length: chapter.versesCount }, (_, i) => offset + 1 + i);
 }
 
+/**
+ * Every clip a surah needs from one reciter, at the bitrate that reciter is published at.
+ *
+ * The URL is built by the same function the player uses, so a download can never cache a
+ * different file (or a different bitrate) than the one playback will request — which is what
+ * made "Download for offline" useless for the Abdul Basit edition, whose 128 kbps path the CDN
+ * answers with HTTP 403.
+ */
 export function surahAudioUrls(surahId: number, reciterId: string): string[] {
-  return globalAyahRange(surahId).map((n) => `${AUDIO_CDN}/${reciterId}/${n}.mp3`);
+  return globalAyahRange(surahId).map((n) => reciterAudioUrl(reciterId, n));
 }
 
 function downloadMarkerKey(surahId: number, reciterId: string): string {

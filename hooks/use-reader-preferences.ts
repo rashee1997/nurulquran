@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { db, type UserProfile } from '@/lib/db';
+import { showToast } from '@/lib/ui/toast';
 
 /**
  * Reader display preferences, persisted to the learner's profile.
@@ -14,6 +15,11 @@ import { db, type UserProfile } from '@/lib/db';
  *
  * The profile is now the single source of truth. Defaults come from `DEFAULT_ARABIC_FONT_SIZE`
  * rather than the reader's old hardcoded 30, so there is no visible jump on first load.
+ *
+ * Writes stay automatic — the panel previews the change live, so a save button there would be a
+ * step with nothing to decide — but every write now reports its result as a toast. The panel used
+ * to claim "Saved on this device" while the write silently failed whenever the profile row was
+ * missing, which is the one case where confirmation actually matters.
  */
 
 export const MIN_ARABIC_FONT_SIZE = 22;
@@ -109,10 +115,15 @@ export function useReaderPreferences(): ReaderPreferences {
   const persist = useCallback(async (patch: Partial<UserProfile>): Promise<void> => {
     try {
       const existing = await db.userProfile.get('default_user');
-      if (!existing) return;
+      if (!existing) {
+        showToast('Preferences could not be saved — your profile is missing on this device.', 'error');
+        return;
+      }
       await db.userProfile.update('default_user', patch);
+      showToast('Reader preferences saved on this device.');
     } catch (error: unknown) {
       console.warn('Reader preference could not be saved:', error);
+      showToast('Reader preferences could not be saved.', 'error');
     }
   }, []);
 

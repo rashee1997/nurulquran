@@ -35,7 +35,7 @@ interface AyahItemProps {
   activeWordIndex?: number | null;
 }
 
-export const AyahItem: React.FC<AyahItemProps> = ({
+const AyahItemCard: React.FC<AyahItemProps> = ({
   verse,
   fontSize,
   showEnglish,
@@ -354,3 +354,13 @@ export const AyahItem: React.FC<AyahItemProps> = ({
     </div>
   );
 };
+
+/**
+ * Memoised so a word-sync tick re-renders one ayah, not the whole chapter.
+ *
+ * The highlight moves several times a second while an ayah plays. Every prop is either an
+ * object owned by the page (the verse, the stable callbacks) or a primitive, so the shallow
+ * comparison keeps every other card untouched — and the reader hands the active word index
+ * only to the ayah being recited, which is what makes the comparison hold.
+ */
+export const AyahItem = React.memo(AyahItemCard);

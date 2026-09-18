@@ -4,10 +4,12 @@
  * Scope is deliberately narrow:
  *  - The Next.js app shell (the route chrome) is precached on install so the app opens
  *    with zero network once it has been visited online.
- *  - Scripture API responses (api.alquran.cloud) and recitation audio
- *    (cdn.islamic.network) are cached on demand, network-first with a cache fallback, so
- *    a verse read once is still readable offline — but a network response always wins
- *    when it is available, since the text service is the source of truth.
+ *  - Scripture API responses (api.alquran.cloud, plus api.quran.com, which the lessons
+ *    use to locate a quoted phrase in the Mus'haf before playing it) and recitation audio
+ *    (cdn.islamic.network, audio.qurancdn.com, verses.quran.com) are cached on demand,
+ *    network-first with a cache fallback, so a verse read once is still readable offline —
+ *    but a network response always wins when it is available, since the text service is
+ *    the source of truth.
  *  - Everything else (Gemini API calls, BYOK providers, tafsir CDNs) is left to the
  *    network: the invariant "never substitute a verse" extends to "never serve a stale
  *    AI response either".
@@ -25,7 +27,7 @@ const CURRENT_CACHES = [SHELL_CACHE, SCRIPTURE_CACHE, AUDIO_CACHE];
 
 const SHELL_URLS = ['/', '/dashboard', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
-const SCRIPTURE_HOSTS = ['api.alquran.cloud'];
+const SCRIPTURE_HOSTS = ['api.alquran.cloud', 'api.quran.com'];
 const AUDIO_HOSTS = ['cdn.islamic.network', 'audio.qurancdn.com', 'verses.quran.com'];
 
 self.addEventListener('install', (event) => {

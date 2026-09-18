@@ -3,9 +3,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
-import { RECITERS } from '@/components/quran/AudioBar';
+import { RECITERS, hasMeasuredWordTimings, DEFAULT_RECITER } from '@/lib/quran/reciters';
 import { OfflinePanel } from '@/components/settings/OfflinePanel';
-import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
+import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap, Save, Undo2, Type } from 'lucide-react';
+import {
+  DEFAULT_ARABIC_FONT_SIZE,
+  MAX_ARABIC_FONT_SIZE,
+  MIN_ARABIC_FONT_SIZE,
+} from '@/hooks/use-reader-preferences';
+import { showToast } from '@/lib/ui/toast';
 import { useTheme } from '@/hooks/use-theme';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { localDayKey } from '@/lib/time/day';
@@ -16,21 +22,90 @@ import {
   normalizeFeedbackLanguage,
 } from '@/lib/i18n/language';
 
+/**
+ * Every setting this page owns, held as one editable copy of the profile row.
+ *
+ * These controls used to write to the profile the moment they were touched — except the reciter
+ * select, which wrote to local state and **nothing else**, so choosing a Qari here looked like it
+ * worked and was gone on the next visit. Every write was also silent: a failure and a success
+ * looked identical. The form now has one explicit Save that writes the whole set and reports the
+ * outcome as a toast.
+ */
+interface SettingsDraft {
+  reciterId: string;
+  aiVoiceId: string;
+  aiTeacherPersona: 'gentle' | 'balanced' | 'strict';
+  aiFeedbackLanguage: FeedbackLanguage;
+  arabicFontSize: number;
+  showEnglish: boolean;
+  showTamil: boolean;
+  tajweedColorsEnabled: boolean;
+}
+
+function clampFontSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_ARABIC_FONT_SIZE;
+  return Math.min(MAX_ARABIC_FONT_SIZE, Math.max(MIN_ARABIC_FONT_SIZE, Math.round(size)));
+}
+
+/** Builds the editable copy from a stored profile, applying each field's default. */
+function draftFromProfile(profile: UserProfile): SettingsDraft {
+  return {
+    reciterId: profile.reciterId || DEFAULT_RECITER,
+    aiVoiceId: profile.aiVoiceId || 'Kore',
+    aiTeacherPersona: profile.aiTeacherPersona ?? 'balanced',
+    aiFeedbackLanguage: normalizeFeedbackLanguage(profile.aiFeedbackLanguage),
+    arabicFontSize: clampFontSize(profile.arabicFontSize ?? DEFAULT_ARABIC_FONT_SIZE),
+    // `both` (and an unset value) enables both; the reader always shows at least one translation.
+    showEnglish: profile.preferredTranslationLang !== 'ta',
+    showTamil: profile.preferredTranslationLang !== 'en',
+    tajweedColorsEnabled: profile.tajweedColorsEnabled ?? true,
+  };
+}
+
+/** The profile patch that `Save` writes. */
+function patchFromDraft(draft: SettingsDraft): Partial<UserProfile> {
+  const preferredTranslationLang: UserProfile['preferredTranslationLang'] =
+    draft.showEnglish && draft.showTamil ? 'both' : draft.showEnglish ? 'en' : 'ta';
+  return {
+    reciterId: draft.reciterId,
+    aiVoiceId: draft.aiVoiceId,
+    aiTeacherPersona: draft.aiTeacherPersona,
+    aiFeedbackLanguage: draft.aiFeedbackLanguage,
+    arabicFontSize: draft.arabicFontSize,
+    preferredTranslationLang,
+    tajweedColorsEnabled: draft.tajweedColorsEnabled,
+  };
+}
+
+function isDraftEqual(a: SettingsDraft, b: SettingsDraft): boolean {
+  return (
+    a.reciterId === b.reciterId &&
+    a.aiVoiceId === b.aiVoiceId &&
+    a.aiTeacherPersona === b.aiTeacherPersona &&
+    a.aiFeedbackLanguage === b.aiFeedbackLanguage &&
+    a.arabicFontSize === b.arabicFontSize &&
+    a.showEnglish === b.showEnglish &&
+    a.showTamil === b.showTamil &&
+    a.tajweedColorsEnabled === b.tajweedColorsEnabled
+  );
+}
+
 export default function SettingsPage() {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
   const { locale, setLocale, t } = useLocale();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [selectedReciter, setSelectedReciter] = useState('ar.alafasy');
-  const [showEnglish, setShowEnglish] = useState(true);
-  const [showTamil, setShowTamil] = useState(true);
+  /** The stored values, kept beside the draft so "unsaved changes" is a real comparison. */
+  const [savedDraft, setSavedDraft] = useState<SettingsDraft | null>(null);
+  const [draft, setDraft] = useState<SettingsDraft | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(
     null
   );
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [previewVoiceId, setPreviewVoiceId] = useState<string | null>(null);
-  const [preferenceSavedNotice, setPreferenceSavedNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isDirty = draft !== null && savedDraft !== null && !isDraftEqual(draft, savedDraft);
 
   /**
    * Shows one result line for the backup controls.
@@ -54,19 +129,31 @@ export default function SettingsPage() {
     []
   );
 
-  // Single source of truth: what the AI teacher writes AND what the preview speaks
-  const feedbackLanguage = normalizeFeedbackLanguage(profile?.aiFeedbackLanguage);
+  /**
+   * Single source of truth: what the AI teacher writes AND what the preview speaks.
+   *
+   * Read from the draft rather than the stored profile, so the voice samples follow the choice the
+   * learner is about to save.
+   */
+  const feedbackLanguage: FeedbackLanguage = draft?.aiFeedbackLanguage ?? 'both';
   const activeLanguageOption =
     FEEDBACK_LANGUAGE_OPTIONS.find((option) => option.id === feedbackLanguage) ||
     FEEDBACK_LANGUAGE_OPTIONS[0];
 
+  /** Adopts a stored profile as both the saved snapshot and the editable draft. */
+  const adoptProfile = useCallback((next: UserProfile): void => {
+    const nextDraft = draftFromProfile(next);
+    setSavedDraft(nextDraft);
+    setDraft(nextDraft);
+  }, []);
+
   useEffect(() => {
     async function load() {
       const p = await db.userProfile.get('default_user');
-      if (p) setProfile(p);
+      if (p) adoptProfile(p);
     }
     load();
-  }, []);
+  }, [adoptProfile]);
 
   const handleExport = async () => {
     try {
@@ -97,7 +184,7 @@ export default function SettingsPage() {
       if (res.success) {
         notify('success', res.summary ?? 'Backup restored.');
         const p = await db.userProfile.get('default_user');
-        if (p) setProfile(p);
+        if (p) adoptProfile(p);
       } else {
         notify('error', `Nothing was imported — ${res.error ?? 'the file could not be read.'}`);
       }
@@ -114,37 +201,49 @@ export default function SettingsPage() {
     if (confirm('Reset all learning progress? This cannot be undone.')) {
       await resetDatabase();
       const p = await db.userProfile.get('default_user');
-      if (p) setProfile(p);
+      if (p) adoptProfile(p);
       notify('success', 'All progress was reset on this device.', 3000);
     }
   };
 
-  const handleVoiceChange = async (voiceId: string) => {
-    if (!profile) return;
-    const updated = { ...profile, aiVoiceId: voiceId };
-    setProfile(updated);
-    await db.userProfile.update('default_user', { aiVoiceId: voiceId });
-    setPreferenceSavedNotice('Voice updated.');
-    setTimeout(() => setPreferenceSavedNotice(null), 3000);
-  };
+  /** Applies one field to the draft. Nothing is written until `Save`. */
+  const updateDraft = useCallback((patch: Partial<SettingsDraft>): void => {
+    setDraft((current) => (current ? { ...current, ...patch } : current));
+  }, []);
 
-  const handlePersonaChange = async (persona: 'gentle' | 'balanced' | 'strict') => {
-    if (!profile) return;
-    const updated = { ...profile, aiTeacherPersona: persona };
-    setProfile(updated);
-    await db.userProfile.update('default_user', { aiTeacherPersona: persona });
-    setPreferenceSavedNotice('Feedback level updated.');
-    setTimeout(() => setPreferenceSavedNotice(null), 3000);
-  };
+  /**
+   * Writes the whole draft to the profile in one update.
+   *
+   * The row is re-read first because other screens write to it too (the reader's own preferences
+   * panel, the reciter picker in the player), and `update` on a missing row is a no-op that would
+   * otherwise read as success.
+   */
+  const handleSaveSettings = useCallback(async (): Promise<void> => {
+    if (!draft) return;
+    setIsSaving(true);
+    try {
+      const existing = await db.userProfile.get('default_user');
+      if (!existing) {
+        showToast('Your profile could not be found on this device.', 'error');
+        return;
+      }
+      await db.userProfile.update('default_user', patchFromDraft(draft));
+      const fresh = await db.userProfile.get('default_user');
+      if (fresh) adoptProfile(fresh);
+      showToast('Settings saved on this device.');
+    } catch (error: unknown) {
+      console.error('Settings could not be saved:', error);
+      showToast('Settings could not be saved on this device.', 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [adoptProfile, draft]);
 
-  const handleLanguageChange = async (lang: FeedbackLanguage) => {
-    if (!profile) return;
-    const updated = { ...profile, aiFeedbackLanguage: lang };
-    setProfile(updated);
-    await db.userProfile.update('default_user', { aiFeedbackLanguage: lang });
-    setPreferenceSavedNotice('Feedback language updated.');
-    setTimeout(() => setPreferenceSavedNotice(null), 3000);
-  };
+  const handleDiscardChanges = useCallback((): void => {
+    if (!savedDraft) return;
+    setDraft(savedDraft);
+    showToast('Unsaved changes discarded.', 'info');
+  }, [savedDraft]);
 
   const handlePlayVoicePreview = async (e: React.MouseEvent, voiceId: string) => {
     e.stopPropagation();
@@ -170,7 +269,9 @@ export default function SettingsPage() {
           <span>{t('settings.title', 'Settings')}</span>
         </h1>
         <p className="text-xs text-muted-foreground">
-          Reader preferences, appearance, audio, language and a local backup of your data.
+          Reader preferences, appearance, audio, language and a local backup of your data. Adjustments
+          below are kept until you press <span className="font-semibold text-foreground">Save settings</span>;
+          appearance and interface language apply immediately.
         </p>
       </div>
 
@@ -330,13 +431,6 @@ export default function SettingsPage() {
               Choose the voice, feedback level and language used by the Recitation Guide.
             </p>
           </div>
-
-          {preferenceSavedNotice && (
-            <div className="px-3 py-1.5 rounded-xl bg-success-subtle border border-success/30 text-success-strong text-xs font-semibold flex items-center gap-1.5 animate-in fade-in shrink-0">
-              <Check className="w-3.5 h-3.5 text-success" />
-              <span>{preferenceSavedNotice}</span>
-            </div>
-          )}
         </div>
 
         {/* Voice Selection Cards */}
@@ -352,13 +446,13 @@ export default function SettingsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {AI_TEACHER_VOICES.map((v) => {
-              const isSelected = (profile?.aiVoiceId || 'Kore') === v.id;
+              const isSelected = (draft?.aiVoiceId ?? 'Kore') === v.id;
               const isPlaying = previewVoiceId === v.id;
 
               return (
                 <div
                   key={v.id}
-                  onClick={() => handleVoiceChange(v.id)}
+                  onClick={() => updateDraft({ aiVoiceId: v.id })}
                   className={`p-4 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-3 ${
                     isSelected
                       ? 'border-primary bg-primary-subtle ring-2 ring-primary/20 shadow-xs'
@@ -436,12 +530,12 @@ export default function SettingsPage() {
                 desc: 'Hafs standard. Enforces Ghunnah counts, Sifaat and stops exactly.',
               },
             ].map((p) => {
-              const isSelected = (profile?.aiTeacherPersona || 'balanced') === p.id;
+              const isSelected = (draft?.aiTeacherPersona ?? 'balanced') === p.id;
               return (
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => handlePersonaChange(p.id as 'gentle' | 'balanced' | 'strict')}
+                  onClick={() => updateDraft({ aiTeacherPersona: p.id as SettingsDraft['aiTeacherPersona'] })}
                   className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1.5 ${
                     isSelected
                       ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
@@ -477,7 +571,7 @@ export default function SettingsPage() {
                 <button
                   key={lang.id}
                   type="button"
-                  onClick={() => handleLanguageChange(lang.id)}
+                  onClick={() => updateDraft({ aiFeedbackLanguage: lang.id })}
                   className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between gap-1 ${
                     isSelected
                       ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
@@ -512,25 +606,116 @@ export default function SettingsPage() {
         </Link>
       </div>
 
+      {/* Reader display preferences */}
+      <div id="reader-display-settings-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-5">
+        <div className="space-y-0.5">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Type className="w-4 h-4 text-primary" aria-hidden="true" />
+            <span>Reader display</span>
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            How scripture is rendered in the reader. The same preferences are also adjustable from the
+            reader’s own settings panel while you read.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="settings-font-size" className="flex justify-between text-xs text-muted-foreground">
+            <span>Arabic font size</span>
+            <span className="font-bold text-foreground">{draft?.arabicFontSize ?? DEFAULT_ARABIC_FONT_SIZE}px</span>
+          </label>
+          <input
+            id="settings-font-size"
+            type="range"
+            min={MIN_ARABIC_FONT_SIZE}
+            max={MAX_ARABIC_FONT_SIZE}
+            step={1}
+            value={draft?.arabicFontSize ?? DEFAULT_ARABIC_FONT_SIZE}
+            disabled={draft === null}
+            onChange={(event) => updateDraft({ arabicFontSize: clampFontSize(Number(event.target.value)) })}
+            className="w-full accent-primary cursor-pointer disabled:opacity-50"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 pt-1">
+          {/* At least one translation stays on, so the pair below never reaches "neither". */}
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+            <input
+              type="checkbox"
+              checked={draft?.showEnglish ?? true}
+              disabled={draft === null || (draft.showEnglish && !draft.showTamil)}
+              onChange={(event) =>
+                updateDraft({
+                  showEnglish: event.target.checked,
+                  showTamil: event.target.checked ? (draft?.showTamil ?? true) : true,
+                })
+              }
+              className="rounded-sm accent-primary disabled:opacity-50"
+            />
+            <span>English (Saheeh International)</span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+            <input
+              type="checkbox"
+              checked={draft?.showTamil ?? true}
+              disabled={draft === null || (draft.showTamil && !draft.showEnglish)}
+              onChange={(event) =>
+                updateDraft({
+                  showTamil: event.target.checked,
+                  showEnglish: event.target.checked ? (draft?.showEnglish ?? true) : true,
+                })
+              }
+              className="rounded-sm accent-primary disabled:opacity-50"
+            />
+            <span className="font-tamil" lang="ta">
+              தமிழ் (Tamil)
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2 cursor-pointer text-xs text-foreground">
+            <input
+              type="checkbox"
+              checked={draft?.tajweedColorsEnabled ?? true}
+              disabled={draft === null}
+              onChange={(event) => updateDraft({ tajweedColorsEnabled: event.target.checked })}
+              className="rounded-sm accent-primary disabled:opacity-50"
+            />
+            <span>Tajweed colours</span>
+          </label>
+        </div>
+      </div>
+
       {/* Audio & Reciter Settings */}
-      <div className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-4">
-        <h3 className="text-sm font-bold text-foreground">
-          Default Reciter
-        </h3>
+      <div id="reciter-settings-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-4">
+        <div className="space-y-0.5">
+          <h3 className="text-sm font-bold text-foreground">
+            Default reciter
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Recitations stream per ayah on demand and can be downloaded for offline reading from the
+            reader header.
+          </p>
+        </div>
         <div className="space-y-2">
           <select
-            value={selectedReciter}
-            onChange={(e) => setSelectedReciter(e.target.value)}
-            className="w-full text-xs p-3 rounded-xl bg-surface border border-border outline-hidden text-foreground focus:ring-2 focus:ring-primary"
+            id="settings-reciter-select"
+            value={draft?.reciterId ?? DEFAULT_RECITER}
+            disabled={draft === null}
+            onChange={(e) => updateDraft({ reciterId: e.target.value })}
+            className="w-full text-xs p-3 rounded-xl bg-surface border border-border outline-hidden text-foreground focus:ring-2 focus:ring-primary disabled:opacity-50"
           >
             {RECITERS.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
+                {hasMeasuredWordTimings(r.id) ? ' — word-by-word sync' : ' — estimated word sync'}
               </option>
             ))}
           </select>
           <p className="text-[11px] text-muted-foreground">
-            Murattal recordings stream on demand.
+            {draft && hasMeasuredWordTimings(draft.reciterId)
+              ? 'This reciter ships with measured word timings, so the highlight follows the recitation word by word.'
+              : 'Measured word timings are unavailable for this reciter, so the word highlight is estimated from each ayah’s length.'}
           </p>
         </div>
       </div>
@@ -614,6 +799,66 @@ export default function SettingsPage() {
             className="px-3.5 py-2 rounded-xl bg-destructive-subtle border border-destructive/30 text-destructive text-xs font-semibold hover:bg-destructive/20 transition-colors"
           >
             Reset Data
+          </button>
+        </div>
+      </div>
+
+      {/*
+        The single save action for this page.
+
+        Sticky so it stays reachable from the bottom of a long form, and it states what it will do:
+        the button is disabled until something actually differs from the stored profile, and a
+        failure is reported as a toast rather than swallowed.
+      */}
+      <div
+        id="settings-save-bar"
+        className="sticky bottom-4 z-30 p-4 rounded-2xl bg-card/95 backdrop-blur-md border border-border shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+      >
+        <div className="space-y-0.5">
+          <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+            {isDirty ? (
+              <>
+                <AlertCircle className="w-3.5 h-3.5 text-warning" aria-hidden="true" />
+                <span>Unsaved changes</span>
+              </>
+            ) : (
+              <>
+                <Check className="w-3.5 h-3.5 text-success" aria-hidden="true" />
+                <span>All settings are saved</span>
+              </>
+            )}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Saved to this device only — nothing is uploaded.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            id="settings-discard-btn"
+            type="button"
+            onClick={handleDiscardChanges}
+            disabled={!isDirty || isSaving}
+            className="px-3.5 py-2.5 rounded-xl bg-surface border border-border text-foreground text-xs font-semibold hover:bg-surface-hover transition-colors disabled:opacity-40"
+          >
+            <span className="flex items-center gap-1.5">
+              <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Discard</span>
+            </span>
+          </button>
+
+          <button
+            id="settings-save-btn"
+            type="button"
+            onClick={() => void handleSaveSettings()}
+            disabled={!isDirty || isSaving || draft === null}
+            aria-busy={isSaving}
+            className="px-4 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95 disabled:opacity-40"
+          >
+            <span className="flex items-center gap-1.5">
+              <Save className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{isSaving ? 'Saving…' : 'Save settings'}</span>
+            </span>
           </button>
         </div>
       </div>

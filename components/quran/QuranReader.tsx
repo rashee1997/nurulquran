@@ -301,7 +301,12 @@ Explain the root words, linguistic context, and practical spiritual reflections.
   }
 
   return (
-    <div id="quran-reader-container" className="flex flex-col min-h-screen pb-24">
+    /*
+      The recitation player is fixed to the bottom of the viewport (see `AudioBar`), so the
+      reader reserves room beneath its last ayah for it — otherwise the bar covers the final
+      verses at the end of the scroll.
+    */
+    <div id="quran-reader-container" className="flex flex-col min-h-screen pb-36 sm:pb-24">
       {/* Chapter Banner */}
       <div className="w-full bg-hero-bg text-hero-fg border border-hero-border py-10 px-4 sm:px-6 rounded-3xl mb-8 shadow-xl relative overflow-hidden">
         <div className="absolute inset-0 opacity-10 bg-pattern-dots" aria-hidden="true" />
@@ -416,7 +421,12 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         >
           <div className="flex items-center justify-between text-xs font-bold text-foreground border-b border-border pb-2">
             <span>Reader Preferences</span>
-            <span className="text-muted-foreground">Saved on this device</span>
+            {/*
+              No "saved" claim here: a label that says so before anything has been written is
+              indistinguishable from a save that quietly failed. These controls apply live and
+              report each write as a toast, so the header only states the behaviour.
+            */}
+            <span className="text-muted-foreground">Applies and saves as you change it</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -521,6 +531,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           {verses.map((verse) => {
             const key = `${verse.surah}:${verse.ayah}`;
             const progress = progressMap[key];
+            const isCurrentAyah = currentVerse.ayah === verse.ayah;
 
             return (
               <div key={key} data-ayah={verse.ayah}>
@@ -530,7 +541,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 showEnglish={showEnglish}
                 showTamil={showTamil}
                 showTajweedColors={showTajweedColors}
-                isCurrentAudio={currentVerse.ayah === verse.ayah}
+                isCurrentAudio={isCurrentAyah}
                 isPlaying={isPlaying}
                 srsState={progress?.state as SrsState | undefined}
                 isSavingProgress={savingAyahs.has(verse.ayah)}
@@ -543,7 +554,11 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 onToggleBookmark={handleToggleBookmark}
                 noteText={notesByAyah[verse.ayah]}
                 onSaveNote={handleSaveNote}
-                activeWordIndex={activeWordIndex}
+                // Only the ayah being recited receives a word index. The highlight moves
+                // several times a second, and handing it to every row would re-render all of
+                // them (a long surah is 286 cards) on every word — exactly the kind of
+                // main-thread work that makes a highlight arrive late.
+                activeWordIndex={isCurrentAyah ? activeWordIndex : null}
               />
               </div>
             );
