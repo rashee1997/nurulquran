@@ -8,7 +8,7 @@ import { TAJWEED_META } from '@/lib/quran/tajweed';
 import type { TajweedRule } from '@/lib/quran/types';
 import { aiProviderVendorSchema, chatRequestSchema, parseWithSchema } from '@/lib/api/schemas';
 import { apiError, guardRequest, NOT_CONFIGURED, RATE_LIMITED } from '@/lib/api/http';
-import { callerKey, checkRateLimit } from '@/lib/api/rate-limit';
+import { byokAwareRateLimit } from '@/lib/api/rate-limit';
 import { UnsafeProviderUrlError } from '@/lib/api/url-guard';
 import { AIProviderConfig } from '@/lib/ai/types';
 import { PROVIDER_DEFAULT_MODELS } from '@/lib/ai/models';
@@ -43,16 +43,6 @@ export async function POST(req: NextRequest): Promise<Response> {
   const guard = guardRequest(req, { maxBytes: MAX_REQUEST_BYTES });
   if (!guard.ok) return guard.response;
 
-  const rate = checkRateLimit({ key: callerKey(req, 'study-assistant'), ...RATE_LIMIT });
-  if (!rate.allowed) {
-    return apiError({
-      status: 429,
-      code: 'rate_limited',
-      message: RATE_LIMITED,
-      headers: { 'Retry-After': `${rate.retryAfterSeconds}` },
-    });
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -76,6 +66,20 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const providerConfig = parsed.data.providerConfig;
   const vendor = providerConfig?.type ?? headerProvider?.data ?? 'gemini';
+  const byokKey = providerConfig?.apiKey ?? headerKey;
+
+  // A caller supplying their own provider key spends their own quota, not the shared
+  // server key, so it gets its own bucket with more headroom instead of sharing the
+  // server-key pool's strict limit.
+  const rate = byokAwareRateLimit(req, 'study-assistant', RATE_LIMIT, byokKey);
+  if (!rate.allowed) {
+    return apiError({
+      status: 429,
+      code: 'rate_limited',
+      message: RATE_LIMITED,
+      headers: { 'Retry-After': `${rate.retryAfterSeconds}` },
+    });
+  }
 
   const config: Partial<AIProviderConfig> = {
     type: vendor,

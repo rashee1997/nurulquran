@@ -5,8 +5,8 @@ import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-eng
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
-import { VERIFIED_GAME_VERSES } from '@/lib/games/verified-quran-data';
-import { RefreshCw, Sparkles, Trophy, Brain } from 'lucide-react';
+import { getRandomGameVerses } from '@/lib/games/game-data';
+import { RefreshCw, Sparkles, Trophy, Loader2 } from 'lucide-react';
 
 interface MatrixCard {
   id: string;
@@ -39,6 +39,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isFinished, setIsFinished] = useState<boolean>(false);
   const [matchedPairsCount, setMatchedPairsCount] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const cardsRef = useRef<MatrixCard[]>([]);
   const flippedCardsRef = useRef<MatrixCard[]>([]);
@@ -48,14 +49,14 @@ export const MemoryMatrixCanvas: React.FC = () => {
 
   const TOTAL_PAIRS = 6;
 
-  // Initialize Matrix Cards
-  const initCards = useCallback(() => {
-    if (!containerRef.current) return;
+  // Initialize Matrix Cards, drawing a fresh pool of live verses on every round.
+  const initCards = useCallback(async () => {
+    setIsLoading(true);
+    const pool = await getRandomGameVerses(TOTAL_PAIRS);
+    setIsLoading(false);
+    if (!containerRef.current || pool.length === 0) return;
     const width = containerRef.current.clientWidth || 800;
     const height = 480;
-
-    // Pick 6 verses from VERIFIED_GAME_VERSES
-    const pool = [...VERIFIED_GAME_VERSES].sort(() => Math.random() - 0.5).slice(0, TOTAL_PAIRS);
 
     const generatedPairs: Array<{
       pairId: string;
@@ -143,7 +144,8 @@ export const MemoryMatrixCanvas: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    initCards();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initCards sets the loading flag before its async verse fetch resolves, not a derived-state loop
+    void initCards();
   }, [initCards]);
 
   // Timer loop
@@ -305,7 +307,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
 
   // Card click interaction
   const handleCanvasClick = (clientX: number, clientY: number) => {
-    if (isFinished || flippedCardsRef.current.length >= 2) return;
+    if (isLoading || isFinished || flippedCardsRef.current.length >= 2) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -398,7 +400,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
       gameId: 'memory-matrix',
       gameTitle: 'Ayah Memory Matrix',
       surahNumber: 1,
-      surahName: 'Juz Amma Selection',
+      surahName: 'Mixed Surahs',
       accuracy,
       score,
       timeSeconds: elapsedSeconds,
@@ -414,7 +416,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
     setMaxCombo(1);
     setMoves(0);
     setElapsedSeconds(0);
-    initCards();
+    void initCards();
   };
 
   return (
@@ -463,6 +465,12 @@ export const MemoryMatrixCanvas: React.FC = () => {
         }}
       >
         <canvas ref={canvasRef} className="w-full h-full block" />
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-950/80 text-slate-300 text-sm font-semibold">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Drawing a fresh set of ayahs…</span>
+          </div>
+        )}
       </div>
 
       {/* Finished Game Screen */}

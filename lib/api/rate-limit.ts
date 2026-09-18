@@ -83,16 +83,21 @@ export function checkRateLimit({ key, limit, windowMs }: RateLimitOptions): Rate
  */
 let warnedAboutMissingCallerAddress = false;
 
-export function callerKey(req: Request, scope: string): string {
+function callerAddress(req: Request): string | undefined {
   const forwarded = req.headers.get('x-forwarded-for');
   const chain = forwarded?.split(',') ?? [];
   const fromChain = chain[chain.length - 1]?.trim();
 
-  const ip =
+  return (
     (fromChain && fromChain.length > 0 ? fromChain : undefined) ??
     req.headers.get('cf-connecting-ip') ??
     req.headers.get('x-real-ip') ??
-    undefined;
+    undefined
+  );
+}
+
+export function callerKey(req: Request, scope: string): string {
+  const ip = callerAddress(req);
 
   if (!ip) {
     if (!warnedAboutMissingCallerAddress) {
@@ -105,4 +110,43 @@ export function callerKey(req: Request, scope: string): string {
   }
 
   return `${scope}:${ip}`;
+}
+
+/**
+ * Short, non-reversible fingerprint of a BYOK key, so a caller's own key segments its
+ * bucket without the raw secret ever being kept in memory as a map key.
+ */
+function fingerprint(secret: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < secret.length; i++) {
+    hash ^= secret.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Caller key for a route that accepts a learner-supplied ("bring your own key") provider
+ * key, such as the chat/study-assistant endpoint.
+ *
+ * A request using its own key spends the caller's own external quota, not the app's
+ * shared server key, so it is bucketed separately from — and given a more generous limit
+ * than — the shared-server-key pool. Buckets still key on the caller's IP first (so one
+ * BYOK key cannot be handed out to bypass IP-based shaping), with the key's fingerprint
+ * appended to give each distinct BYOK key its own headroom.
+ */
+export function byokAwareRateLimit(
+  req: Request,
+  scope: string,
+  base: Pick<RateLimitOptions, 'limit' | 'windowMs'>,
+  byokKey: string | undefined,
+  byokLimitMultiplier = 4
+): RateLimitResult {
+  if (!byokKey) {
+    return checkRateLimit({ key: callerKey(req, scope), limit: base.limit, windowMs: base.windowMs });
+  }
+
+  const ip = callerAddress(req) ?? 'unidentified';
+  const key = `${scope}:byok:${ip}:${fingerprint(byokKey)}`;
+  return checkRateLimit({ key, limit: base.limit * byokLimitMultiplier, windowMs: base.windowMs });
 }

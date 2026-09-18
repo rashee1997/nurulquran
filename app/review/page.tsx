@@ -2,11 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { db, HifzTier, VerseProgress } from '@/lib/db';
-import { calculateNextReview, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, STATE_LABELS } from '@/lib/learning/srs-engine';
+import { calculateNextReview, determineHifzTier, HIFZ_TIER_META, initializeVerseProgress, nextDueAt, STATE_LABELS } from '@/lib/learning/srs-engine';
+import { track } from '@/lib/telemetry/events';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
-import { evaluateStreak } from '@/lib/learning/xp-engine';
-import { localDayKey } from '@/lib/time/day';
+import { recordActivity } from '@/lib/learning/activity';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import confetti from 'canvas-confetti';
 import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2, Layers, Filter } from 'lucide-react';
@@ -33,38 +33,56 @@ export default function SrsReviewPage() {
   /** Prevents a double tap from grading the same card twice and skipping a verse. */
   const gradingRef = useRef(false);
 
-  useEffect(() => {
-    async function loadDueQueue() {
-      setLoading(true);
-      try {
-        let items = await db.verseProgress.toArray();
-        if (items.length === 0) {
-          // Initialize a few starter verses from Al-Fatihah into the queue
-          const seeds = [
-            initializeVerseProgress(1, 1),
-            initializeVerseProgress(1, 2),
-            initializeVerseProgress(1, 3),
-            initializeVerseProgress(112, 1),
-            initializeVerseProgress(112, 2),
-          ];
-          for (const s of seeds) {
-            await db.verseProgress.put(s);
-          }
-          items = seeds;
-        }
+  /** Earliest upcoming due time when nothing is due right now. */
+  const [nextDue, setNextDue] = useState<Date | null>(null);
+  const [totalTracked, setTotalTracked] = useState(0);
+  const [seeding, setSeeding] = useState(false);
 
-        const now = new Date().toISOString();
-        const due = items.filter(i => i.dueDate <= now || i.repetitions === 0);
-        setAllItems(due.length > 0 ? due : items);
-        setCurrentIndex(0);
-      } catch (e) {
-        console.error('Failed to load review queue:', e);
-      } finally {
-        setLoading(false);
-      }
+  const loadDueQueue = useCallback(async () => {
+    setLoading(true);
+    try {
+      const items = await db.verseProgress.toArray();
+      setTotalTracked(items.length);
+
+      // Only items that are actually due are shown. Showing everything when nothing was
+      // due (the previous behaviour) defeats spacing: the learner re-graded verses the
+      // scheduler had deliberately parked, and their intervals grew from reviews that
+      // taught nothing.
+      const now = new Date().toISOString();
+      const due = items.filter((i) => i.dueDate <= now || i.repetitions === 0);
+      setAllItems(due);
+      setNextDue(due.length === 0 ? nextDueAt(items) : null);
+      setCurrentIndex(0);
+      if (due.length === 0) track('review.empty_state_shown', { tracked: items.length });
+    } catch (e) {
+      console.error('Failed to load review queue:', e);
+    } finally {
+      setLoading(false);
     }
-    loadDueQueue();
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async DB read on mount, not a derived-state anti-pattern
+    void loadDueQueue();
+  }, [loadDueQueue]);
+
+  /** Explicit starter set — never added silently. */
+  const seedStarterVerses = useCallback(async () => {
+    setSeeding(true);
+    try {
+      const seeds = [
+        initializeVerseProgress(1, 1),
+        initializeVerseProgress(1, 2),
+        initializeVerseProgress(1, 3),
+        initializeVerseProgress(112, 1),
+        initializeVerseProgress(112, 2),
+      ];
+      await db.verseProgress.bulkPut(seeds);
+      await loadDueQueue();
+    } finally {
+      setSeeding(false);
+    }
+  }, [loadDueQueue]);
 
   const dueItems = useMemo(() => {
     if (activeTierFilter === 'all') return allItems;
@@ -149,19 +167,16 @@ export default function SrsReviewPage() {
         await db.verseProgress.put(nextProgress);
 
         const xp = quality >= 3 ? 15 : 5;
-        try {
-          const profile = await db.userProfile.get('default_user');
-          if (profile) {
-            const streakEval = evaluateStreak(profile.lastActiveDate, profile.streakCount);
-            await db.userProfile.update('default_user', {
-              totalXp: profile.totalXp + xp,
-              streakCount: streakEval.newStreak,
-              lastActiveDate: localDayKey(),
-            });
-          }
-        } catch (error) {
-          console.error('Failed to record review XP:', error);
-        }
+        await recordActivity({
+          xp,
+          event: 'review.graded',
+          props: {
+            quality,
+            verseKey: currentItem.verseKey,
+            intervalBefore: currentItem.interval,
+            intervalAfter: nextProgress.interval,
+          },
+        });
 
         if (quality >= 4) {
           try {
@@ -205,6 +220,55 @@ export default function SrsReviewPage() {
       <div className="text-center py-20 text-muted-foreground">
         <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
         <p className="text-xs">Building today’s review queue…</p>
+      </div>
+    );
+  }
+
+  // Nothing due: say so, with the next due time, instead of inventing a queue.
+  if (allItems.length === 0) {
+    const nextLabel = nextDue
+      ? nextDue.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })
+      : null;
+    return (
+      <div className="max-w-md mx-auto p-8 rounded-3xl bg-card border border-border text-center space-y-5 shadow-xl animate-in zoom-in-95">
+        <div className="w-16 h-16 rounded-2xl bg-primary-subtle flex items-center justify-center text-primary mx-auto">
+          <Clock className="w-8 h-8" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-xl font-bold text-foreground">Nothing is due right now</h2>
+          <p className="text-xs text-muted-foreground">
+            {totalTracked === 0
+              ? 'Your review queue is empty. Add ayahs from the reader with “Add to Hifz”, or start with a small set.'
+              : nextLabel
+                ? `${totalTracked} ayahs are scheduled. The next one is due ${nextLabel}.`
+                : `${totalTracked} ayahs are scheduled and none are due yet.`}
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3 pt-2">
+          {totalTracked === 0 ? (
+            <button
+              type="button"
+              onClick={() => void seedStarterVerses()}
+              disabled={seeding}
+              className="flex-1 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95 disabled:opacity-60"
+            >
+              {seeding ? 'Adding…' : 'Start with Al-Fatihah 1–3 and Al-Ikhlas 1–2'}
+            </button>
+          ) : (
+            <Link
+              href="/memorize?source=queue"
+              className="flex-1 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95"
+            >
+              Drill scheduled ayahs anyway
+            </Link>
+          )}
+          <Link
+            href="/quran"
+            className="flex-1 py-3 px-4 rounded-xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover transition-colors"
+          >
+            Open the reader
+          </Link>
+        </div>
       </div>
     );
   }
@@ -272,6 +336,7 @@ export default function SrsReviewPage() {
 
         <span className="text-xs text-muted-foreground font-medium">
           Interval: {currentItem?.interval ?? 0}d • Reps: {currentItem?.repetitions ?? 0}
+          {currentItem?.stability !== undefined ? ` • Stability: ${currentItem.stability.toFixed(1)}d` : ''}
         </span>
       </div>
 
@@ -416,7 +481,7 @@ export default function SrsReviewPage() {
           <div className="space-y-3 pt-2 animate-in slide-in-from-bottom-2">
             <div className="flex justify-between text-xs text-muted-foreground font-semibold px-1">
               <span>How well did you remember?</span>
-              <span className="text-primary-strong font-bold">SM-2 Spaced Algorithm</span>
+              <span className="text-primary-strong font-bold">FSRS scheduler</span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -435,7 +500,7 @@ export default function SrsReviewPage() {
                 className="p-3.5 rounded-2xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Hard (3)</span>
-                <span className="text-[10px] font-normal opacity-80">1-2 days</span>
+                <span className="text-[10px] font-normal opacity-80">shorter interval</span>
               </button>
 
               <button
@@ -444,7 +509,7 @@ export default function SrsReviewPage() {
                 className="p-3.5 rounded-2xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Good (4)</span>
-                <span className="text-[10px] font-normal opacity-80">3-5 days</span>
+                <span className="text-[10px] font-normal opacity-80">90% recall interval</span>
               </button>
 
               <button
@@ -453,7 +518,7 @@ export default function SrsReviewPage() {
                 className="p-3.5 rounded-2xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover disabled:opacity-60 disabled:pointer-events-none flex flex-col items-center gap-1 transition-colors"
               >
                 <span>Easy (5)</span>
-                <span className="text-[10px] font-normal opacity-80">7+ days</span>
+                <span className="text-[10px] font-normal opacity-80">longer interval</span>
               </button>
             </div>
           </div>

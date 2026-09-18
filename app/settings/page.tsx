@@ -4,8 +4,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS } from '@/components/quran/AudioBar';
+import { OfflinePanel } from '@/components/settings/OfflinePanel';
 import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
+import { useLocale } from '@/lib/i18n/useLocale';
 import { localDayKey } from '@/lib/time/day';
 import { AI_TEACHER_VOICES, playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
 import {
@@ -16,6 +18,7 @@ import {
 
 export default function SettingsPage() {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
+  const { locale, setLocale, t } = useLocale();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [selectedReciter, setSelectedReciter] = useState('ar.alafasy');
   const [showEnglish, setShowEnglish] = useState(true);
@@ -164,7 +167,7 @@ export default function SettingsPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Settings className="w-6 h-6 text-primary" />
-          <span>Settings</span>
+          <span>{t('settings.title', 'Settings')}</span>
         </h1>
         <p className="text-xs text-muted-foreground">
           Reader preferences, appearance, audio, language and a local backup of your data.
@@ -267,6 +270,54 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Interface Language Section */}
+      <div id="language-settings-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-4">
+        <div className="space-y-0.5">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Globe className="w-4 h-4 text-primary" />
+            <span>{t('settings.language.title', 'Interface language')}</span>
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'settings.language.desc',
+              'Language for navigation, dashboard and settings chrome — scripture translations are unaffected.'
+            )}
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => void setLocale('en')}
+            className={`flex-1 p-3.5 rounded-2xl border text-left transition-all ${
+              locale === 'en'
+                ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-foreground">{t('settings.language.english', 'English')}</span>
+              {locale === 'en' && <Check className="w-4 h-4 text-primary" />}
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => void setLocale('ta')}
+            className={`flex-1 p-3.5 rounded-2xl border text-left transition-all ${
+              locale === 'ta'
+                ? 'border-primary bg-primary-subtle ring-2 ring-primary/20'
+                : 'border-border bg-surface hover:bg-surface-hover'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-foreground">{t('settings.language.tamil', 'தமிழ்')}</span>
+              {locale === 'ta' && <Check className="w-4 h-4 text-primary" />}
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <OfflinePanel />
 
       {/* AI Tajweed Teacher & Voice Preferences Section */}
       <div id="ai-teacher-voice-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-6">
@@ -543,6 +594,14 @@ export default function SettingsPage() {
             className="hidden"
           />
         </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          Sharing progress with a teacher or halaqa leader? Send them the exported file — they can open it at{' '}
+          <Link href="/share" className="font-semibold text-primary hover:underline">
+            /share
+          </Link>{' '}
+          without installing anything or importing it into their own device.
+        </p>
 
         {/* Reset */}
         <div className="pt-3 border-t border-border flex items-center justify-between">

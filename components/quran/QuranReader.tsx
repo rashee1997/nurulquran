@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Chapter, QuranWord, Verse } from '@/lib/quran/types';
 import { AyahItem } from './AyahItem';
 import { WordPopover } from './WordPopover';
-import { AudioBar, PlaybackIntent } from './AudioBar';
+import { AudioBar, PlaybackIntent, RECITERS } from './AudioBar';
+import { DownloadSurahControl } from './DownloadSurahControl';
 import { MushafPageView } from './MushafPageView';
 import { MutashabihatModal } from './MutashabihatModal';
-import { MutashabihEntry } from '@/lib/quran/mutashabihat';
+import { MutashabihEntry, primeComputedMutashabihatIndex } from '@/lib/quran/mutashabihat';
 import { TajweedColorKey } from './TajweedColorKey';
 import { db, SrsState, VerseProgress } from '@/lib/db';
 import {
@@ -18,6 +19,8 @@ import {
   useReaderPreferences,
 } from '@/hooks/use-reader-preferences';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
+import { saveNote, saveReadingPosition, toggleBookmark } from '@/lib/quran/library';
+import { track } from '@/lib/telemetry/events';
 import {
   Settings2,
   Volume2,
@@ -77,6 +80,109 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     () => db.verseProgress.where('surah').equals(chapter.id).toArray(),
     [chapter.id]
   );
+
+  const readerProfile = useLiveQuery(() => db.userProfile.get('default_user'), [], undefined);
+  const activeReciterId = readerProfile?.reciterId || RECITERS[0].id;
+
+  const bookmarkRows = useLiveQuery(
+    () => db.bookmarks.where('surah').equals(chapter.id).toArray(),
+    [chapter.id]
+  );
+  const noteRows = useLiveQuery(() => db.notes.where('surah').equals(chapter.id).toArray(), [chapter.id]);
+
+  const bookmarkedAyahs = useMemo(() => {
+    const set = new Set<number>();
+    for (const row of bookmarkRows ?? []) set.add(row.ayah);
+    return set;
+  }, [bookmarkRows]);
+
+  const notesByAyah = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const row of noteRows ?? []) map[row.ayah] = row.text;
+    return map;
+  }, [noteRows]);
+
+  /** Word being recited right now, reported by the audio bar for word-synced highlighting. */
+  const [activeWordIndex, setActiveWordIndex] = useState<number | null>(null);
+
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  /**
+   * Reading position: the ayah nearest the top of the viewport is recorded as the learner
+   * scrolls, so the dashboard can offer "Continue reading". Observed on the continuous list
+   * only; the Mushaf view is a page, not a scroll position.
+   */
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root || viewMode !== 'continuous' || typeof IntersectionObserver === 'undefined') return;
+
+    const visible = new Map<number, number>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const ayah = Number((entry.target as HTMLElement).dataset.ayah);
+          if (!Number.isFinite(ayah)) continue;
+          if (entry.isIntersecting) visible.set(ayah, entry.boundingClientRect.top);
+          else visible.delete(ayah);
+        }
+        if (visible.size === 0) return;
+        let best: number | null = null;
+        let bestTop = Number.POSITIVE_INFINITY;
+        for (const [ayah, top] of visible) {
+          const distance = Math.abs(top);
+          if (distance < bestTop) {
+            bestTop = distance;
+            best = ayah;
+          }
+        }
+        if (best !== null) saveReadingPosition(chapter.id, best);
+      },
+      { rootMargin: '-10% 0px -60% 0px', threshold: [0, 0.5] }
+    );
+
+    for (const element of root.querySelectorAll<HTMLElement>('[data-ayah]')) observer.observe(element);
+    return () => observer.disconnect();
+  }, [chapter.id, viewMode, verses.length]);
+
+  // Loads the computed Mutashabihat index (built once from the Radar game) into memory so
+  // discovered pairs, not just the curated five, surface the "Mutashabihat" button here too.
+  const [, setMutashabihIndexLoaded] = useState(0);
+  useEffect(() => {
+    let active = true;
+    primeComputedMutashabihatIndex().then((entries) => {
+      if (active && entries.length > 0) setMutashabihIndexLoaded((n) => n + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Deep link: /quran/2#ayah-255 scrolls to that ayah once the list is on screen.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const match = /^#ayah-(\d+)$/.exec(window.location.hash);
+    if (!match) return;
+    const target = document.getElementById(`ayah-item-${chapter.id}-${match[1]}`);
+    if (!target) return;
+    const frame = requestAnimationFrame(() => target.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    return () => cancelAnimationFrame(frame);
+  }, [chapter.id, verses.length]);
+
+  const handleToggleBookmark = useCallback(async (verse: Verse): Promise<void> => {
+    try {
+      await toggleBookmark(verse.surah, verse.ayah);
+    } catch (error) {
+      console.error(`Bookmark for ${verse.surah}:${verse.ayah} could not be saved:`, error);
+    }
+  }, []);
+
+  const handleSaveNote = useCallback(async (verse: Verse, text: string): Promise<void> => {
+    try {
+      await saveNote(verse.surah, verse.ayah, text);
+    } catch (error) {
+      console.error(`Note for ${verse.surah}:${verse.ayah} could not be saved:`, error);
+    }
+  }, []);
 
   const progressMap = useMemo(() => {
     const map: Record<string, VerseProgress> = { ...(verseProgressMap ?? {}) };
@@ -296,6 +402,8 @@ Explain the root words, linguistic context, and practical spiritual reflections.
               <Settings2 className="w-4 h-4" aria-hidden="true" />
               <span className="sr-only">Display settings</span>
             </button>
+
+            <DownloadSurahControl surahId={chapter.id} reciterId={activeReciterId} versesCount={chapter.versesCount} />
           </div>
         </div>
       </div>
@@ -409,14 +517,14 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           onOpenAiTutor={onOpenAiTutor}
         />
       ) : (
-        <div className="max-w-3xl mx-auto w-full space-y-4">
+        <div ref={listRef} className="max-w-3xl mx-auto w-full space-y-4">
           {verses.map((verse) => {
             const key = `${verse.surah}:${verse.ayah}`;
             const progress = progressMap[key];
 
             return (
+              <div key={key} data-ayah={verse.ayah}>
               <AyahItem
-                key={key}
                 verse={verse}
                 fontSize={fontSize}
                 showEnglish={showEnglish}
@@ -431,7 +539,13 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 onMemorizeToggle={handleMemorizeToggle}
                 onAskAi={handleAskAi}
                 onOpenMutashabihat={handleOpenMutashabihat}
+                isBookmarked={bookmarkedAyahs.has(verse.ayah)}
+                onToggleBookmark={handleToggleBookmark}
+                noteText={notesByAyah[verse.ayah]}
+                onSaveNote={handleSaveNote}
+                activeWordIndex={activeWordIndex}
               />
+              </div>
             );
           })}
         </div>
@@ -457,6 +571,10 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         currentAyahNumber={currentVerse.ayah}
         globalAyahNumber={currentVerse.globalNumber}
         fallbackAudioUrl={currentVerse.audioUrl}
+        wordCount={currentVerse.words.length}
+        words={currentVerse.words}
+        onActiveWordChange={setActiveWordIndex}
+        onAyahCompleted={() => track('audio.completed', { surah: chapter.id, ayah: currentVerse.ayah })}
         playIntent={playIntent}
         onPlayingChange={setIsPlaying}
         onNextAyah={() => handleStep(1)}

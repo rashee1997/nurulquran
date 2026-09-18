@@ -48,6 +48,8 @@ export interface TajweedLiveFeedback {
   suggestedPractice?: string;
   detectedErrors?: string[];
   latencyMs?: number;
+  /** Verbatim words heard; present only when `requestTranscript` was set. */
+  transcript?: string;
 }
 
 export type LiveCoachStatus = 'idle' | 'listening' | 'analyzing' | 'feedback' | 'error';
@@ -63,6 +65,8 @@ export interface UseLiveTajweedOptions {
   language?: FeedbackLanguage;
   onFeedbackReceived?: (feedback: TajweedLiveFeedback) => void;
   maxSeconds?: number;
+  /** Ask the service for a verbatim transcript, for local mistake detection. */
+  requestTranscript?: boolean;
 }
 
 export interface UseLiveTajweedResult {
@@ -115,6 +119,9 @@ function normalizeFeedback(payload: unknown): TajweedLiveFeedback | null {
   if (typeof latency === 'number' && Number.isFinite(latency)) {
     feedback.latencyMs = latency;
   }
+  if (typeof source.transcript === 'string') {
+    feedback.transcript = source.transcript.trim();
+  }
 
   if (
     feedback.coachResponseEn.length === 0 &&
@@ -144,6 +151,7 @@ export function useLiveTajweed({
   language,
   onFeedbackReceived,
   maxSeconds = MAX_RECORDING_SECONDS,
+  requestTranscript = false,
 }: UseLiveTajweedOptions = {}): UseLiveTajweedResult {
   const [status, setStatus] = useState<LiveCoachStatus>('idle');
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
@@ -296,6 +304,7 @@ export function useLiveTajweed({
             voiceId: profileRef.current?.aiVoiceId || 'Kore',
             teacherPersona: profileRef.current?.aiTeacherPersona || 'balanced',
             language: normalizeFeedbackLanguage(language ?? profileRef.current?.aiFeedbackLanguage),
+            requestTranscript,
           }),
         });
 
@@ -347,7 +356,7 @@ export function useLiveTajweed({
         setStatus('error');
       }
     },
-    [currentActivityTitle, currentLessonTitle, language, promptArabic, targetRule]
+    [currentActivityTitle, currentLessonTitle, language, promptArabic, requestTranscript, targetRule]
   );
 
   /** Finalizes the recording and dispatches it for evaluation. */

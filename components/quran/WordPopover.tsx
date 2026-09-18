@@ -6,6 +6,7 @@ import { QuranWord } from '@/lib/quran/types';
 import { wordAudioCandidates } from '@/lib/quran/word-audio';
 import { db } from '@/lib/db';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
+import { hasMorphologySource, lookupWordMorphology, type WordMorphology } from '@/lib/quran/morphology';
 
 interface WordPopoverProps {
   word: QuranWord;
@@ -17,6 +18,33 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
   const [isSaved, setIsSaved] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
   const [pronounceFailed, setPronounceFailed] = useState(false);
+  /** Morphology from the corpus, merged over whatever the word record already carries. */
+  const [corpus, setCorpus] = useState<WordMorphology | null | 'loading'>(
+    hasMorphologySource() ? 'loading' : null
+  );
+
+  useEffect(() => {
+    if (!hasMorphologySource()) return;
+    let active = true;
+    lookupWordMorphology(word.surah, word.ayah, word.wordIndex)
+      .then((result) => {
+        if (active) setCorpus(result);
+      })
+      .catch(() => {
+        if (active) setCorpus(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [word.surah, word.ayah, word.wordIndex]);
+
+  const morph = corpus !== 'loading' && corpus ? corpus : null;
+  const root = word.root || morph?.root;
+  const grammar = word.morphology || morph?.morphology;
+  const transliteration = word.transliteration || morph?.transliteration || '';
+  const meaningEn = word.translationEn || morph?.en || '';
+  const meaningTa = word.translationTa || morph?.ta || '';
+  const lemma = morph?.lemma;
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -128,7 +156,7 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
             {word.arabic}
           </p>
           <p className="text-xs text-muted-foreground font-medium tracking-wide">
-            {word.transliteration}
+            {transliteration}
           </p>
         </div>
 
@@ -138,32 +166,45 @@ export const WordPopover: React.FC<WordPopoverProps> = ({ word, onClose, positio
               English Meaning
             </span>
             <span className="text-foreground font-medium">
-              {word.translationEn || 'Meaning provided in context'}
+              {meaningEn || (corpus === 'loading' ? 'Looking up…' : 'Meaning provided in context')}
             </span>
           </div>
 
-          {word.translationTa && (
+          {meaningTa && (
             <div className="flex flex-col">
               <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                 தமிழ் அர்த்தம் (Tamil)
               </span>
-              <span className="text-primary-strong font-tamil font-medium">{word.translationTa}</span>
+              <span className="text-primary-strong font-tamil font-medium">{meaningTa}</span>
             </div>
           )}
 
-          {word.root && word.root !== '—' && (
+          {root && root !== '—' ? (
             <div className="flex items-center justify-between pt-1 border-t border-border">
               <span className="text-xs text-muted-foreground">Linguistic Root (الجذر):</span>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-secondary-subtle text-secondary-strong">
-                {word.root}
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-secondary-subtle text-secondary-strong" dir="rtl" lang="ar">
+                {root}
               </span>
+            </div>
+          ) : (
+            <div className="pt-1 border-t border-border text-[11px] text-muted-foreground">
+              {corpus === 'loading'
+                ? 'Loading the root from the morphology corpus…'
+                : 'Root not available for this word on this device.'}
             </div>
           )}
 
-          {word.morphology && (
+          {lemma && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Lemma:</span>
+              <span className="font-arabic text-base text-foreground" dir="rtl" lang="ar">{lemma}</span>
+            </div>
+          )}
+
+          {grammar && (
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Grammar:</span>
-              <span className="font-medium text-foreground">{word.morphology}</span>
+              <span className="font-medium text-foreground">{grammar}</span>
             </div>
           )}
         </div>

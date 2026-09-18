@@ -1,16 +1,25 @@
 'use client';
 
-import React, { useRef, useEffect, useState } from 'react';
-import { MUTASHABIHAT_DATASET, MutashabihEntry } from '@/lib/quran/mutashabihat';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import {
+  MUTASHABIHAT_DATASET,
+  MutashabihEntry,
+  buildAndCacheComputedMutashabihatIndex,
+  primeComputedMutashabihatIndex,
+} from '@/lib/quran/mutashabihat';
 import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-engine';
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
-import { Radar, Compass, Sparkles, CheckCircle2, ArrowRight, Lightbulb, RefreshCw } from 'lucide-react';
+import { Radar, ArrowRight, Lightbulb, RefreshCw, Loader2, Telescope } from 'lucide-react';
 
 export const MutashabihatRadarCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [pairs, setPairs] = useState<MutashabihEntry[]>(MUTASHABIHAT_DATASET);
+  const [isBuildingIndex, setIsBuildingIndex] = useState<boolean>(false);
+  const [buildProgress, setBuildProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [score, setScore] = useState<number>(0);
@@ -27,7 +36,7 @@ export const MutashabihatRadarCanvas: React.FC = () => {
   // e.g., "Which verse contains the distinctive token: [token]?"
   const [questionTargetIndex, setQuestionTargetIndex] = useState<0 | 1>(0);
 
-  const currentEntry: MutashabihEntry = MUTASHABIHAT_DATASET[currentIndex] || MUTASHABIHAT_DATASET[0];
+  const currentEntry: MutashabihEntry = pairs[currentIndex] || pairs[0];
 
   const particlesRef = useRef<CanvasParticle[]>([]);
   const ripplesRef = useRef<RippleWave[]>([]);
@@ -42,6 +51,34 @@ export const MutashabihatRadarCanvas: React.FC = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [isFinished]);
+
+  // Fold in any previously-built computed pairs so a returning player sees the wider pool immediately.
+  useEffect(() => {
+    let active = true;
+    primeComputedMutashabihatIndex().then((computed) => {
+      if (active && computed.length > 0) {
+        setPairs([...MUTASHABIHAT_DATASET, ...computed]);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleBuildIndex = useCallback(async () => {
+    if (isBuildingIndex) return;
+    setIsBuildingIndex(true);
+    setBuildProgress({ done: 0, total: 114 });
+    try {
+      const computed = await buildAndCacheComputedMutashabihatIndex((done, total) => setBuildProgress({ done, total }));
+      setPairs([...MUTASHABIHAT_DATASET, ...computed]);
+    } catch (err) {
+      console.error('Failed to build the computed Mutashabihat index:', err);
+    } finally {
+      setIsBuildingIndex(false);
+      setBuildProgress(null);
+    }
+  }, [isBuildingIndex]);
 
   // Canvas radar animation loop
   useEffect(() => {
@@ -229,14 +266,14 @@ export const MutashabihatRadarCanvas: React.FC = () => {
   };
 
   const handleNextQuestion = async () => {
-    if (currentIndex + 1 < MUTASHABIHAT_DATASET.length) {
+    if (currentIndex + 1 < pairs.length) {
       setCurrentIndex((prev) => prev + 1);
       setAnsweredState('idle');
       setSelectedTarget(null);
       setQuestionTargetIndex(Math.random() > 0.5 ? 1 : 0);
     } else {
       setIsFinished(true);
-      const totalQuestions = MUTASHABIHAT_DATASET.length;
+      const totalQuestions = pairs.length;
       const accuracy = Math.max(10, Math.round(((totalQuestions - mistakesCount) / totalQuestions) * 100));
       const xpEarned = Math.round((score / 4) + 40);
 
@@ -286,8 +323,35 @@ export const MutashabihatRadarCanvas: React.FC = () => {
         soundEnabled={soundEnabled}
         onToggleSound={() => setSoundEnabled(!soundEnabled)}
         onRestart={handleRestart}
-        progressText={`Pair ${currentIndex + 1} of ${MUTASHABIHAT_DATASET.length}`}
+        progressText={`Pair ${currentIndex + 1} of ${pairs.length}`}
       />
+
+      {/* Computed-index discovery banner */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-sky-500/5 border border-sky-500/20 text-xs">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Telescope className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+          {isBuildingIndex ? (
+            <span>
+              Scanning the mushaf for similar verses… surah {buildProgress?.done ?? 0} of {buildProgress?.total ?? 114}
+            </span>
+          ) : (
+            <span>
+              {pairs.length > MUTASHABIHAT_DATASET.length
+                ? `Playing ${pairs.length} pairs — ${MUTASHABIHAT_DATASET.length} curated, ${pairs.length - MUTASHABIHAT_DATASET.length} discovered.`
+                : `Playing ${MUTASHABIHAT_DATASET.length} curated pairs. Scan the whole mushaf once to discover more.`}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleBuildIndex()}
+          disabled={isBuildingIndex}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 font-semibold disabled:opacity-60 transition-colors shrink-0"
+        >
+          {isBuildingIndex ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Telescope className="w-3.5 h-3.5" />}
+          <span>{isBuildingIndex ? 'Scanning…' : 'Discover more pairs'}</span>
+        </button>
+      </div>
 
       {/* Target Token Question Banner */}
       <div className="p-4 rounded-2xl bg-card border border-border shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -430,7 +494,7 @@ export const MutashabihatRadarCanvas: React.FC = () => {
             <div className="w-px h-8 bg-border" />
             <div>
               <span className="text-2xl font-black text-emerald-500">
-                {Math.max(10, Math.round(((MUTASHABIHAT_DATASET.length - mistakesCount) / MUTASHABIHAT_DATASET.length) * 100))}%
+                {Math.max(10, Math.round(((pairs.length - mistakesCount) / pairs.length) * 100))}%
               </span>
               <span className="block text-[11px] text-muted-foreground font-semibold uppercase">Accuracy</span>
             </div>

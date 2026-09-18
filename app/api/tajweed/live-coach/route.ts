@@ -35,6 +35,8 @@ interface LiveCoachResponse {
   latencyMs: number;
   voiceId: string;
   persona: string;
+  /** Verbatim words heard, only when the client asked for a transcript. */
+  transcript?: string;
 }
 
 /** Blanks out the language the learner did not ask for. */
@@ -85,6 +87,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     voiceId = 'Kore',
     teacherPersona = 'balanced',
     language = 'both',
+    requestTranscript = false,
   } = parsed.data;
 
   if ((!audioBase64 || audioBase64.length === 0) && !userQuery) {
@@ -144,9 +147,15 @@ ${userQuery ? `Question: "${userQuery}"` : 'The student submitted a live voice a
 Evaluate only what is actually present in the submission. If the audio is silent, unintelligible, or
 unrelated to the target, say so plainly and rate it "Needs Practice" — never invent praise.
 
+${
+  requestTranscript
+    ? `TRANSCRIPT REQUIREMENT: Also return "transcript" — the exact Arabic words you heard in the audio, in order, in plain Arabic script without diacritics. This is a verbatim record of the student's recitation, NOT the correct verse: if the student skipped, repeated or substituted a word, the transcript must reflect exactly that. Never "correct" it toward the Quranic text. If nothing intelligible was said, return an empty string.`
+    : ''
+}
+
 OUTPUT FORMAT — respond ONLY with valid JSON matching:
 {
-  "coachResponseEn": "<2-3 clear, constructive sentences — or an empty string when the feedback language is Tamil only>",
+  ${requestTranscript ? '"transcript": "<verbatim Arabic words heard, without diacritics>",\n  ' : ''}"coachResponseEn": "<2-3 clear, constructive sentences — or an empty string when the feedback language is Tamil only>",
   "coachResponseTa": "<2-3 accurate sentences in Tamil — or an empty string when the feedback language is English only>",
   "makhrajTip": "<specific physical tip for tongue, throat or lips — or an empty string for Tamil only>",
   "makhrajTipTa": "<physical anatomical tip in Tamil — or an empty string for English only>",
@@ -224,6 +233,7 @@ OUTPUT FORMAT — respond ONLY with valid JSON matching:
       voiceId,
       persona: teacherPersona,
       ...(ratingParsed?.success ? { accuracyRating: ratingParsed.data } : {}),
+      ...(requestTranscript ? { transcript: verdict.data.transcript ?? '' } : {}),
     };
 
     if (payload.coachResponseEn.length === 0 && payload.coachResponseTa.length === 0) {

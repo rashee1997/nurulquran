@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { VerifiedGameVerse, VERIFIED_GAME_VERSES, getAvailableSurahs } from '@/lib/games/verified-quran-data';
+import { GameVerse, getAvailableSurahs, getSurahGameVerses } from '@/lib/games/game-data';
 import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-engine';
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
-import { Sparkles, CheckCircle2, ArrowRight, Play, RefreshCw, Volume2 } from 'lucide-react';
+import { Sparkles, CheckCircle2, ArrowRight, Play, RefreshCw, Volume2, Loader2 } from 'lucide-react';
 
 interface FloatingWordNode {
   id: string;
@@ -45,9 +45,10 @@ export const AyahAssemblyCanvas: React.FC = () => {
   const [isAyahCompleted, setIsAyahCompleted] = useState<boolean>(false);
   const [isGameFinished, setIsGameFinished] = useState<boolean>(false);
 
-  // Available verses for selected Surah
-  const surahVerses = VERIFIED_GAME_VERSES.filter((v) => v.surahNumber === selectedSurah);
-  const currentVerse: VerifiedGameVerse = surahVerses[currentAyahIndex] || surahVerses[0];
+  // Verses of the selected Surah, fetched live from the same verified provider the reader uses.
+  const [surahVerses, setSurahVerses] = useState<GameVerse[]>([]);
+  const [isLoadingSurah, setIsLoadingSurah] = useState<boolean>(true);
+  const currentVerse: GameVerse | undefined = surahVerses[currentAyahIndex] || surahVerses[0];
 
   // Sequence tracking: index of the next word expected (1-based)
   const [expectedWordIndex, setExpectedWordIndex] = useState<number>(1);
@@ -61,6 +62,21 @@ export const AyahAssemblyCanvas: React.FC = () => {
 
   const availableSurahs = getAvailableSurahs();
 
+  // Load the selected Surah's verses whenever it changes.
+  useEffect(() => {
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the previous surah's verses while the async fetch for the new one is in flight
+    setIsLoadingSurah(true);
+    getSurahGameVerses(selectedSurah).then((verses) => {
+      if (!active) return;
+      setSurahVerses(verses);
+      setIsLoadingSurah(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [selectedSurah]);
+
   // Timer loop
   useEffect(() => {
     if (isGameFinished) return;
@@ -71,7 +87,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
   }, [isGameFinished]);
 
   // Initialize or re-layout floating nodes for the current verse
-  const initNodesForVerse = useCallback((verse: VerifiedGameVerse) => {
+  const initNodesForVerse = useCallback((verse: GameVerse) => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     const width = container.clientWidth || 800;
@@ -266,7 +282,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
 
   // Handle word click/tap hit detection
   const handleCanvasInteraction = (clientX: number, clientY: number) => {
-    if (isAyahCompleted || isGameFinished) return;
+    if (isAyahCompleted || isGameFinished || !currentVerse) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -346,6 +362,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
   };
 
   const handleAyahCompleted = () => {
+    if (!currentVerse) return;
     setIsAyahCompleted(true);
     if (soundEnabled) {
       gameAudio.playLevelComplete();
@@ -373,6 +390,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
   };
 
   const handleNextAyah = async () => {
+    if (!currentVerse) return;
     gameAudio.stopRecitation();
     if (currentAyahIndex + 1 < surahVerses.length) {
       setCurrentAyahIndex((prev) => prev + 1);
@@ -408,8 +426,17 @@ export const AyahAssemblyCanvas: React.FC = () => {
     setMistakesCount(0);
     setIsGameFinished(false);
     setCurrentAyahIndex(0);
-    initNodesForVerse(surahVerses[0]);
+    if (surahVerses[0]) initNodesForVerse(surahVerses[0]);
   };
+
+  if (isLoadingSurah || !currentVerse) {
+    return (
+      <div className="w-full h-[460px] flex items-center justify-center gap-2 rounded-2xl border border-border bg-slate-950/90 text-slate-300 text-sm font-semibold">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span>Loading Surah {selectedSurah}…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex flex-col gap-4">

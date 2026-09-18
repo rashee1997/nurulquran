@@ -42,6 +42,96 @@ export interface UserProfile {
   aiTeacherPersona?: 'gentle' | 'balanced' | 'strict';
   aiFeedbackLanguage?: 'both' | 'en' | 'ta';
   aiSpeechRate?: number;
+  /** Last ayah the reader was scrolled to, so the dashboard can resume it. */
+  readingPosition?: ReadingPosition;
+  /** Chosen memorisation pace in ayahs per day (Hifz planner). */
+  hifzPace?: number;
+  /** Surah the planner allocates the next Sabaq from, walking the Mushaf in order. */
+  hifzTargetSurah?: number;
+  /** Streak-freeze tokens: one missed day is forgiven per token. Earned weekly. */
+  streakFreezes?: number;
+  /** Local day key on which the last freeze token was granted. */
+  lastFreezeGrantedAt?: string;
+  /** Preferred hour (0-23, local) for the daily practice reminder; undefined = off. */
+  reminderHour?: number;
+  /** Last surah and mode used on the memorisation page, restored on the next visit. */
+  lastMemorizeSurah?: number;
+  lastMemorizeMode?: string;
+  /** Interface language for chrome (navigation, dashboard, settings). */
+  uiLocale?: 'en' | 'ta';
+}
+
+export interface ReadingPosition {
+  surah: number;
+  ayah: number;
+  updatedAt: string;
+}
+
+/** A saved ayah, optionally filed under a collection (folder). */
+export interface BookmarkRecord {
+  verseKey: string;
+  surah: number;
+  ayah: number;
+  /** Collection name; empty string means the default "Saved" list. */
+  collection: string;
+  createdAt: string;
+}
+
+/** A personal note on one ayah. */
+export interface NoteRecord {
+  verseKey: string;
+  surah: number;
+  ayah: number;
+  text: string;
+  updatedAt: string;
+}
+
+/**
+ * One row of the local activity ledger.
+ *
+ * Every success metric the product tracks (continue-card clicks, reviews graded, offline
+ * hits) is derived from these rows. They never leave the device unless the learner exports
+ * them, which is why the ledger is a table and not a network call.
+ */
+export interface ActivityEvent {
+  id?: number;
+  name: string;
+  at: string;
+  /** Local day key, indexed for heatmaps and streak reconstruction. */
+  day: string;
+  props?: Record<string, string | number | boolean>;
+}
+
+export type RecitationMistakeKind = 'skipped' | 'substituted' | 'inserted';
+
+/** A word-level recitation error detected in hidden-verse mode. */
+export interface RecitationMistakeRecord {
+  id?: number;
+  verseKey: string;
+  surah: number;
+  ayah: number;
+  wordIndex: number;
+  kind: RecitationMistakeKind;
+  expected: string;
+  heard?: string;
+  at: string;
+}
+
+export type HifzGoalKind = 'memorize' | 'review' | 'read';
+export type HifzGoalCadence = 'daily' | 'weekly';
+
+/** A learner-defined target, e.g. "review Al-Kahf every Friday". */
+export interface HifzGoalRecord {
+  id: string;
+  kind: HifzGoalKind;
+  cadence: HifzGoalCadence;
+  /** 0 = Sunday … 6 = Saturday; only for weekly goals. */
+  weekday?: number;
+  surah?: number;
+  /** Target count of ayahs for the period. */
+  targetAyahs: number;
+  createdAt: string;
+  archived?: boolean;
 }
 
 export interface VerseProgress {
@@ -56,6 +146,10 @@ export interface VerseProgress {
   repetitions: number;
   lastReviewedAt?: string;
   hifzTier?: HifzTier; // 'sabaq' | 'sabqi' | 'manzil'
+  /** FSRS memory stability in days (time until recall probability drops to 90%). */
+  stability?: number;
+  /** FSRS difficulty, 1 (easy) – 10 (hard). */
+  difficulty?: number;
 }
 
 export interface WordProgress {
@@ -147,6 +241,11 @@ export class NurulQuranDatabase extends Dexie {
   arabicLabProgress!: Table<ArabicLabProgress, string>;
   tafsirCache!: Table<TafsirCacheRecord, string>;
   tafsirProgress!: Table<TafsirProgressRecord, string>;
+  bookmarks!: Table<BookmarkRecord, string>;
+  notes!: Table<NoteRecord, string>;
+  events!: Table<ActivityEvent, number>;
+  recitationMistakes!: Table<RecitationMistakeRecord, number>;
+  hifzGoals!: Table<HifzGoalRecord, string>;
 
   constructor() {
     super('NurulQuranDB');
@@ -170,6 +269,14 @@ export class NurulQuranDatabase extends Dexie {
     this.version(4).stores({
       tafsirCache: 'key, cachedAt',
       tafsirProgress: 'verseKey, surah, state',
+    });
+    // Bookmarks, notes, the activity ledger, recitation mistakes and goals. Additive.
+    this.version(5).stores({
+      bookmarks: 'verseKey, surah, collection, createdAt',
+      notes: 'verseKey, surah, updatedAt',
+      events: '++id, name, day, at',
+      recitationMistakes: '++id, verseKey, surah, at',
+      hifzGoals: 'id, kind, archived',
     });
   }
 }
@@ -283,7 +390,7 @@ export async function initializeDatabase(): Promise<UserProfile> {
  * or hand-edited file write rows that later crashed the reader, the SRS engine and
  * the streak engine on typed field access.
  */
-export const BACKUP_FORMAT_VERSION = 3;
+export const BACKUP_FORMAT_VERSION = 4;
 
 const srsStateSchema = z.enum(['new', 'learning', 'familiar', 'memorized', 'review', 'weak', 'mastered']);
 const hifzTierSchema = z.enum(['sabaq', 'sabqi', 'manzil']);
@@ -308,6 +415,17 @@ const userProfileRowSchema = z.object({
   aiTeacherPersona: z.enum(['gentle', 'balanced', 'strict']).optional(),
   aiFeedbackLanguage: feedbackLanguageSchema.optional(),
   aiSpeechRate: z.number().min(0.5).max(2).optional(),
+  readingPosition: z
+    .object({ surah: surahNumberSchema, ayah: ayahNumberSchema, updatedAt: z.string().min(1) })
+    .optional(),
+  hifzPace: z.number().int().min(1).max(100).optional(),
+  hifzTargetSurah: surahNumberSchema.optional(),
+  streakFreezes: z.number().int().min(0).max(10).optional(),
+  lastFreezeGrantedAt: z.string().optional(),
+  reminderHour: z.number().int().min(0).max(23).optional(),
+  lastMemorizeSurah: surahNumberSchema.optional(),
+  lastMemorizeMode: z.string().max(4).optional(),
+  uiLocale: z.enum(['en', 'ta']).optional(),
 });
 
 const verseProgressRowSchema = z.object({
@@ -322,6 +440,55 @@ const verseProgressRowSchema = z.object({
   repetitions: z.number().int().min(0),
   lastReviewedAt: z.string().optional(),
   hifzTier: hifzTierSchema.optional(),
+  stability: z.number().min(0).optional(),
+  difficulty: z.number().min(1).max(10).optional(),
+});
+
+const bookmarkRowSchema = z.object({
+  verseKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  collection: z.string().max(80),
+  createdAt: z.string().min(1),
+});
+
+const noteRowSchema = z.object({
+  verseKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  text: z.string().max(20_000),
+  updatedAt: z.string().min(1),
+});
+
+const eventRowSchema = z.object({
+  id: z.number().int().optional(),
+  name: z.string().min(1).max(80),
+  at: z.string().min(1),
+  day: z.string().min(1),
+  props: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+});
+
+const recitationMistakeRowSchema = z.object({
+  id: z.number().int().optional(),
+  verseKey: z.string().min(1),
+  surah: surahNumberSchema,
+  ayah: ayahNumberSchema,
+  wordIndex: z.number().int().min(0),
+  kind: z.enum(['skipped', 'substituted', 'inserted']),
+  expected: z.string(),
+  heard: z.string().optional(),
+  at: z.string().min(1),
+});
+
+const hifzGoalRowSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['memorize', 'review', 'read']),
+  cadence: z.enum(['daily', 'weekly']),
+  weekday: z.number().int().min(0).max(6).optional(),
+  surah: surahNumberSchema.optional(),
+  targetAyahs: z.number().int().min(1).max(6236),
+  createdAt: z.string().min(1),
+  archived: z.boolean().optional(),
 });
 
 const wordProgressRowSchema = z.object({
@@ -403,7 +570,7 @@ const tafsirProgressRowSchema = z.object({
 
 const backupEnvelopeSchema = z.object({
   // v1 files predate the game-session, Arabic Lab and Tafsir tables; still importable.
-  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   exportedAt: z.string().optional(),
   userProfile: z.array(userProfileRowSchema).optional(),
   verseProgress: z.array(verseProgressRowSchema).optional(),
@@ -414,6 +581,11 @@ const backupEnvelopeSchema = z.object({
   gameSessions: z.array(gameSessionRowSchema).optional(),
   arabicLabProgress: z.array(arabicLabProgressRowSchema).optional(),
   tafsirProgress: z.array(tafsirProgressRowSchema).optional(),
+  bookmarks: z.array(bookmarkRowSchema).optional(),
+  notes: z.array(noteRowSchema).optional(),
+  events: z.array(eventRowSchema).optional(),
+  recitationMistakes: z.array(recitationMistakeRowSchema).optional(),
+  hifzGoals: z.array(hifzGoalRowSchema).optional(),
 });
 
 /** Every table that holds learner data, in injection order. */
@@ -427,6 +599,11 @@ const PROGRESS_TABLES = [
   db.gameSessions,
   db.arabicLabProgress,
   db.tafsirProgress,
+  db.bookmarks,
+  db.notes,
+  db.events,
+  db.recitationMistakes,
+  db.hifzGoals,
 ] as const;
 
 /**
@@ -446,6 +623,11 @@ export async function exportDatabaseJson(): Promise<string> {
     gameSessions,
     arabicLabProgress,
     tafsirProgress,
+    bookmarks,
+    notes,
+    events,
+    recitationMistakes,
+    hifzGoals,
   ] = await Promise.all([
     db.userProfile.toArray(),
     db.verseProgress.toArray(),
@@ -456,6 +638,11 @@ export async function exportDatabaseJson(): Promise<string> {
     db.gameSessions.toArray(),
     db.arabicLabProgress.toArray(),
     db.tafsirProgress.toArray(),
+    db.bookmarks.toArray(),
+    db.notes.toArray(),
+    db.events.toArray(),
+    db.recitationMistakes.toArray(),
+    db.hifzGoals.toArray(),
   ]);
 
   return JSON.stringify(
@@ -471,6 +658,11 @@ export async function exportDatabaseJson(): Promise<string> {
       gameSessions,
       arabicLabProgress,
       tafsirProgress,
+      bookmarks,
+      notes,
+      events,
+      recitationMistakes,
+      hifzGoals,
     },
     null,
     2
@@ -491,7 +683,14 @@ export interface DatabaseImportResult {
   summary?: string;
 }
 
-export async function importDatabaseJson(jsonString: string): Promise<DatabaseImportResult> {
+export type BackupEnvelope = z.infer<typeof backupEnvelopeSchema>;
+
+/**
+ * Validates a backup file's shape without writing anything — the read-only half of
+ * `importDatabaseJson`, used wherever a backup needs to be inspected rather than
+ * restored (e.g. the teacher/halaqa share viewer).
+ */
+export function parseBackupJson(jsonString: string): { success: true; data: BackupEnvelope } | { success: false; error: string } {
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(jsonString);
@@ -509,7 +708,16 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
     };
   }
 
-  const backup = result.data;
+  return { success: true, data: result.data };
+}
+
+export async function importDatabaseJson(jsonString: string): Promise<DatabaseImportResult> {
+  const parsed = parseBackupJson(jsonString);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error };
+  }
+
+  const backup = parsed.data;
 
   try {
     await db.transaction('rw', PROGRESS_TABLES, async () => {
@@ -549,6 +757,26 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
         await db.tafsirProgress.clear();
         await db.tafsirProgress.bulkPut(backup.tafsirProgress);
       }
+      if (backup.bookmarks) {
+        await db.bookmarks.clear();
+        await db.bookmarks.bulkPut(backup.bookmarks);
+      }
+      if (backup.notes) {
+        await db.notes.clear();
+        await db.notes.bulkPut(backup.notes);
+      }
+      if (backup.events) {
+        await db.events.clear();
+        await db.events.bulkPut(backup.events);
+      }
+      if (backup.recitationMistakes) {
+        await db.recitationMistakes.clear();
+        await db.recitationMistakes.bulkPut(backup.recitationMistakes);
+      }
+      if (backup.hifzGoals) {
+        await db.hifzGoals.clear();
+        await db.hifzGoals.bulkPut(backup.hifzGoals);
+      }
     });
 
     // A v1 file may not carry a profile; make sure the app still has a usable one.
@@ -561,6 +789,11 @@ export async function importDatabaseJson(jsonString: string): Promise<DatabaseIm
       [backup.gameSessions?.length, 'game session'],
       [backup.arabicLabProgress?.length, 'Arabic Lab record'],
       [backup.tafsirProgress?.length, 'Tafsir lesson record'],
+      [backup.bookmarks?.length, 'bookmark'],
+      [backup.notes?.length, 'note'],
+      [backup.hifzGoals?.length, 'goal'],
+      [backup.recitationMistakes?.length, 'recitation mistake'],
+      [backup.events?.length, 'activity event'],
       [backup.aiConversations?.length, 'conversation'],
       [backup.aiProviders?.length, 'provider'],
     ]

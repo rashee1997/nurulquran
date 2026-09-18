@@ -1,14 +1,20 @@
 import { HifzTier, SrsState, VerseProgress } from '../db';
+import { fsrsReview, gradeFromQuality, memoryFromLegacy, retrievability } from './fsrs';
 
 /**
- * Enhanced SM-2 / FSRS-inspired algorithm for Quranic memorization.
- * Evaluates ease factor, consecutive successes, and lapse counts across 7 discrete states:
- * 'new' -> 'learning' -> 'familiar' -> 'memorized' -> 'review' -> 'weak' -> 'mastered'
+ * Verse scheduler: FSRS underneath, the classical tri-tier Hifz vocabulary on top.
  *
- * Integrated with the classical Islamic Tri-Tier Hifz System:
- * 1. Sabaq (السبق): Daily new lesson (repetition 0-2, interval <= 3 days)
- * 2. Sabqi (السبقي): Recent consolidation buffer (repetition 3-6, interval 4-14 days)
- * 3. Manzil (المنزل): Long-term revision cycle (repetition 7+, interval >= 15 days)
+ * Grades arrive on the app's 0–5 quality scale (kept so every caller and every stored
+ * review stays valid) and are mapped to FSRS Again/Hard/Good/Easy. The seven display
+ * states ('new' → 'learning' → 'familiar' → 'memorized' → 'review' → 'weak' → 'mastered')
+ * and the three tiers are derived from the resulting stability, so:
+ *
+ * 1. Sabaq (السبق): stability up to 3 days — today's or yesterday's lesson.
+ * 2. Sabqi (السبقي): stability 3–14 days — the recent consolidation buffer.
+ * 3. Manzil (المنزل): stability over 14 days — long-term rotation.
+ *
+ * `interval`, `easeFactor`, `repetitions` and `lapses` are still written for backward
+ * compatibility with older backups; `stability` and `difficulty` are the source of truth.
  */
 
 export interface ReviewSubmission {
@@ -19,13 +25,22 @@ export interface ReviewSubmission {
 }
 
 export function determineHifzTier(progress: VerseProgress): HifzTier {
-  if (progress.repetitions <= 2 || progress.interval <= 3) {
+  const stability = progress.stability ?? progress.interval;
+  if (progress.repetitions <= 1 || stability <= 3) {
     return 'sabaq';
   }
-  if (progress.repetitions <= 6 && progress.interval <= 14) {
+  if (stability <= 14) {
     return 'sabqi';
   }
   return 'manzil';
+}
+
+/** Current recall probability (0–1) for an item, given the time since its last review. */
+export function currentRetrievability(progress: VerseProgress, now: Date = new Date()): number {
+  const stability = progress.stability ?? (progress.interval > 0 ? progress.interval : 0);
+  if (stability <= 0 || !progress.lastReviewedAt) return progress.repetitions > 0 ? 0.5 : 0;
+  const elapsedDays = (now.getTime() - new Date(progress.lastReviewedAt).getTime()) / 86_400_000;
+  return retrievability(elapsedDays, stability);
 }
 
 export function initializeVerseProgress(surah: number, ayah: number): VerseProgress {
@@ -45,69 +60,78 @@ export function initializeVerseProgress(surah: number, ayah: number): VerseProgr
 }
 
 /**
- * Calculates next review date, interval, ease factor, and state transition deterministically.
+ * Applies one review and returns the rescheduled item.
+ *
+ * `quality` is 0–5 (0 blackout … 5 perfect) and is mapped to an FSRS grade. The returned
+ * record is a new object; the caller persists it.
  */
 export function calculateNextReview(
   current: VerseProgress,
-  quality: number // 0: Blackout, 1: Incorrect, 2: Hard, 3: Good, 4: Great, 5: Perfect
+  quality: number,
+  now: Date = new Date()
 ): VerseProgress {
-  let { interval, easeFactor, repetitions, lapses } = current;
+  const q = Math.max(0, Math.min(5, Math.round(quality)));
+  const grade = gradeFromQuality(q);
 
-  // Bound quality between 0 and 5
-  const q = Math.max(0, Math.min(5, quality));
+  const previousMemory =
+    current.stability !== undefined && current.difficulty !== undefined
+      ? { stability: current.stability, difficulty: current.difficulty }
+      : memoryFromLegacy(current.interval, current.easeFactor, current.repetitions);
 
-  // Update Ease Factor: EF' = EF + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
-  // Minimum EF is 1.3
-  easeFactor = easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
-  if (easeFactor < 1.3) easeFactor = 1.3;
+  const elapsedDays = current.lastReviewedAt
+    ? Math.max(0, (now.getTime() - new Date(current.lastReviewedAt).getTime()) / 86_400_000)
+    : 0;
 
-  let nextState: SrsState = current.state;
+  const result = fsrsReview(previousMemory, grade, elapsedDays);
 
-  if (q < 3) {
-    // Failure (Again / Hard reset)
+  let { repetitions, lapses } = current;
+  let nextState: SrsState;
+
+  if (grade === 1) {
     repetitions = 0;
-    interval = 1; // repeat tomorrow or today
     lapses += 1;
     nextState = lapses > 2 ? 'weak' : 'learning';
   } else {
-    // Success
     repetitions += 1;
-    if (repetitions === 1) {
-      interval = 1;
-      nextState = 'learning';
-    } else if (repetitions === 2) {
-      interval = 3;
-      nextState = 'familiar';
-    } else if (repetitions === 3) {
-      interval = 7;
-      nextState = 'memorized';
-    } else {
-      interval = Math.round(interval * easeFactor);
-      if (repetitions >= 7 && interval >= 30) {
-        nextState = 'mastered';
-      } else {
-        nextState = 'review';
-      }
-    }
+    if (repetitions === 1) nextState = 'learning';
+    else if (result.stability < 3) nextState = 'familiar';
+    else if (result.stability < 14) nextState = 'memorized';
+    else if (result.stability >= 30 && repetitions >= 5) nextState = 'mastered';
+    else nextState = 'review';
   }
 
-  // Calculate due date
-  const now = new Date();
-  const nextDate = new Date(now.getTime() + interval * 24 * 60 * 60 * 1000);
+  // Legacy ease factor kept in step so a backup restored on an older build still grades.
+  let easeFactor = current.easeFactor + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));
+  if (easeFactor < 1.3) easeFactor = 1.3;
+
+  const nextDate = new Date(now.getTime() + result.intervalDays * 24 * 60 * 60 * 1000);
 
   const updated: VerseProgress = {
     ...current,
-    interval,
+    interval: result.intervalDays,
     easeFactor: Number(easeFactor.toFixed(2)),
     repetitions,
     lapses,
     state: nextState,
     dueDate: nextDate.toISOString(),
     lastReviewedAt: now.toISOString(),
+    stability: Number(result.stability.toFixed(3)),
+    difficulty: Number(result.difficulty.toFixed(3)),
   };
 
   updated.hifzTier = determineHifzTier(updated);
   return updated;
+}
+
+/** Earliest due date among the items, or null when there are none. */
+export function nextDueAt(items: readonly VerseProgress[]): Date | null {
+  let earliest: number | null = null;
+  for (const item of items) {
+    const time = new Date(item.dueDate).getTime();
+    if (!Number.isFinite(time)) continue;
+    if (earliest === null || time < earliest) earliest = time;
+  }
+  return earliest === null ? null : new Date(earliest);
 }
 
 export function isItemDue(dueDateIso: string): boolean {
