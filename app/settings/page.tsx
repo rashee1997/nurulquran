@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS } from '@/components/quran/AudioBar';
+import { OfflinePanel } from '@/components/settings/OfflinePanel';
 import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import { localDayKey } from '@/lib/time/day';
@@ -267,6 +268,8 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      <OfflinePanel />
 
       {/* AI Tajweed Teacher & Voice Preferences Section */}
       <div id="ai-teacher-voice-section" className="p-6 rounded-3xl bg-card border border-border shadow-xs space-y-6">

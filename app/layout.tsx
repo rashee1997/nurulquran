@@ -1,9 +1,29 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { NavigationHeader } from '@/components/NavigationHeader';
+import { ServiceWorkerBootstrap } from '@/components/system/ServiceWorkerBootstrap';
+
+// `themeColor` moved out of `Metadata` into a dedicated `viewport` export in Next 14+;
+// leaving it in `metadata` triggers a build-time warning and is silently dropped.
+export const viewport: Viewport = {
+  themeColor: '#059669',
+};
 
 export const metadata: Metadata = {
   title: 'NurulQuran — Quran Reading & Memorization',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'NurulQuran',
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
   description: 'Local-first Quran reading and memorization: Tajweed and Arabic lessons, ten memorization modes, spaced repetition, English and Tamil translations, and word morphology.',
   openGraph: {
     title: 'NurulQuran — Quran Reading & Memorization',
@@ -32,6 +52,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-foreground antialiased flex flex-col">
+        <ServiceWorkerBootstrap />
         <NavigationHeader />
         <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
           {children}

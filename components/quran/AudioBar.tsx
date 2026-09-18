@@ -153,6 +153,7 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   // Measured word timings, if a source is configured for this reciter.
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the previous ayah's timings while the new lookup for this reciter/surah is in flight
     setMeasuredSegments(null);
     loadMeasuredTimings(selectedReciter, surahNumber)
       .then((source) => {

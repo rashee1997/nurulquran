@@ -6,7 +6,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Chapter, QuranWord, Verse } from '@/lib/quran/types';
 import { AyahItem } from './AyahItem';
 import { WordPopover } from './WordPopover';
-import { AudioBar, PlaybackIntent } from './AudioBar';
+import { AudioBar, PlaybackIntent, RECITERS } from './AudioBar';
+import { DownloadSurahControl } from './DownloadSurahControl';
 import { MushafPageView } from './MushafPageView';
 import { MutashabihatModal } from './MutashabihatModal';
 import { MutashabihEntry } from '@/lib/quran/mutashabihat';
@@ -79,6 +80,9 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     () => db.verseProgress.where('surah').equals(chapter.id).toArray(),
     [chapter.id]
   );
+
+  const readerProfile = useLiveQuery(() => db.userProfile.get('default_user'), [], undefined);
+  const activeReciterId = readerProfile?.reciterId || RECITERS[0].id;
 
   const bookmarkRows = useLiveQuery(
     () => db.bookmarks.where('surah').equals(chapter.id).toArray(),
@@ -385,6 +389,8 @@ Explain the root words, linguistic context, and practical spiritual reflections.
               <Settings2 className="w-4 h-4" aria-hidden="true" />
               <span className="sr-only">Display settings</span>
             </button>
+
+            <DownloadSurahControl surahId={chapter.id} reciterId={activeReciterId} versesCount={chapter.versesCount} />
           </div>
         </div>
       </div>

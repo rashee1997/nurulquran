@@ -63,6 +63,7 @@ export const AyahItem: React.FC<AyahItemProps> = ({
 
   // A note edited elsewhere (the Library page) replaces the draft when the editor is closed.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncs the closed editor's draft to an external note edited elsewhere (e.g. the Library page)
     if (!noteOpen) setDraft(noteText ?? '');
   }, [noteText, noteOpen]);
 

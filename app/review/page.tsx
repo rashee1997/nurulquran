@@ -62,6 +62,7 @@ export default function SrsReviewPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async DB read on mount, not a derived-state anti-pattern
     void loadDueQueue();
   }, [loadDueQueue]);
 
