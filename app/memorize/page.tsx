@@ -1,59 +1,73 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import confetti from 'canvas-confetti';
+import { Brain, RotateCcw, ArrowRight, AlertCircle, Clock, BookOpen } from 'lucide-react';
 import { SURAHS } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
 import { db } from '@/lib/db';
 import { calculateNextReview, initializeVerseProgress } from '@/lib/learning/srs-engine';
 import { recordActivity } from '@/lib/learning/activity';
+import { track } from '@/lib/telemetry/events';
 import { shuffle } from '@/lib/utils';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
-import confetti from 'canvas-confetti';
-import { 
-  Brain, 
-  Volume2, 
-  RotateCcw, 
-  CheckCircle2, 
-  XCircle, 
-  Sparkles, 
-  Clock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight,
-  Shuffle,
-  AlertCircle
-} from 'lucide-react';
 import { TutorPanel } from '@/components/ai/TutorPanel';
+import { HIFZ_MODES, isHifzModeKey, type HifzModeKey, type ModeStageProps } from '@/components/memorize/types';
+import { CompleteVerseMode, AudioToAyahMode, MeaningToAyahMode } from '@/components/memorize/ChoiceModes';
+import {
+  ListenRepeatMode,
+  WordReorderMode,
+  FirstWordMode,
+  MissingSegmentMode,
+  SpeedRecallMode,
+  GuidedSessionMode,
+} from '@/components/memorize/RecallModes';
+import { RecitationMode } from '@/components/memorize/RecitationMode';
 
-export type HifzModeKey = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I' | 'J';
+export type { HifzModeKey } from '@/components/memorize/types';
 
-const HIFZ_MODE_KEYS: readonly HifzModeKey[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+type DrillSource = 'surah' | 'queue';
 
-function isHifzModeKey(value: string | null): value is HifzModeKey {
-  return value !== null && (HIFZ_MODE_KEYS as readonly string[]).includes(value);
-}
+const MODE_COMPONENTS: Record<HifzModeKey, React.FC<ModeStageProps>> = {
+  A: ListenRepeatMode,
+  B: CompleteVerseMode,
+  C: WordReorderMode,
+  D: FirstWordMode,
+  E: AudioToAyahMode,
+  F: MeaningToAyahMode,
+  G: MissingSegmentMode,
+  H: RecitationMode,
+  I: SpeedRecallMode,
+  J: GuidedSessionMode,
+};
 
 function MemorizationContent() {
   const searchParams = useSearchParams();
   const requestedMode = searchParams.get('mode');
-  const initialMode: HifzModeKey = isHifzModeKey(requestedMode) ? requestedMode : 'A';
+  const requestedSource: DrillSource = searchParams.get('source') === 'queue' ? 'queue' : 'surah';
+  const requestedSurah = Number(searchParams.get('surah'));
 
-  const [activeMode, setActiveMode] = useState<HifzModeKey>(initialMode);
-  const [selectedSurahId, setSelectedSurahId] = useState<number>(1);
+  const [activeMode, setActiveMode] = useState<HifzModeKey>(isHifzModeKey(requestedMode) ? requestedMode : 'A');
+  const [source, setSource] = useState<DrillSource>(requestedSource);
+  const [selectedSurahId, setSelectedSurahId] = useState<number>(
+    Number.isInteger(requestedSurah) && requestedSurah >= 1 && requestedSurah <= 114 ? requestedSurah : 1
+  );
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
   const [verses, setVerses] = useState<Verse[]>([]);
-  /** Which surah the verses in state actually belong to. */
-  const [loadedSurahId, setLoadedSurahId] = useState<number | null>(null);
+  /** Identifies which selection the verses in state were loaded for. */
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [verseLoadFailed, setVerseLoadFailed] = useState(false);
-  /** Bumped by “Try again” to re-run the loader without duplicating it. */
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
   const [loadingVerses, setLoadingVerses] = useState(true);
+  const [queueEmpty, setQueueEmpty] = useState(false);
 
-  // Mode Specific State
-  const [assembledIndices, setAssembledIndices] = useState<number[]>([]);
+  // Mode-specific state
+  const [assembledIndices, setAssembledIndicesState] = useState<number[]>([]);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [isAnswerChecked, setIsAnswerChecked] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
@@ -62,11 +76,46 @@ function MemorizationContent() {
   const [timerActive, setTimerActive] = useState(false);
   const [aiTutorOpen, setAiTutorOpen] = useState(false);
   const [aiTutorPrompt, setAiTutorPrompt] = useState('');
+  const [roundComplete, setRoundComplete] = useState(false);
 
   const { playUrl, speak } = usePreviewAudio();
 
-  const resetModeState = React.useCallback(() => {
-    setAssembledIndices([]);
+  /**
+   * Restore the last surah and mode unless the URL asked for something specific. A learner
+   * who drilled Al-Kahf yesterday should not come back to Al-Fatihah, mode A.
+   */
+  useEffect(() => {
+    let active = true;
+    db.userProfile
+      .get('default_user')
+      .then((profile) => {
+        if (!active) return;
+        if (!searchParams.get('surah') && profile?.lastMemorizeSurah) setSelectedSurahId(profile.lastMemorizeSurah);
+        if (!requestedMode && isHifzModeKey(profile?.lastMemorizeMode)) setActiveMode(profile.lastMemorizeMode);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setPrefsLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!prefsLoaded) return;
+    db.userProfile
+      .get('default_user')
+      .then((profile) => {
+        if (!profile) return;
+        return db.userProfile.update('default_user', { lastMemorizeSurah: selectedSurahId, lastMemorizeMode: activeMode });
+      })
+      .catch(() => undefined);
+  }, [selectedSurahId, activeMode, prefsLoaded]);
+
+  const resetModeState = useCallback(() => {
+    setAssembledIndicesState([]);
     setSelectedChoice(null);
     setIsAnswerChecked(false);
     setIsCorrect(false);
@@ -75,29 +124,49 @@ function MemorizationContent() {
     setTimerActive(false);
   }, []);
 
-  // Load verses for the selected Surah
+  const selectionKey = source === 'queue' ? 'queue' : `surah:${selectedSurahId}`;
+
+  // Load the verse set: a whole surah, or today's due queue.
   useEffect(() => {
-    // Switching surahs quickly used to be a race: the slower reply could land last and
-    // leave another surah's verses on screen under the current heading.
+    if (!prefsLoaded) return;
     let cancelled = false;
 
-    async function loadSurahVerses() {
+    async function load() {
       setLoadingVerses(true);
+      setQueueEmpty(false);
       try {
-        const loaded = await quranProvider.getChapterVerses(selectedSurahId);
+        let loaded: Verse[];
+        if (source === 'queue') {
+          const now = new Date().toISOString();
+          const due = (await db.verseProgress.toArray()).filter((item) => item.dueDate <= now || item.repetitions === 0);
+          due.sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
+          if (due.length === 0) {
+            if (!cancelled) {
+              setVerses([]);
+              setLoadedFor('queue');
+              setQueueEmpty(true);
+              setVerseLoadFailed(false);
+            }
+            return;
+          }
+          loaded = await Promise.all(due.slice(0, 40).map((item) => quranProvider.getVerse({ surah: item.surah, ayah: item.ayah })));
+          track('memorize.drill_started', { source: 'queue', count: loaded.length, mode: activeMode });
+        } else {
+          loaded = await quranProvider.getChapterVerses(selectedSurahId);
+          track('memorize.drill_started', { source: 'surah', surah: selectedSurahId, mode: activeMode });
+        }
         if (cancelled) return;
         setVerses(loaded);
-        setLoadedSurahId(selectedSurahId);
+        setLoadedFor(selectionKey);
         setVerseLoadFailed(false);
         setCurrentVerseIndex(0);
+        setRoundComplete(false);
         resetModeState();
       } catch (error: unknown) {
         if (cancelled) return;
-        console.error(`Failed to load verses for surah ${selectedSurahId}:`, error);
-        // Clear the stage instead of leaving the previous surah's text in place: it would
-        // be studied and graded as the surah named at the top of the screen.
+        console.error(`Failed to load verses for ${selectionKey}:`, error);
         setVerses([]);
-        setLoadedSurahId(null);
+        setLoadedFor(null);
         setCurrentVerseIndex(0);
         setVerseLoadFailed(true);
       } finally {
@@ -105,148 +174,156 @@ function MemorizationContent() {
       }
     }
 
-    void loadSurahVerses();
+    void load();
     return () => {
       cancelled = true;
     };
-  }, [selectedSurahId, loadAttempt, resetModeState]);
+    // The mode is intentionally not a dependency: switching modes keeps the loaded set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionKey, loadAttempt, resetModeState, prefsLoaded]);
 
-  /**
-   * Mode I timer. The countdown is derived from state instead of being stopped by a
-   * second effect, so there is no extra render per tick and the interval cannot run
-   * past zero. The tick is only deactivated from the starter button below.
-   */
   const isTimerRunning = activeMode === 'I' && timerActive && timerSeconds > 0;
-
   useEffect(() => {
     if (!isTimerRunning) return;
-    const interval = setInterval(() => {
-      setTimerSeconds((previous) => Math.max(0, previous - 1));
-    }, 1000);
+    const interval = setInterval(() => setTimerSeconds((previous) => Math.max(0, previous - 1)), 1000);
     return () => clearInterval(interval);
   }, [isTimerRunning]);
 
-  /** Text is only offered for the surah it was loaded for. */
-  const versesForSelection = useMemo(
-    () => (loadedSurahId === selectedSurahId ? verses : []),
-    [loadedSurahId, selectedSurahId, verses]
-  );
+  const versesForSelection = useMemo(() => (loadedFor === selectionKey ? verses : []), [loadedFor, selectionKey, verses]);
   const currentVerse = versesForSelection[currentVerseIndex] ?? versesForSelection[0];
 
-  /**
-   * Plays an ayah recitation through the shared player, falling back to the Arabic
-   * synthesizer when the recording cannot be loaded. Each call supersedes the last,
-   * which is what stops overlapping recitations when the learner taps quickly.
-   */
-  const playAudio = async (url?: string, text?: string, verseKey?: string): Promise<void> => {
-    // The key identifies the *verse*, never a prefix of its text. Two verses that open with
-    // the same words (the ten identical refrains of Al-Mursalat, for instance) produced the
-    // same key, so the shared player could mark the wrong row as playing.
-    const key = verseKey ?? url ?? 'unknown';
-    if (url) {
-      const played = await playUrl(`memorize:${key}`, url);
-      if (played) return;
-    }
-    if (text) {
-      await speak(`memorize-speech:${key}`, text, 'ar-SA');
-    }
-  };
+  const playAudio = useCallback(
+    async (url?: string, text?: string, verseKey?: string): Promise<void> => {
+      const key = verseKey ?? url ?? 'unknown';
+      if (url) {
+        const played = await playUrl(`memorize:${key}`, url);
+        if (played) return;
+      }
+      if (text) await speak(`memorize-speech:${key}`, text, 'ar-SA');
+    },
+    [playUrl, speak]
+  );
 
-  const awardXP = async (amount: number) => {
-    await recordActivity({
-      xp: amount,
-      event: 'memorize.graded',
-      props: { mode: activeMode, surah: selectedSurahId },
-    });
-  };
+  const awardXP = useCallback(
+    async (amount: number) => {
+      await recordActivity({ xp: amount, event: 'memorize.graded', props: { mode: activeMode, source } });
+    },
+    [activeMode, source]
+  );
 
-  const handleSelfGrade = async (quality: number) => {
-    if (!currentVerse) return;
-    const key = `${currentVerse.surah}:${currentVerse.ayah}`;
-    let prog = await db.verseProgress.get(key);
-    if (!prog) {
-      prog = initializeVerseProgress(currentVerse.surah, currentVerse.ayah);
-    }
-
-    const next = calculateNextReview(prog, quality);
-    await db.verseProgress.put(next);
-
-    if (quality >= 3) {
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
-      await awardXP(15);
-    }
-
-    // Go to next verse
+  const advance = useCallback(() => {
     if (currentVerseIndex < versesForSelection.length - 1) {
-      setCurrentVerseIndex(prev => prev + 1);
+      setCurrentVerseIndex((prev) => prev + 1);
       resetModeState();
     } else {
       setIsRevealed(false);
-      alert('You have completed this Surah review round! Alhamdulillah!');
+      setRoundComplete(true);
     }
-  };
+  }, [currentVerseIndex, resetModeState, versesForSelection.length]);
 
-  /**
-   * Multiple-choice options for the current ayah.
-   *
-   * Memoised per verse: building (and shuffling) this inside render meant the options
-   * were reshuffled on every state change — including the tap itself — so the button
-   * under the learner's finger moved before the answer could land.
-   */
+  const handleSelfGrade = useCallback(
+    async (quality: number) => {
+      if (!currentVerse) return;
+      const key = `${currentVerse.surah}:${currentVerse.ayah}`;
+      const existing = (await db.verseProgress.get(key)) ?? initializeVerseProgress(currentVerse.surah, currentVerse.ayah);
+      const next = calculateNextReview(existing, quality);
+      await db.verseProgress.put(next);
+      if (quality >= 3) {
+        try {
+          confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+        } catch {
+          // optional
+        }
+        await awardXP(15);
+      } else {
+        await awardXP(5);
+      }
+      advance();
+    },
+    [advance, awardXP, currentVerse]
+  );
+
   const choiceOptions = useMemo(() => {
     if (!currentVerse || versesForSelection.length < 2) return [];
     const others = versesForSelection
-      .filter((verse) => verse.ayah !== currentVerse.ayah)
+      .filter((verse) => verse.ayah !== currentVerse.ayah || verse.surah !== currentVerse.surah)
       .slice(0, 3)
       .map((verse) => verse.textUthmani);
     return shuffle([currentVerse.textUthmani, ...others]);
   }, [currentVerse, versesForSelection]);
 
-  const handleCheckMultipleChoice = (chosen: string) => {
-    setSelectedChoice(chosen);
-    const correct = chosen === currentVerse.textUthmani;
-    setIsCorrect(correct);
-    setIsAnswerChecked(true);
+  const handleCheckMultipleChoice = useCallback(
+    (chosen: string) => {
+      if (!currentVerse) return;
+      setSelectedChoice(chosen);
+      const correct = chosen === currentVerse.textUthmani;
+      setIsCorrect(correct);
+      setIsAnswerChecked(true);
+      if (correct) {
+        try {
+          confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+        } catch {
+          // optional
+        }
+        void awardXP(10);
+      }
+    },
+    [awardXP, currentVerse]
+  );
 
-    if (correct) {
-      confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
-      awardXP(10);
-    }
-  };
+  const setAssembledIndices = useCallback((updater: (previous: number[]) => number[]) => {
+    setAssembledIndicesState((previous) => updater(previous));
+  }, []);
 
-  const modesList = [
-    { id: 'A', name: 'Listen & Repeat', icon: '🎧' },
-    { id: 'B', name: 'Complete Verse', icon: '✍️' },
-    { id: 'C', name: 'Word Reordering', icon: '🧩' },
-    { id: 'D', name: 'First Word Prompt', icon: '💡' },
-    { id: 'E', name: 'Audio to Ayah', icon: '🔊' },
-    { id: 'F', name: 'Meaning to Ayah', icon: '🌐' },
-    { id: 'G', name: 'Missing Segment', icon: '🔍' },
-    { id: 'H', name: 'Blind Recitation (SRS)', icon: '🙈' },
-    { id: 'I', name: 'Speed Recall (15s)', icon: '⚡' },
-    { id: 'J', name: 'Guided Session', icon: '📖' },
-  ];
+  const openTutor = useCallback((prompt: string) => {
+    setAiTutorPrompt(prompt);
+    setAiTutorOpen(true);
+  }, []);
+
+  const ModeComponent = MODE_COMPONENTS[activeMode];
+
+  const stageProps: ModeStageProps | null = currentVerse
+    ? {
+        verse: currentVerse,
+        verses: versesForSelection,
+        choiceOptions,
+        selectedChoice,
+        isAnswerChecked,
+        isCorrect,
+        isRevealed,
+        assembledIndices,
+        timerSeconds,
+        isTimerRunning,
+        setSelectedChoice,
+        setIsAnswerChecked,
+        setIsCorrect,
+        setIsRevealed,
+        setAssembledIndices,
+        setTimerSeconds,
+        setTimerActive,
+        playAudio,
+        awardXP,
+        handleSelfGrade,
+        handleCheckMultipleChoice,
+        openTutor,
+      }
+    : null;
 
   return (
     <div id="memorization-suite" className="space-y-6 animate-in fade-in duration-300">
-      {/* Top Header & Surah Selector */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card p-5 rounded-3xl border border-border shadow-xs">
+      {/* Header, source switch and surah selector */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-card p-5 rounded-3xl border border-border shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-primary-subtle flex items-center justify-center text-primary font-bold">
             <Brain className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-foreground">
-              Memorization Modes
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Ten recall drills linked to spaced repetition
-            </p>
+            <h1 className="text-base font-bold text-foreground">Memorization Modes</h1>
+            <p className="text-xs text-muted-foreground">Ten recall drills linked to spaced repetition</p>
           </div>
         </div>
 
-        {/* Surah Dropdown selector & Planner CTA */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/memorize/planner"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary-subtle text-primary-strong text-xs font-bold border border-primary/20 hover:bg-primary-subtle/80 transition-colors"
@@ -255,30 +332,63 @@ function MemorizationContent() {
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
 
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-semibold text-muted-foreground">Surah:</label>
-            <select
-              value={selectedSurahId}
-              onChange={(e) => setSelectedSurahId(Number(e.target.value))}
-              className="text-xs font-semibold px-3 py-2 rounded-xl bg-surface text-foreground border border-border outline-hidden cursor-pointer"
+          <div className="inline-flex items-center p-1 rounded-xl bg-surface border border-border">
+            <button
+              type="button"
+              onClick={() => setSource('queue')}
+              aria-pressed={source === 'queue'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                source === 'queue' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
             >
-              {SURAHS.slice(0, 30).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.id}. {s.nameSimple} ({s.nameEnglish}) - {s.versesCount} Ayahs
-                </option>
-              ))}
-            </select>
+              <Clock className="w-3.5 h-3.5" />
+              <span>Today&apos;s due</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSource('surah')}
+              aria-pressed={source === 'surah'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                source === 'surah' ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>By surah</span>
+            </button>
           </div>
+
+          {source === 'surah' && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="memorize-surah" className="text-xs font-semibold text-muted-foreground">
+                Surah:
+              </label>
+              <select
+                id="memorize-surah"
+                value={selectedSurahId}
+                onChange={(e) => setSelectedSurahId(Number(e.target.value))}
+                className="text-xs font-semibold px-3 py-2 rounded-xl bg-surface text-foreground border border-border outline-hidden cursor-pointer max-w-[260px]"
+              >
+                {SURAHS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.id}. {s.nameSimple} ({s.nameEnglish}) - {s.versesCount} Ayahs
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Mode Picker Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {modesList.map((m) => (
+      {/* Mode picker */}
+      <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none" role="tablist" aria-label="Memorization mode">
+        {HIFZ_MODES.map((m) => (
           <button
             key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={activeMode === m.id}
             onClick={() => {
-              setActiveMode(m.id as HifzModeKey);
+              setActiveMode(m.id);
               resetModeState();
             }}
             className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
@@ -288,22 +398,25 @@ function MemorizationContent() {
             }`}
           >
             <span>{m.icon}</span>
-            <span>Mode {m.id}: {m.name}</span>
+            <span>
+              Mode {m.id}: {m.name}
+            </span>
           </button>
         ))}
       </div>
 
-      {/* Current Verse Navigation Bar */}
-      {versesForSelection.length > 0 && (
+      {/* Verse navigation */}
+      {versesForSelection.length > 0 && currentVerse && (
         <div className="flex items-center justify-between px-4 py-2 bg-surface rounded-2xl border border-border text-xs font-semibold text-muted-foreground">
           <span>
-            Ayah {currentVerseIndex + 1} of {versesForSelection.length} (Surah {currentVerse?.surah}:{currentVerse?.ayah})
+            Ayah {currentVerseIndex + 1} of {versesForSelection.length} (Surah {currentVerse.surah}:{currentVerse.ayah})
           </span>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               disabled={currentVerseIndex === 0}
               onClick={() => {
-                setCurrentVerseIndex(prev => Math.max(0, prev - 1));
+                setCurrentVerseIndex((prev) => Math.max(0, prev - 1));
                 resetModeState();
               }}
               className="px-2.5 py-1 rounded-lg bg-card border border-border hover:bg-surface-hover text-foreground disabled:opacity-40 transition-colors"
@@ -311,9 +424,10 @@ function MemorizationContent() {
               Prev
             </button>
             <button
+              type="button"
               disabled={currentVerseIndex === versesForSelection.length - 1}
               onClick={() => {
-                setCurrentVerseIndex(prev => Math.min(versesForSelection.length - 1, prev + 1));
+                setCurrentVerseIndex((prev) => Math.min(versesForSelection.length - 1, prev + 1));
                 resetModeState();
               }}
               className="px-2.5 py-1 rounded-lg bg-card border border-border hover:bg-surface-hover text-foreground disabled:opacity-40 transition-colors"
@@ -324,507 +438,62 @@ function MemorizationContent() {
         </div>
       )}
 
-      {/* Main Interactive Stage for the Selected Mode */}
+      {/* Stage */}
       {loadingVerses ? (
         <div className="text-center py-20 text-muted-foreground">
           <Brain className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-          <p className="text-xs">Loading verses for Surah {selectedSurahId}…</p>
+          <p className="text-xs">{source === 'queue' ? 'Loading today’s due ayahs…' : `Loading verses for Surah ${selectedSurahId}…`}</p>
         </div>
-      ) : currentVerse ? (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-lg space-y-6">
-
-          {/* MODE A: LISTEN & REPEAT */}
-          {activeMode === 'A' && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode A • Auditory Loop</span>
-                <h3 className="text-lg font-bold text-foreground">Listen & Repeat</h3>
-                <p className="text-xs text-muted-foreground">Listen to the ayah repeatedly and recite along.</p>
-              </div>
-
-              <div className="py-8 px-4 bg-surface rounded-2xl border border-border">
-                <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose dir-rtl" dir="rtl">
-                  {currentVerse.textUthmani}
-                </p>
-                <p className="text-xs text-muted-foreground mt-4 max-w-lg mx-auto">
-                  {currentVerse.translationEn}
-                </p>
-                {currentVerse.translationTa && (
-                  <p className="text-xs text-primary font-tamil mt-1">
-                    {currentVerse.translationTa}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={() =>
-                    void playAudio(
-                      currentVerse.audioUrl,
-                      currentVerse.textUthmani,
-                      `${currentVerse.surah}:${currentVerse.ayah}`
-                    )
-                  }
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border hover:bg-surface-hover text-foreground text-xs font-bold transition-all active:scale-95"
-                >
-                  <Volume2 className="w-4 h-4" />
-                  <span>Play Recitation</span>
-                </button>
-                <button
-                  onClick={() => handleSelfGrade(4)}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Mastered This Verse (+15 XP)</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* MODE B: COMPLETE THE VERSE */}
-          {activeMode === 'B' && (
-            <div className="space-y-6">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode B • Continuation</span>
-                <h3 className="text-lg font-bold text-foreground">Complete the Verse</h3>
-                <p className="text-xs text-muted-foreground">Read the starting words and choose the correct continuation.</p>
-              </div>
-
-              {/* Prompt showing only first half */}
-              <div className="py-6 px-4 bg-surface rounded-2xl border border-border text-center dir-rtl" dir="rtl">
-                <p className="font-arabic text-3xl text-primary-strong">
-                  {currentVerse.words.slice(0, Math.max(2, Math.floor(currentVerse.words.length / 2))).map(w => w.arabic).join(' ')} ... ؟
-                </p>
-              </div>
-
-              {/* Choices */}
-              <div className="space-y-2.5">
-                {choiceOptions.map((opt, idx) => (
-                  <button
-                    key={idx}
-                    disabled={isAnswerChecked}
-                    onClick={() => handleCheckMultipleChoice(opt)}
-                    className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
-                      isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-success-subtle text-success-strong border-success/40'
-                        : selectedChoice === opt && !isCorrect
-                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
-                        : 'bg-surface border border-border hover:border-primary text-foreground'
-                    }`}
-                    dir="rtl"
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* MODE C: WORD REORDERING */}
-          {activeMode === 'C' && (
-            <div className="space-y-6">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode C • Syntax Assembly</span>
-                <h3 className="text-lg font-bold text-foreground">Word Reordering</h3>
-                <p className="text-xs text-muted-foreground">Assemble the words of this ayah in order.</p>
-              </div>
-
-              {/* Workspace */}
-              <div className="min-h-[80px] p-4 bg-surface rounded-2xl border-2 border-dashed border-border flex flex-wrap gap-2 items-center justify-center dir-rtl" dir="rtl">
-                {assembledIndices.length === 0 ? (
-                  <span className="text-xs text-muted-foreground font-sans" dir="ltr">Tap tokens below in order</span>
-                ) : (
-                  assembledIndices.map((wordIdx, pos) => {
-                    const word = currentVerse.words[wordIdx];
-                    return (
-                      <button
-                        key={pos}
-                        onClick={() => setAssembledIndices(prev => prev.filter((_, i) => i !== pos))}
-                        className="font-arabic text-2xl px-3 py-1.5 rounded-xl bg-primary text-primary-foreground shadow-xs hover:bg-danger transition-colors"
-                      >
-                        {word?.arabic}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Shuffled Available Tokens */}
-              <div className="flex flex-wrap gap-2 justify-center dir-rtl" dir="rtl">
-                {currentVerse.words.map((w, idx) => {
-                  const isUsed = assembledIndices.includes(idx);
-                  return (
-                    <button
-                      key={idx}
-                      disabled={isUsed || isAnswerChecked}
-                      onClick={() => setAssembledIndices(prev => [...prev, idx])}
-                      className={`font-arabic text-2xl px-4 py-2 rounded-xl border transition-all ${
-                        isUsed
-                          ? 'opacity-30 border-border pointer-events-none'
-                          : 'bg-surface border border-border hover:border-primary text-foreground'
-                      }`}
-                    >
-                      {w.arabic}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => {
-                    const ans = assembledIndices.map(i => currentVerse.words[i]?.arabic).join(' ').trim();
-                    const target = currentVerse.words.map(w => w.arabic).join(' ').trim();
-                    const correct = ans === target;
-                    setIsCorrect(correct);
-                    setIsAnswerChecked(true);
-                    if (correct) {
-                      confetti({ particleCount: 50, spread: 60 });
-                      awardXP(15);
-                    }
-                  }}
-                  className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md transition-colors"
-                >
-                  Check Canonical Order
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* MODE D: FIRST WORD PROMPT */}
-          {activeMode === 'D' && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode D • Initial Trigger</span>
-                <h3 className="text-lg font-bold text-foreground">First Word Recall</h3>
-                <p className="text-xs text-muted-foreground">Recall the ayah from its first word.</p>
-              </div>
-
-              <div className="py-8 bg-surface rounded-2xl border border-border text-center">
-                <span className="text-xs font-semibold text-muted-foreground block mb-2">First Word:</span>
-                <p className="font-arabic text-4xl text-primary font-bold">
-                  {currentVerse.words[0]?.arabic}
-                </p>
-                {isRevealed && (
-                  <p className="font-arabic text-2xl text-foreground mt-6 leading-loose animate-in fade-in">
-                    {currentVerse.textUthmani}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={() => setIsRevealed(!isRevealed)}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface hover:bg-surface-hover border border-border text-foreground text-xs font-bold transition-colors"
-                >
-                  {isRevealed ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  <span>{isRevealed ? 'Hide Full Verse' : 'Reveal Full Verse'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* MODE E: AUDIO TO AYAH */}
-          {activeMode === 'E' && (
-            <div className="space-y-6">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode E • Auditory Recognition</span>
-                <h3 className="text-lg font-bold text-foreground">Audio to Ayah Match</h3>
-                <p className="text-xs text-muted-foreground">Play the clip and choose which ayah was recited.</p>
-              </div>
-
-              <div className="text-center py-4">
-                <button
-                  onClick={() =>
-                    void playAudio(
-                      currentVerse.audioUrl,
-                      currentVerse.textUthmani,
-                      `${currentVerse.surah}:${currentVerse.ayah}`
-                    )
-                  }
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md active:scale-95 transition-all"
-                >
-                  <Volume2 className="w-5 h-5" />
-                  <span>Play Mystery Recitation</span>
-                </button>
-              </div>
-
-              <div className="space-y-2.5">
-                {choiceOptions.map((opt, idx) => (
-                  <button
-                    key={idx}
-                    disabled={isAnswerChecked}
-                    onClick={() => handleCheckMultipleChoice(opt)}
-                    className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
-                      isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-success-subtle text-success-strong border-success/40'
-                        : selectedChoice === opt && !isCorrect
-                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
-                        : 'bg-surface border border-border hover:border-primary text-foreground'
-                    }`}
-                    dir="rtl"
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* MODE F: MEANING TO AYAH */}
-          {activeMode === 'F' && (
-            <div className="space-y-6">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode F • Meaning match</span>
-                <h3 className="text-lg font-bold text-foreground">Meaning to Ayah Match</h3>
-                <p className="text-xs text-muted-foreground">Read the English & Tamil translations, then match with the Arabic text.</p>
-              </div>
-
-              <div className="p-6 bg-surface rounded-2xl border border-border space-y-2 text-center">
-                <p className="text-sm font-medium text-foreground">
-                  &ldquo;{currentVerse.translationEn}&rdquo;
-                </p>
-                {currentVerse.translationTa && (
-                  <p className="text-xs text-primary-strong font-tamil">
-                    &ldquo;{currentVerse.translationTa}&rdquo;
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2.5">
-                {choiceOptions.map((opt, idx) => (
-                  <button
-                    key={idx}
-                    disabled={isAnswerChecked}
-                    onClick={() => handleCheckMultipleChoice(opt)}
-                    className={`w-full p-4 rounded-xl border text-right font-arabic text-xl dir-rtl transition-all ${
-                      isAnswerChecked && opt === currentVerse.textUthmani
-                        ? 'bg-success-subtle text-success-strong border-success/40'
-                        : selectedChoice === opt && !isCorrect
-                        ? 'bg-danger-subtle text-danger-strong border-danger/40'
-                        : 'bg-surface border border-border hover:border-primary text-foreground'
-                    }`}
-                    dir="rtl"
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* MODE G: MISSING SEGMENT */}
-          {activeMode === 'G' && (
-            <div className="space-y-6">
-              <div className="text-center space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode G • Missing words</span>
-                <h3 className="text-lg font-bold text-foreground">Missing Segment</h3>
-                <p className="text-xs text-muted-foreground">Identify the missing word in the verse.</p>
-              </div>
-
-              <div className="p-6 bg-surface rounded-2xl border border-border text-center dir-rtl" dir="rtl">
-                <p className="font-arabic text-3xl text-foreground leading-loose">
-                  {currentVerse.words.map((w, i) => (
-                    i === 1 ? (
-                      <span key={i} className="px-3 py-1 bg-secondary-subtle border border-secondary/30 rounded-lg text-secondary-strong mx-1">
-                        [ ؟ ]
-                      </span>
-                    ) : (
-                      <span key={i} className="mx-1">{w.arabic}</span>
-                    )
-                  ))}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {[currentVerse.words[1]?.arabic, ...currentVerse.words.slice(2, 5).map(w => w.arabic)]
-                  .filter(Boolean)
-                  .sort((a, b) => (a.charCodeAt(0) % 7) - (b.charCodeAt(0) % 7))
-                  .map((opt, oIdx) => (
-                    <button
-                      key={oIdx}
-                      disabled={isAnswerChecked}
-                      onClick={() => {
-                        const correct = opt === currentVerse.words[1]?.arabic;
-                        setIsCorrect(correct);
-                        setSelectedChoice(opt);
-                        setIsAnswerChecked(true);
-                        if (correct) {
-                          confetti({ particleCount: 50 });
-                          awardXP(10);
-                        }
-                      }}
-                      className={`p-4 rounded-xl border text-center font-arabic text-2xl transition-all ${
-                        isAnswerChecked && opt === currentVerse.words[1]?.arabic
-                          ? 'bg-success-subtle text-success-strong border-success/40'
-                          : selectedChoice === opt && !isCorrect
-                          ? 'bg-danger-subtle text-danger-strong border-danger/40'
-                          : 'bg-surface border border-border text-foreground hover:border-primary'
-                      }`}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-              </div>
-            </div>
-          )}
-
-          {/* MODE H: BLIND RECITATION (SRS SELF-RATING) */}
-          {activeMode === 'H' && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode H • Blind recitation</span>
-                <h3 className="text-lg font-bold text-foreground">Mental Recitation & Self-Rating</h3>
-                <p className="text-xs text-muted-foreground">Recite Ayah {currentVerse.surah}:{currentVerse.ayah} from memory, then reveal and rate your retention quality.</p>
-              </div>
-
-              <div className="p-8 bg-surface rounded-2xl border border-border min-h-[140px] flex flex-col items-center justify-center">
-                {!isRevealed ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold text-muted-foreground">Verse hidden for blind recall</p>
-                    <button
-                      onClick={() => setIsRevealed(true)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-all active:scale-95"
-                    >
-                      <Eye className="w-4 h-4" />
-                      <span>Reveal Verse</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-3 animate-in fade-in">
-                    <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose dir-rtl" dir="rtl">
-                      {currentVerse.textUthmani}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{currentVerse.translationEn}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* SM-2 Rating Buttons */}
-              {isRevealed && (
-                <div className="space-y-2 pt-2 animate-in slide-in-from-bottom-2">
-                  <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider block">
-                    Grade Your Recall (Spaced Repetition Engine)
-                  </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <button
-                      onClick={() => handleSelfGrade(1)}
-                      className="p-3 rounded-xl bg-danger-subtle border border-danger/30 text-danger-strong text-xs font-bold hover:bg-danger/20 transition-colors"
-                    >
-                      Again (&lt;1d)
-                    </button>
-                    <button
-                      onClick={() => handleSelfGrade(3)}
-                      className="p-3 rounded-xl bg-secondary-subtle border border-secondary/30 text-secondary-strong text-xs font-bold hover:bg-secondary/20 transition-colors"
-                    >
-                      Hard (1-2d)
-                    </button>
-                    <button
-                      onClick={() => handleSelfGrade(4)}
-                      className="p-3 rounded-xl bg-primary-subtle border border-primary/30 text-primary-strong text-xs font-bold hover:bg-primary/20 transition-colors"
-                    >
-                      Good (3-5d)
-                    </button>
-                    <button
-                      onClick={() => handleSelfGrade(5)}
-                      className="p-3 rounded-xl bg-surface border border-border text-foreground text-xs font-bold hover:bg-surface-hover transition-colors"
-                    >
-                      Easy (7+d)
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* MODE I: TIMED SPEED RECALL */}
-          {activeMode === 'I' && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode I • Speed recall</span>
-                <h3 className="text-lg font-bold text-foreground">Timed Speed Recall (15s)</h3>
-                <p className="text-xs text-muted-foreground">See whether you can recall the verse within 15 seconds.</p>
-              </div>
-
-              <div className="flex items-center justify-center gap-2">
-                <Clock className="w-5 h-5 text-secondary" />
-                <span className={`text-2xl font-extrabold ${timerSeconds <= 5 ? 'text-danger animate-ping' : 'text-foreground'}`}>
-                  {timerSeconds}s
-                </span>
-              </div>
-
-              {!isTimerRunning && (
-                <button
-                  onClick={() => {
-                    setTimerSeconds(15);
-                    setTimerActive(true);
-                  }}
-                  className="px-6 py-3 rounded-xl bg-secondary hover:bg-secondary-hover text-secondary-foreground font-bold text-xs shadow-md transition-colors"
-                >
-                  Start 15s Countdown
-                </button>
-              )}
-
-              {isTimerRunning && (
-                <div className="p-6 bg-surface rounded-2xl border border-border space-y-4">
-                  <p className="font-arabic text-3xl text-foreground leading-loose dir-rtl" dir="rtl">
-                    {currentVerse.textUthmani}
-                  </p>
-                  <button
-                    onClick={() => {
-                      setTimerActive(false);
-                      confetti({ particleCount: 60 });
-                      awardXP(20);
-                    }}
-                    className="px-6 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-colors"
-                  >
-                    I Recited It In Time! (+20 XP)
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* MODE J: GUIDED SESSION */}
-          {activeMode === 'J' && (
-            <div className="space-y-6 text-center">
-              <div className="space-y-1">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider">Mode J • Guided session</span>
-                <h3 className="text-lg font-bold text-foreground">Guided Recitation Session</h3>
-                <p className="text-xs text-muted-foreground">Work through the verse with the assistant to identify phonetic pitfalls and mnemonic associations.</p>
-              </div>
-
-              <div className="p-6 bg-primary-subtle rounded-2xl border border-primary/30 text-center space-y-3">
-                <Sparkles className="w-8 h-8 text-secondary mx-auto" />
-                <h4 className="text-sm font-bold text-foreground">
-                  Ready to test Surah {currentVerse.surah}:{currentVerse.ayah}
-                </h4>
-                <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  The assistant asks about roots, Tajweed phonetics and the Tamil or English meaning of this verse.
-                </p>
-                <button
-                  onClick={() => {
-                    setAiTutorPrompt(`Please guide me in memorizing Surah ${currentVerse.surah}:${currentVerse.ayah} ("${currentVerse.textUthmani}"). Give me: 1) Memory anchors / root connections, 2) Tajweed pronunciation watch-outs, 3) Tamil explanation to reinforce meaning.`);
-                    setAiTutorOpen(true);
-                  }}
-                  className="px-6 py-3 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md transition-colors"
-                >
-                  Start guided session
-                </button>
-              </div>
-            </div>
-          )}
-
+      ) : roundComplete ? (
+        <div className="max-w-md mx-auto my-8 p-8 rounded-3xl bg-card border border-border text-center space-y-4 shadow-xl">
+          <h3 className="text-lg font-bold text-foreground">Round complete — Alhamdulillah</h3>
+          <p className="text-xs text-muted-foreground">You worked through all {versesForSelection.length} ayahs in this set.</p>
+          <div className="flex gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentVerseIndex(0);
+                setRoundComplete(false);
+                resetModeState();
+              }}
+              className="px-4 py-2.5 rounded-xl bg-surface border border-border text-foreground text-xs font-bold"
+            >
+              Go again
+            </button>
+            <Link href="/review" className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-md">
+              Open review queue
+            </Link>
+          </div>
+        </div>
+      ) : queueEmpty ? (
+        <div className="max-w-xl mx-auto my-12 p-8 rounded-3xl bg-card border border-border text-center space-y-4">
+          <Clock className="w-8 h-8 mx-auto text-primary" aria-hidden="true" />
+          <h3 className="text-base font-bold text-foreground">Nothing is due right now</h3>
+          <p className="text-xs text-muted-foreground">
+            Your scheduled ayahs are not due yet. Drill a surah instead, or add new ayahs from the reader.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button type="button" onClick={() => setSource('surah')} className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-md">
+              Drill by surah
+            </button>
+            <Link href="/quran" className="px-4 py-2.5 rounded-xl bg-surface border border-border text-foreground text-xs font-bold">
+              Open the reader
+            </Link>
+          </div>
+        </div>
+      ) : stageProps ? (
+        <div className="bg-card p-6 sm:p-8 rounded-3xl border border-border shadow-md min-h-[380px]">
+          <ModeComponent {...stageProps} />
         </div>
       ) : (
         <div className="max-w-xl mx-auto my-12 p-8 rounded-3xl bg-card border border-border text-center space-y-4">
           <AlertCircle className="w-8 h-8 mx-auto text-warning" aria-hidden="true" />
           <h3 className="text-base font-bold text-foreground">
-            Surah {selectedSurahId} could not be loaded
+            {source === 'queue' ? 'The due ayahs could not be loaded' : `Surah ${selectedSurahId} could not be loaded`}
           </h3>
           <p className="text-xs text-muted-foreground">
-            No text is shown, because displaying a different surah&rsquo;s verses here would
-            misrepresent the Quran. Check your connection, then try again.
+            No text is shown, because displaying a different surah&rsquo;s verses here would misrepresent the Quran. Check your
+            connection, then try again.
           </p>
           {verseLoadFailed && (
             <button
@@ -839,12 +508,7 @@ function MemorizationContent() {
         </div>
       )}
 
-      {/* Floating Study Assistant when triggered */}
-      <TutorPanel
-        isOpen={aiTutorOpen}
-        onClose={() => setAiTutorOpen(false)}
-        initialPrompt={aiTutorPrompt}
-      />
+      <TutorPanel isOpen={aiTutorOpen} onClose={() => setAiTutorOpen(false)} initialPrompt={aiTutorPrompt} />
     </div>
   );
 }

@@ -38,6 +38,8 @@ export const liveCoachRequestSchema = z.object({
   voiceId: shortText(60).optional(),
   teacherPersona: teacherPersonaSchema.optional(),
   language: feedbackLanguageSchema.optional(),
+  /** When true the model also returns a verbatim transcript of the words it heard. */
+  requestTranscript: z.boolean().optional(),
 });
 export type LiveCoachRequest = z.infer<typeof liveCoachRequestSchema>;
 
@@ -50,6 +52,7 @@ export const liveCoachModelResponseSchema = z.object({
   accuracyRating: z.string().max(40).optional(),
   suggestedPractice: z.string().max(1000).optional(),
   detectedErrors: z.array(z.string().max(300)).max(12).optional(),
+  transcript: z.string().max(4000).optional(),
 });
 
 /* -------------------------------------------------------------------------- */
