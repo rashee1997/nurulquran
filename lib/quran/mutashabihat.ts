@@ -1,7 +1,15 @@
 /**
  * Mutashabihat al-Quran (Similar Verses) Knowledge Base & Token Diff Engine.
  * Essential pedagogical utility for Quran memorizers to disambiguate verses with subtle lexical differences.
+ *
+ * The five entries above are hand-curated with real classical mnemonics. Beyond them, a
+ * computed index (below) scans the whole mushaf for verses that share most of their
+ * wording, using an inverted index over distinctive words so the search stays close to
+ * linear instead of the 6236² comparisons a naive scan would need.
  */
+import { quranProvider } from './alquran-cloud';
+import { SURAHS } from './surahs';
+import { db } from '../db';
 
 export interface MutashabihEntry {
   id: string;
@@ -181,7 +189,10 @@ export const MUTASHABIHAT_DATASET: MutashabihEntry[] = [
 ];
 
 /**
- * Searches for Mutashabihat involving a specific Surah and Ayah.
+ * Searches for Mutashabihat involving a specific Surah and Ayah. Checks the curated,
+ * mnemonic-rich dataset first, then the computed index once it has been built and
+ * primed into memory (see `primeComputedMutashabihatIndex`) — kept synchronous so it
+ * stays cheap to call on every ayah render.
  */
 export function getMutashabihatForVerse(surah: number, ayah: number): MutashabihEntry | null {
   const match = MUTASHABIHAT_DATASET.find(
@@ -189,7 +200,14 @@ export function getMutashabihatForVerse(surah: number, ayah: number): Mutashabih
       (item.pair[0].surah === surah && item.pair[0].ayah === ayah) ||
       (item.pair[1].surah === surah && item.pair[1].ayah === ayah)
   );
-  return match || null;
+  if (match) return match;
+
+  const computed = computedIndexCache?.find(
+    (item) =>
+      (item.pair[0].surah === surah && item.pair[0].ayah === ayah) ||
+      (item.pair[1].surah === surah && item.pair[1].ayah === ayah)
+  );
+  return computed ?? null;
 }
 
 /**
@@ -219,4 +237,165 @@ export function computeTokenDiff(textA: string, textB: string): { tokensA: DiffT
   });
 
   return { tokensA, tokensB };
+}
+
+const COMPUTED_INDEX_CACHE_KEY = 'mutashabihat-computed-index-v1';
+const MIN_VERSE_WORDS = 4;
+const MIN_SIMILARITY = 0.6;
+const MAX_ANCHOR_BUCKET = 40; // words this common (proper nouns, frequent verbs) are skipped as anchors
+
+/** In-memory copy of the computed index once loaded, so per-ayah lookups stay synchronous. */
+let computedIndexCache: MutashabihEntry[] | null = null;
+
+const TASHKEEL = /[ً-ٰٟۖ-ۭـ]/g;
+
+function normalizedWords(text: string): string[] {
+  return text.trim().split(/\s+/).map((w) => w.replace(TASHKEEL, '')).filter(Boolean);
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  let intersection = 0;
+  for (const w of a) if (b.has(w)) intersection += 1;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+interface CorpusEntry {
+  surah: number;
+  ayah: number;
+  surahName: string;
+  textUthmani: string;
+  translationEn: string;
+  translationTa: string;
+  words: Set<string>;
+}
+
+/**
+ * Scans every surah for verses whose normalized word sets overlap heavily with another
+ * verse elsewhere in the mushaf. Candidate pairs are found through an inverted index —
+ * for each distinctive (4+ letter, not near-universal) word, every verse containing it is
+ * a candidate partner for every other verse containing it — rather than comparing all
+ * 6236 verses against each other.
+ */
+export async function buildComputedMutashabihatIndex(
+  onProgress?: (done: number, total: number) => void
+): Promise<MutashabihEntry[]> {
+  const corpus: CorpusEntry[] = [];
+  for (let i = 0; i < SURAHS.length; i++) {
+    const meta = SURAHS[i];
+    const verses = await quranProvider.getChapterVerses(meta.id);
+    for (const v of verses) {
+      const words = normalizedWords(v.textUthmani);
+      if (words.length < MIN_VERSE_WORDS) continue;
+      corpus.push({
+        surah: v.surah,
+        ayah: v.numberInSurah,
+        surahName: meta.nameSimple,
+        textUthmani: v.textUthmani,
+        translationEn: v.translationEn,
+        translationTa: v.translationTa,
+        words: new Set(words),
+      });
+    }
+    onProgress?.(i + 1, SURAHS.length);
+  }
+
+  const anchorIndex = new Map<string, number[]>();
+  corpus.forEach((entry, idx) => {
+    for (const word of entry.words) {
+      if (word.length < 4) continue;
+      const bucket = anchorIndex.get(word);
+      if (bucket) bucket.push(idx);
+      else anchorIndex.set(word, [idx]);
+    }
+  });
+
+  const seenPairs = new Set<string>();
+  const entries: MutashabihEntry[] = [];
+
+  for (const bucket of anchorIndex.values()) {
+    if (bucket.length < 2 || bucket.length > MAX_ANCHOR_BUCKET) continue;
+
+    for (let a = 0; a < bucket.length; a++) {
+      for (let b = a + 1; b < bucket.length; b++) {
+        const i = bucket[a];
+        const j = bucket[b];
+        const pairKey = i < j ? `${i}:${j}` : `${j}:${i}`;
+        if (seenPairs.has(pairKey)) continue;
+        seenPairs.add(pairKey);
+
+        const va = corpus[i];
+        const vb = corpus[j];
+        if (va.surah === vb.surah && va.ayah === vb.ayah) continue;
+
+        const similarity = jaccard(va.words, vb.words);
+        if (similarity < MIN_SIMILARITY) continue;
+
+        const { tokensA, tokensB } = computeTokenDiff(va.textUthmani, vb.textUthmani);
+        const uniqueA = tokensA.filter((t) => t.type !== 'same').map((t) => t.text);
+        const uniqueB = tokensB.filter((t) => t.type !== 'same').map((t) => t.text);
+        if (uniqueA.length === 0 && uniqueB.length === 0) continue; // identical repetition, not a "similar but different" pair
+
+        entries.push({
+          id: `computed-${va.surah}-${va.ayah}-${vb.surah}-${vb.ayah}`,
+          category: 'Computed similarity',
+          topicTitleEn: `${va.surahName} ${va.surah}:${va.ayah} vs ${vb.surahName} ${vb.surah}:${vb.ayah}`,
+          topicTitleTa: `${va.surahName} ${va.surah}:${va.ayah} vs ${vb.surahName} ${vb.surah}:${vb.ayah}`,
+          mnemonicEn: 'These two verses share most of their wording. Compare the highlighted tokens below to tell them apart.',
+          mnemonicTa: 'இவ்விரு வசனங்களும் பெரும்பாலான சொற்களைப் பகிர்ந்து கொள்கின்றன; வேறுபடும் சொற்களை ஒப்பிட்டுப் பாருங்கள்.',
+          pair: [
+            {
+              surah: va.surah,
+              ayah: va.ayah,
+              surahName: va.surahName,
+              textUthmani: va.textUthmani,
+              translationEn: va.translationEn,
+              translationTa: va.translationTa,
+              uniqueTokens: uniqueA.length > 0 ? uniqueA : normalizedWords(va.textUthmani).slice(0, 1),
+            },
+            {
+              surah: vb.surah,
+              ayah: vb.ayah,
+              surahName: vb.surahName,
+              textUthmani: vb.textUthmani,
+              translationEn: vb.translationEn,
+              translationTa: vb.translationTa,
+              uniqueTokens: uniqueB.length > 0 ? uniqueB : normalizedWords(vb.textUthmani).slice(0, 1),
+            },
+          ],
+        });
+      }
+    }
+  }
+
+  return entries;
+}
+
+/** Reads the computed index from IndexedDB into memory, without triggering a rebuild. */
+export async function primeComputedMutashabihatIndex(): Promise<MutashabihEntry[]> {
+  if (computedIndexCache) return computedIndexCache;
+  const cached = await db.quranCache.get(COMPUTED_INDEX_CACHE_KEY);
+  if (cached) {
+    computedIndexCache = cached.data as MutashabihEntry[];
+    return computedIndexCache;
+  }
+  return [];
+}
+
+export function hasComputedMutashabihatIndex(): boolean {
+  return computedIndexCache !== null && computedIndexCache.length > 0;
+}
+
+/**
+ * Builds the computed index (a one-time, network-bound scan of the whole mushaf) and
+ * caches it in IndexedDB so every later session and every ayah lookup reads it for free.
+ */
+export async function buildAndCacheComputedMutashabihatIndex(
+  onProgress?: (done: number, total: number) => void
+): Promise<MutashabihEntry[]> {
+  const entries = await buildComputedMutashabihatIndex(onProgress);
+  entries.sort((a, b) => a.pair[0].surah - b.pair[0].surah || a.pair[0].ayah - b.pair[0].ayah);
+  await db.quranCache.put({ key: COMPUTED_INDEX_CACHE_KEY, data: entries, cachedAt: Date.now() });
+  computedIndexCache = entries;
+  return entries;
 }

@@ -10,7 +10,7 @@ import { AudioBar, PlaybackIntent, RECITERS } from './AudioBar';
 import { DownloadSurahControl } from './DownloadSurahControl';
 import { MushafPageView } from './MushafPageView';
 import { MutashabihatModal } from './MutashabihatModal';
-import { MutashabihEntry } from '@/lib/quran/mutashabihat';
+import { MutashabihEntry, primeComputedMutashabihatIndex } from '@/lib/quran/mutashabihat';
 import { TajweedColorKey } from './TajweedColorKey';
 import { db, SrsState, VerseProgress } from '@/lib/db';
 import {
@@ -143,6 +143,19 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     for (const element of root.querySelectorAll<HTMLElement>('[data-ayah]')) observer.observe(element);
     return () => observer.disconnect();
   }, [chapter.id, viewMode, verses.length]);
+
+  // Loads the computed Mutashabihat index (built once from the Radar game) into memory so
+  // discovered pairs, not just the curated five, surface the "Mutashabihat" button here too.
+  const [, setMutashabihIndexLoaded] = useState(0);
+  useEffect(() => {
+    let active = true;
+    primeComputedMutashabihatIndex().then((entries) => {
+      if (active && entries.length > 0) setMutashabihIndexLoaded((n) => n + 1);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Deep link: /quran/2#ayah-255 scrolls to that ayah once the list is on screen.
   useEffect(() => {
