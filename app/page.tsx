@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { 
   BookOpen, 
   Brain, 
@@ -18,35 +19,48 @@ import {
   Radar,
   Languages
 } from 'lucide-react';
-import { db, UserProfile } from '@/lib/db';
+import { db } from '@/lib/db';
 import { calculateLevel } from '@/lib/learning/xp-engine';
 import { CURRICULUM_LEVELS } from '@/lib/learning/curriculum';
 import { SURAHS } from '@/lib/quran/surahs';
+import { track } from '@/lib/telemetry/events';
+import { isStreakAtRisk } from '@/lib/learning/activity';
 
 export default function DashboardPage() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [dueReviewCount, setDueReviewCount] = useState(0);
-  const [memorizedCount, setMemorizedCount] = useState(0);
-
-  useEffect(() => {
-    async function loadStats() {
-      if (typeof window !== 'undefined') {
-        const p = await db.userProfile.get('default_user');
-        if (p) setProfile(p);
-
-        const verses = await db.verseProgress.toArray();
-        const now = new Date().toISOString();
-        const due = verses.filter(v => v.dueDate <= now);
-        const mem = verses.filter(v => v.state === 'memorized' || v.state === 'mastered');
-        setDueReviewCount(due.length);
-        setMemorizedCount(mem.length);
-      }
-    }
-    loadStats();
-  }, []);
+  /**
+   * Live views over IndexedDB, like the header. A one-shot read left the due count and the
+   * memorised count stale after a review until the page was reloaded.
+   */
+  const profile = useLiveQuery(() => db.userProfile.get('default_user'), [], undefined);
+  const dueReviewCount = useLiveQuery(
+    () => db.verseProgress.where('dueDate').belowOrEqual(new Date().toISOString()).count(),
+    [],
+    0
+  );
+  const memorizedCount = useLiveQuery(
+    () => db.verseProgress.where('state').anyOf('memorized', 'mastered').count(),
+    [],
+    0
+  );
+  const completedLessonIds = useLiveQuery(
+    async () => new Set((await db.lessonHistory.toArray()).map((row) => row.lessonId)),
+    [],
+    new Set<string>()
+  );
 
   const levelInfo = calculateLevel(profile?.totalXp ?? 0);
-  const nextLesson = CURRICULUM_LEVELS[0].lessons[0];
+
+  /** First lesson not yet completed, in curriculum order; the last one if all are done. */
+  const nextLesson = useMemo(() => {
+    const all = CURRICULUM_LEVELS.flatMap((level) => level.lessons);
+    return all.find((lesson) => !completedLessonIds.has(lesson.id)) ?? all[all.length - 1];
+  }, [completedLessonIds]);
+  const nextLessonLevel = CURRICULUM_LEVELS.find((level) => level.lessons.some((l) => l.id === nextLesson.id))?.level ?? 1;
+
+  const readingPosition = profile?.readingPosition ?? null;
+  const readingSurah = readingPosition ? SURAHS.find((s) => s.id === readingPosition.surah) : null;
+  const streakAtRisk = isStreakAtRisk(profile);
+  const freezes = profile?.streakFreezes ?? 0;
 
   const popularSurahs = [
     SURAHS.find(s => s.id === 1)!,
@@ -100,11 +114,45 @@ export default function DashboardPage() {
               <p className="text-xl font-extrabold text-hero-fg">
                 {profile?.streakCount || 1} Day Streak
               </p>
-              <span className="text-[10px] text-secondary font-medium">Practise today to keep your streak.</span>
+              <span className="text-[10px] text-secondary font-medium">
+                {streakAtRisk
+                  ? 'Not practised yet today — your streak is at risk.'
+                  : freezes > 0
+                    ? `${freezes} freeze token${freezes === 1 ? '' : 's'} protect a missed day.`
+                    : 'Practise today to keep your streak.'}
+              </span>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Continue reading: the ayah the reader was last scrolled to. */}
+      {readingPosition && readingSurah && (
+        <Link
+          href={`/quran/${readingPosition.surah}#ayah-${readingPosition.ayah}`}
+          onClick={() => track('dashboard.continue_clicked', { surah: readingPosition.surah, ayah: readingPosition.ayah })}
+          className="flex items-center justify-between gap-4 p-5 rounded-3xl bg-card border border-border hover:border-primary shadow-xs transition-colors group"
+        >
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-primary-subtle text-primary flex items-center justify-center shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[11px] font-bold text-primary-strong uppercase tracking-wider">Continue reading</span>
+              <h3 className="text-sm font-bold text-foreground truncate">
+                {readingSurah.nameSimple} · Ayah {readingPosition.surah}:{readingPosition.ayah}
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Last read {new Date(readingPosition.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+              </p>
+            </div>
+          </div>
+          <span lang="ar" dir="rtl" className="font-arabic text-2xl text-primary shrink-0 hidden sm:block">
+            {readingSurah.nameArabic}
+          </span>
+          <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary shrink-0" />
+        </Link>
+      )}
 
       {/* Main Highlights Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -115,7 +163,7 @@ export default function DashboardPage() {
               <span className="text-xs font-bold text-primary-strong bg-primary-subtle px-2.5 py-1 rounded-lg">
                 Curriculum
               </span>
-              <span className="text-xs text-muted-foreground font-medium">Level 1</span>
+              <span className="text-xs text-muted-foreground font-medium">Level {nextLessonLevel}</span>
             </div>
             <h3 className="text-base font-bold text-foreground">
               {nextLesson.title}
@@ -130,7 +178,7 @@ export default function DashboardPage() {
               href={`/learn/${nextLesson.id}`}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-98"
             >
-              <span>Resume Lesson</span>
+              <span>{completedLessonIds.size > 0 ? 'Resume Lesson' : 'Start Lesson'}</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

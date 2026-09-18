@@ -20,7 +20,10 @@ import {
   Check,
   LayoutGrid,
   Languages,
-  Sparkles
+  Sparkles,
+  Bookmark,
+  BarChart3,
+  Search
 } from 'lucide-react';
 import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
@@ -53,6 +56,7 @@ const NAV_CATEGORIES: NavCategory[] = [
       { href: '/learn', label: 'Curriculum', desc: 'Tajweed and Arabic lessons, Levels 1–10', icon: BookOpen },
       { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Quranic and spoken Arabic, writing and iʿrāb', icon: Languages },
       { href: '/lessons/tafsir', label: 'Tafseer Lessons', desc: 'Bilingual exegesis with a live voice storyteller', icon: Sparkles },
+      { href: '/library', label: 'Library', desc: 'Bookmarks, collections and your notes', icon: Bookmark },
     ],
   },
   {
@@ -62,6 +66,7 @@ const NAV_CATEGORIES: NavCategory[] = [
       { href: '/memorize', label: 'Memorization Modes', desc: 'Ten recall drills linked to spaced repetition', icon: Brain },
       { href: '/memorize/planner', label: 'Hifz Planner', desc: 'Daily portions and memorization targets', icon: Layers },
       { href: '/review', label: 'Review Queue', desc: 'Today’s spaced-repetition review queue', icon: Clock },
+      { href: '/progress', label: 'Progress & Goals', desc: 'Heatmap, goals, weak spots and reminders', icon: BarChart3 },
     ],
   },
   {
@@ -171,6 +176,12 @@ export const NavigationHeader: React.FC = () => {
     }
     if (pathname.startsWith('/settings')) {
       return ALL_NAV_ITEMS.find((i) => i.href === '/settings') || ALL_NAV_ITEMS[0];
+    }
+    if (pathname.startsWith('/library')) {
+      return ALL_NAV_ITEMS.find((i) => i.href === '/library') || ALL_NAV_ITEMS[0];
+    }
+    if (pathname.startsWith('/progress')) {
+      return ALL_NAV_ITEMS.find((i) => i.href === '/progress') || ALL_NAV_ITEMS[0];
     }
     return ALL_NAV_ITEMS[0];
   };

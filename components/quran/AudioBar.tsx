@@ -13,6 +13,9 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { db } from '@/lib/db';
+import type { QuranWord } from '@/lib/quran/types';
+import { activeWordAt, estimateSegments, loadMeasuredTimings, type WordSegment } from '@/lib/quran/word-timings';
+import { getChapterMetadata } from '@/lib/quran/surahs';
 
 export interface ReciterOption {
   id: string;
@@ -53,6 +56,13 @@ interface AudioBarProps {
   onPlayingChange?: (playing: boolean) => void;
   onNextAyah?: () => void;
   onPrevAyah?: () => void;
+  /** Words of the current ayah, for word-synced highlighting. */
+  words?: readonly QuranWord[];
+  wordCount?: number;
+  /** Reports the 1-based index of the word being recited (null between words / when idle). */
+  onActiveWordChange?: (wordIndex: number | null) => void;
+  /** Fired once each time an ayah plays through to its end (not on repeats). */
+  onAyahCompleted?: () => void;
 }
 
 export interface PlaybackIntent {
@@ -78,8 +88,15 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   onPlayingChange,
   onNextAyah,
   onPrevAyah,
+  words,
+  onActiveWordChange,
+  onAyahCompleted,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  /** Measured word timings for this ayah, when a timing source is configured. */
+  const [measuredSegments, setMeasuredSegments] = useState<{ ayah: number; segments: WordSegment[] } | null>(null);
+  const [segmentSource, setSegmentSource] = useState<'measured' | 'estimated' | null>(null);
+  const lastWordRef = useRef<number | null>(null);
   const [progressState, setProgressState] = useState<{ ayah: number; percent: number }>({
     ayah: currentAyahNumber,
     percent: 0,
@@ -132,6 +149,68 @@ export const AudioBar: React.FC<AudioBarProps> = ({
       active = false;
     };
   }, []);
+
+  // Measured word timings, if a source is configured for this reciter.
+  useEffect(() => {
+    let active = true;
+    setMeasuredSegments(null);
+    loadMeasuredTimings(selectedReciter, surahNumber)
+      .then((source) => {
+        if (!active || !source) return;
+        const segments = source[`${surahNumber}:${currentAyahNumber}`];
+        if (segments) setMeasuredSegments({ ayah: currentAyahNumber, segments });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [selectedReciter, surahNumber, currentAyahNumber]);
+
+  // Lock-screen and hardware-key controls.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const session = navigator.mediaSession;
+    const reciterName = RECITERS.find((r) => r.id === selectedReciter)?.name ?? 'Recitation';
+    const chapter = getChapterMetadata(surahNumber);
+    try {
+      session.metadata = new MediaMetadata({
+        title: `${chapter.nameSimple} ${surahNumber}:${currentAyahNumber}`,
+        artist: reciterName,
+        album: 'NurulQuran',
+      });
+      session.setActionHandler('play', () => {
+        wantsPlaybackRef.current = true;
+        audioRef.current?.play().catch(() => undefined);
+      });
+      session.setActionHandler('pause', () => {
+        wantsPlaybackRef.current = false;
+        audioRef.current?.pause();
+      });
+      session.setActionHandler('previoustrack', onPrevAyah ? () => onPrevAyah() : null);
+      session.setActionHandler('nexttrack', onNextAyah ? () => onNextAyah() : null);
+    } catch {
+      // Older browsers expose mediaSession without every action; ignore.
+    }
+    return () => {
+      try {
+        session.setActionHandler('play', null);
+        session.setActionHandler('pause', null);
+        session.setActionHandler('previoustrack', null);
+        session.setActionHandler('nexttrack', null);
+      } catch {
+        // ignore
+      }
+    };
+  }, [selectedReciter, surahNumber, currentAyahNumber, onPrevAyah, onNextAyah]);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch {
+      // ignore
+    }
+  }, [isPlaying]);
 
   // Single place that loads a source and resumes playback when the learner had
   // already been listening (so advancing ayahs does not stop the recitation).
@@ -235,11 +314,36 @@ export const AudioBar: React.FC<AudioBarProps> = ({
       ayah: currentAyahNumber,
       percent: total ? Math.min(100, (current / total) * 100) : 0,
     });
-  }, [currentAyahNumber]);
+
+    // Word-synced highlight: measured segments when available, else a letter-weighted
+    // estimate over the known duration.
+    if (onActiveWordChange && words && words.length > 0 && total) {
+      const measured = measuredSegments?.ayah === currentAyahNumber ? measuredSegments.segments : null;
+      const segments = measured ?? estimateSegments(words, total * 1000);
+      const nextSource = measured ? 'measured' : 'estimated';
+      if (nextSource !== segmentSource) setSegmentSource(nextSource);
+      const active = activeWordAt(segments, current * 1000);
+      if (active !== lastWordRef.current) {
+        lastWordRef.current = active;
+        onActiveWordChange(active);
+      }
+    }
+  }, [currentAyahNumber, measuredSegments, onActiveWordChange, segmentSource, words]);
+
+  // Clear the highlight whenever playback stops or the ayah changes.
+  useEffect(() => {
+    if (isPlaying) return;
+    if (lastWordRef.current !== null) {
+      lastWordRef.current = null;
+      onActiveWordChange?.(null);
+    }
+  }, [isPlaying, currentAyahNumber, onActiveWordChange]);
 
   const handleEnded = useCallback((): void => {
     const audio = audioRef.current;
     if (!audio) return;
+
+    if (currentLoopCount === 1) onAyahCompleted?.();
 
     const isInfinite = repeatMode === 999;
     if (isInfinite || currentLoopCount < repeatMode) {
@@ -260,7 +364,7 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     setIsPlaying(false);
     setProgressState({ ayah: currentAyahNumber, percent: 0 });
     setLoopState({ ayah: currentAyahNumber, count: 1 });
-  }, [currentAyahNumber, currentLoopCount, onNextAyah, repeatMode, totalVerses]);
+  }, [currentAyahNumber, currentLoopCount, onAyahCompleted, onNextAyah, repeatMode, totalVerses]);
 
   const cycleRepeatMode = useCallback((): void => {
     setRepeatMode((previous) => {
@@ -354,6 +458,11 @@ export const AudioBar: React.FC<AudioBarProps> = ({
             <div className="flex flex-col">
               <span className="text-xs font-bold text-foreground">
                 Ayah {surahNumber}:{currentAyahNumber}
+                {isPlaying && segmentSource === 'estimated' && (
+                  <span className="ml-1.5 text-[9px] font-semibold text-muted-foreground" title="Word highlight is estimated from the ayah length; measured timings are not configured for this reciter.">
+                    ~word sync
+                  </span>
+                )}
               </span>
               <label htmlFor="reciter-select" className="sr-only">
                 Reciter
