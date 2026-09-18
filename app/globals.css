@@ -92,11 +92,12 @@
   --color-hero-pill-fg: var(--hero-pill-fg);
   --color-hero-card-bg: var(--hero-card-bg);
 
-  /* Tajweed Rule Phonetics Tokens */
+  /* Tajweed Rule Colour Tokens — see the note above the light-mode values */
   --color-tajweed-ghunnah: var(--tajweed-ghunnah);
   --color-tajweed-qalqalah: var(--tajweed-qalqalah);
   --color-tajweed-ikhfa: var(--tajweed-ikhfa);
   --color-tajweed-idgham: var(--tajweed-idgham);
+  --color-tajweed-idgham-deep: var(--tajweed-idgham-deep);
   --color-tajweed-izhar: var(--tajweed-izhar);
   --color-tajweed-iqlab: var(--tajweed-iqlab);
   --color-tajweed-madd: var(--tajweed-madd);
@@ -181,21 +182,45 @@
   --hero-card-bg: rgba(255, 255, 255, 0.12);
   --pattern-dot: rgba(255, 255, 255, 0.4);
 
-  /* Tajweed Rules
-     Tuned for contrast against the card surface they are painted on (#ffffff). Every value
-     reaches at least 4.5:1, because these colours are applied to scripture the learner must
-     read closely and at the smallest supported font size (22px) they are normal-size text by
-     WCAG, not large text. Measured before this change: ghunnah 3.19:1, idgham 3.74:1,
-     ikhfa 3.77:1, silent 2.56:1. */
-  --tajweed-ghunnah: #b45309;
-  --tajweed-qalqalah: #2563eb;
-  --tajweed-ikhfa: #047857;
-  --tajweed-idgham: #0f766e;
-  --tajweed-izhar: #7c3aed;
-  --tajweed-iqlab: #e11d48;
-  --tajweed-madd: #9333ea;
-  --tajweed-madd-long: #dc2626;
-  --tajweed-silent: #64748b;
+  /* ==========================================================================
+     TAJWEED RULE COLOURS
+
+     There is no universal Tajweed colour standard: printing houses disagree, and they
+     disagree on the rules a learner meets first. The widely distributed convention uses blue
+     for Qalqalah and red for Madd; at least one common 13-line scheme instead uses red for
+     Qalqalah and blue for Ikhfa. So the choice here is deliberate rather than obvious, and it
+     is recorded rather than implied:
+
+       blue   Qalqalah      teal    Izhar        green  Idgham (nasalised / not)
+       orange Ikhfa         violet  Iqlab        rose   Ghunnah
+       red    Madd, deeper with length          grey   Silent letters
+
+     That follows the most widely printed convention — madd deepens with its count (2 counts
+     lighter, 4-6 counts deeper) and silent letters are greyed. The app distinguishes the two
+     Idgham variants by depth within the same green family, which print does not do, because
+     the engine reports them separately and the difference (nasalisation or not) is exactly
+     what the learner has to hear.
+
+     Two constraints are non-negotiable and were measured, not assumed:
+
+     1. Every value reaches at least 4.5:1 against the surface it is painted on. These colours
+        fall on scripture, and at the smallest supported size (22px) that is normal-size text
+        by WCAG, not large text. Measured before this palette: ghunnah 3.19:1, idgham 3.74:1,
+        ikhfa 3.77:1, silent 2.56:1 — the last of which failed even the 3:1 large-text floor.
+     2. Colour is never the only carrier of a rule. Every legend and every rule label names
+        the rule in both languages, because roughly one learner in twelve cannot separate the
+        red/green pairs above, and a colour-coded Mushaf silently assumes they can.
+     ========================================================================== */
+  --tajweed-ghunnah: #be185d;      /* rose     6.04:1 */
+  --tajweed-qalqalah: #1d4ed8;     /* blue     6.70:1 */
+  --tajweed-ikhfa: #c2410c;        /* orange   5.18:1 */
+  --tajweed-idgham: #047857;       /* green    5.48:1 */
+  --tajweed-idgham-deep: #166534;  /* deep green 7.13:1 */
+  --tajweed-izhar: #0e7490;        /* teal     5.36:1 */
+  --tajweed-iqlab: #6d28d9;        /* violet   7.10:1 */
+  --tajweed-madd: #dc2626;         /* red      4.83:1 */
+  --tajweed-madd-long: #b91c1c;    /* deep red 6.47:1 */
+  --tajweed-silent: #64748b;       /* grey     4.76:1 */
 }
 
 /* ==========================================================================
@@ -275,18 +300,18 @@
   --hero-card-bg: rgba(255, 255, 255, 0.08);
   --pattern-dot: rgba(255, 255, 255, 0.3);
 
-  /* Tajweed Rules */
-  --tajweed-ghunnah: #fbbf24;
-  --tajweed-qalqalah: #60a5fa;
-  --tajweed-ikhfa: #34d399;
-  --tajweed-idgham: #2dd4bf;
-  --tajweed-izhar: #c4b5fd;
-  --tajweed-iqlab: #fb7185;
-  --tajweed-madd: #c084fc;
-  --tajweed-madd-long: #f87171;
-  /* Lightened for the dark surface (#0f1c16): the light-mode value measured 3.68:1 here,
-     which fails the 4.5:1 normal-text floor. This reaches 6.84:1. */
-  --tajweed-silent: #94a3b8;
+  /* Tajweed Rules — same hue families as light mode, re-lightened for #0f1c16.
+     Reusing the light values here is what put silent letters at 3.68:1 on this surface. */
+  --tajweed-ghunnah: #f9a8d4;      /* rose       9.67:1 */
+  --tajweed-qalqalah: #60a5fa;     /* blue       6.89:1 */
+  --tajweed-ikhfa: #fb923c;        /* orange     7.75:1 */
+  --tajweed-idgham: #34d399;       /* green      9.12:1 */
+  --tajweed-idgham-deep: #6ee7b7;  /* deep green 11.50:1 */
+  --tajweed-izhar: #22d3ee;        /* teal       9.70:1 */
+  --tajweed-iqlab: #c4b5fd;        /* violet     9.50:1 */
+  --tajweed-madd: #f87171;         /* red        6.34:1 */
+  --tajweed-madd-long: #fca5a5;    /* deep red   9.24:1 */
+  --tajweed-silent: #94a3b8;       /* grey       6.84:1 */
 }
 
 /* ==========================================================================

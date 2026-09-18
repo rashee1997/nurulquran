@@ -10,7 +10,7 @@ import { AudioBar, PlaybackIntent } from './AudioBar';
 import { MushafPageView } from './MushafPageView';
 import { MutashabihatModal } from './MutashabihatModal';
 import { MutashabihEntry } from '@/lib/quran/mutashabihat';
-import { TAJWEED_LEGEND } from '@/lib/quran/tajweed';
+import { TajweedColorKey } from './TajweedColorKey';
 import { db, SrsState, VerseProgress } from '@/lib/db';
 import {
   MAX_ARABIC_FONT_SIZE,
@@ -369,35 +369,19 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           </div>
 
           {/*
-            The colour key.
+            The colour key, with the instruction for each rule.
 
-            Tajweed rules are conveyed by colour, and colour alone is not an accessible
-            channel: a learner with a colour-vision deficiency, or reading on a washed-out
-            screen, needs the rule named. Each entry pairs the swatch with its name in both
-            languages, so the mapping is available without hovering a `title` (which touch and
-            keyboard users cannot reach).
+            Tajweed rules are conveyed by colour, and colour alone is not an accessible channel:
+            a learner with a colour-vision deficiency, or reading on a washed-out screen, needs
+            the rule named. It is the same component the lessons and the live coach render, so a
+            colour learned in a lesson is the colour seen here.
           */}
           {showTajweedColors && (
             <div className="pt-3 border-t border-border space-y-2">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                 Tajweed colour key
               </span>
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {TAJWEED_LEGEND.map((entry) => (
-                  <li key={entry.rule} className="flex items-start gap-2">
-                    <span
-                      aria-hidden="true"
-                      className={`mt-1 h-3 w-3 shrink-0 rounded-sm bg-current ${entry.colorClass}`}
-                    />
-                    <span className="text-[11px] leading-snug">
-                      <span className={`font-semibold ${entry.colorClass}`}>{entry.name}</span>
-                      <span className="block font-tamil text-muted-foreground" lang="ta">
-                        {entry.nameTa}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <TajweedColorKey showInstructions />
             </div>
           )}
         </div>

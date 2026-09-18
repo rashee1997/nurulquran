@@ -81,7 +81,15 @@ export interface TajweedRuleMeta {
   colorClass: string;
   name: string;
   nameTa: string;
+  /** What the rule *is*, for a tooltip or an answer explanation. */
   description: string;
+  /**
+   * What the learner must *do*, in one instruction: the count to hold and where the sound is
+   * made. `description` explains a rule; this is the line a learner can actually act on, and
+   * it is what the colour key shows, because a colour with no instruction teaches nothing.
+   */
+  instruction: string;
+  instructionTa: string;
 }
 
 export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
@@ -90,6 +98,8 @@ export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
     name: 'Ghunnah (Nasalization)',
     nameTa: 'குன்னா (மூக்கொலி)',
     description: 'Nasal resonance held for two counts on Noon or Meem carrying Shaddah.',
+    instruction: 'Hum through the nose for two counts on a doubled Noon or Meem.',
+    instructionTa: 'இரட்டை நூன் அல்லது மீமில் மூக்கின் வழியே இரண்டு அளவு ஒலிக்கவிடவும்.',
   },
   qalqalah: {
     colorClass: 'text-tajweed-qalqalah font-semibold',
@@ -99,70 +109,117 @@ export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
     // echo produced by *stopping* on one of these letters is not highlighted; claiming it here
     // would tell the learner a rule is shown that never appears.
     description: 'Bouncing echo when ق ط ب ج د carries an explicit Sukoon in the script.',
+    instruction: 'Let ق ط ب ج د bounce off its articulation point — a crisp echo, with no vowel added.',
+    instructionTa: 'ق ط ب ج د சுகூனுடன் வரும்போது எதிரொலி எழுப்பவும்; உயிரொலி சேர்க்கக்கூடாது.',
   },
   idgham_with_ghunnah: {
     colorClass: 'text-tajweed-idgham font-semibold',
     name: 'Idgham with Ghunnah',
     nameTa: 'இட்காம் (மூக்கொலியுடன் கலத்தல்)',
     description: 'Noon Sakinah or Tanween merges into a following ي ن م و with two counts of nasalization.',
+    instruction: 'Merge the Noon into ي ن م و, holding two counts of nasal hum as it goes.',
+    instructionTa: 'நூனை யா, நூன், மீம், வாவுடன் இணைத்து, இரண்டு அளவு மூக்கொலியுடன் ஓதவும்.',
   },
   idgham_without_ghunnah: {
     // No opacity modifier: reducing the alpha of scripture text lowers its effective contrast
-    // against the page and pushes an otherwise legible colour below the WCAG floor.
-    colorClass: 'text-tajweed-idgham font-semibold',
+    // against the page and pushes an otherwise legible colour below the WCAG floor. The two
+    // Idgham variants share the green family and are separated by depth, not by alpha.
+    colorClass: 'text-tajweed-idgham-deep font-semibold',
     name: 'Idgham without Ghunnah',
     nameTa: 'இட்காம் (மூக்கொலி இன்றி கலத்தல்)',
     description: 'Noon Sakinah or Tanween merges completely into a following ل or ر, with no nasalization.',
+    instruction: 'Let the Noon vanish into ل or ر completely — no nasal hum at all.',
+    instructionTa: 'நூனை லாம் அல்லது ராவில் முழுமையாக மறையவிடவும்; மூக்கொலி இருக்கக்கூடாது.',
   },
   ikhfa: {
     colorClass: 'text-tajweed-ikhfa font-semibold',
     name: 'Ikhfa (Concealment)',
     nameTa: 'இக்ஃபா (மறைத்து ஓதுதல்)',
     description: 'Noon Sakinah or Tanween is concealed with nasalization before one of the 15 Ikhfa letters.',
+    instruction: 'Hide the Noon in the nose for two counts without touching its usual tongue position.',
+    instructionTa: 'நூனை நாவின் இயல்பான இடத்தில் தொடாமல், மூக்கில் இரண்டு அளவு மறைத்து ஓதவும்.',
   },
   iqlab: {
     colorClass: 'text-tajweed-iqlab font-semibold',
     name: 'Iqlab (Conversion)',
     nameTa: 'இக்லாப் (மாற்றுதல்)',
     description: 'Noon Sakinah or Tanween converts into a Meem sound before Baa, marked by the small Meem sign.',
+    instruction: 'Close the lips as for Meem and hum two counts before ب — the Noon is not said.',
+    instructionTa: 'ب க்கு முன் உதடுகளை மீம் போல் மூடி இரண்டு அளவு மூக்கொலி எழுப்பவும்; நூன் ஓதப்படாது.',
   },
   izhar: {
     colorClass: 'text-tajweed-izhar font-semibold',
     name: 'Izhar Halqi (Clear Pronunciation)',
     nameTa: 'இழ்ஹார் ஹல்கி (தெளிவாக ஓதுதல்)',
     description: 'Noon Sakinah or Tanween is pronounced clearly, with no nasalization, before a throat letter.',
+    instruction: 'Say the Noon plainly from the tongue before a throat letter — no nasal hold.',
+    instructionTa: 'தொண்டை எழுத்துக்கு முன் நூனை நாவினால் தெளிவாக ஓதவும்; மூக்கொலி நீட்டல் கூடாது.',
   },
   madd_normal: {
     colorClass: 'text-tajweed-madd font-semibold',
     name: 'Madd Asli (Natural Elongation)',
     nameTa: 'மத்து அஸ்லி (இயற்கை நீட்டல்)',
     description: 'Natural elongation held for exactly two counts.',
+    instruction: 'Stretch the long vowel for exactly two counts — no more, no less.',
+    instructionTa: 'நெட்டுயிரை சரியாக இரண்டு அளவு நீட்டவும்.',
   },
   madd_obligatory: {
     colorClass: 'text-tajweed-madd-long font-bold',
     name: 'Madd Muttasil / Munfasil / Lazim',
     nameTa: 'மத்து முத்தஸில் / முன்ஃபஸில் / லாஸிம்',
     description: 'Extended elongation of 4-5 counts before a Hamzah, or 6 counts before a Sukoon/Shaddah.',
+    instruction: 'Hold for four to five counts before a Hamzah, and six counts before a Sukoon or Shaddah.',
+    instructionTa: 'ஹம்சாவுக்கு முன் நான்கு–ஐந்து அளவு; சுகூன் அல்லது ஷத்தாவுக்கு முன் ஆறு அளவு நீட்டவும்.',
   },
   silent: {
     colorClass: 'text-tajweed-silent',
     name: 'Silent Letter',
     nameTa: 'ஓதப்படாத எழுத்து',
     description: 'Written in the Mushaf but not pronounced in continuous recitation.',
+    instruction: 'Written but not pronounced — read straight past it.',
+    instructionTa: 'எழுதப்பட்டிருந்தாலும் உச்சரிக்கப்படாது — அதைத் தாண்டி ஓதவும்.',
   },
 };
 
-/** Every rule with a name, for a legend that carries the meaning without relying on colour. */
-export const TAJWEED_LEGEND: Array<{
+/**
+ * Every rule with everything a legend needs, so no caller has to reach into `TAJWEED_META`
+ * field-by-field and invent its own presentation of a rule.
+ */
+export interface TajweedLegendEntry {
   rule: TajweedRule;
   name: string;
   nameTa: string;
   colorClass: string;
-}> = (Object.keys(TAJWEED_META) as TajweedRule[]).map((rule) => ({
+  description: string;
+  instruction: string;
+  instructionTa: string;
+}
+
+/**
+ * Narrows a plain string to a known rule and returns its metadata.
+ *
+ * Rule names travel as strings in parts of the Arabic Lab data model (where the field is typed
+ * loosely to keep the curriculum data readable), so callers need one checked narrowing rather
+ * than their own `as TajweedRule` cast, which would render nonsense for a typo instead of
+ * falling through to no badge at all.
+ */
+export function tajweedMetaFor(rule: string | undefined): TajweedRuleMeta | undefined {
+  if (!rule) return undefined;
+  return Object.prototype.hasOwnProperty.call(TAJWEED_META, rule)
+    ? TAJWEED_META[rule as TajweedRule]
+    : undefined;
+}
+
+export const TAJWEED_LEGEND: readonly TajweedLegendEntry[] = (
+  Object.keys(TAJWEED_META) as TajweedRule[]
+).map((rule) => ({
   rule,
   name: TAJWEED_META[rule].name,
   nameTa: TAJWEED_META[rule].nameTa,
   colorClass: TAJWEED_META[rule].colorClass,
+  description: TAJWEED_META[rule].description,
+  instruction: TAJWEED_META[rule].instruction,
+  instructionTa: TAJWEED_META[rule].instructionTa,
 }));
 
 interface Unit {

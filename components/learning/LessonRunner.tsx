@@ -10,7 +10,14 @@ import { evaluateStreak } from '@/lib/learning/xp-engine';
 import { localDayKey } from '@/lib/time/day';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import { playLetterAudio } from '@/lib/audio/alphabet-audio';
+import {
+  spanAudioGroups,
+  spanPlaybackKey,
+  spanWordIndexForToken,
+  wordAudioCandidates,
+} from '@/lib/quran/word-audio';
 import { LiveTajweedCoach } from '@/components/learning/LiveTajweedCoach';
+import { TajweedColorKey } from '@/components/quran/TajweedColorKey';
 
 interface LessonRunnerProps {
   lesson: Lesson;
@@ -32,7 +39,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isCoachOpen, setIsCoachOpen] = useState(false);
 
-  const { playUrl, speak } = usePreviewAudio();
+  const { playUrl, playSequence, speak } = usePreviewAudio();
   /** Guards against a double-tap awarding the lesson reward twice. */
   const completionRef = useRef(false);
 
@@ -45,13 +52,39 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
     completionRef.current = false;
   }, [lesson.id]);
 
+  /**
+   * Plays "Hear Pronunciation" for an activity.
+   *
+   * Quranic examples play the audited word-by-word recitation of exactly the anchored words —
+   * the same corpus and the same sequence mechanism the reader uses to recite a line of the
+   * Mushaf. That order matters: this used to try the activity's `promptAudioUrl` and then speak
+   * the text, which meant every Quranic example without a recording (nine of them) fell through
+   * to the platform synthesizer and then to server Gemini TTS, whose quota returns 429 — so the
+   * button most often produced nothing at all.
+   *
+   * Isolated letters keep the letter recording, then the synthesizer, then a tone: a letter is
+   * not a Quranic word, so there is no recitation clip to prefer over it.
+   */
   const playPromptAudio = useCallback(
-    async (text?: string, url?: string): Promise<void> => {
+    async (activity: Activity | undefined): Promise<void> => {
+      if (!activity) return;
+      const { promptArabic: text, promptAudioUrl: url, quranAnchor } = activity;
       if (!url && !text) return;
+
       setIsPlayingAudio(true);
       try {
+        if (quranAnchor) {
+          const groups = spanAudioGroups(quranAnchor);
+          if (groups.length > 0) {
+            const played = await playSequence(spanPlaybackKey(quranAnchor), groups);
+            if (played) return;
+          }
+        }
         if (url) {
-          const played = await playUrl(`lesson:${lesson.id}:${currentIdx}`, url);
+          // Keyed by activity id rather than by position: advancing the lesson no longer
+          // changes the key of the clip still playing, which is what let a late listener mark
+          // the wrong activity as playing.
+          const played = await playUrl(`lesson:${lesson.id}:${activity.id}`, url);
           if (played) return;
         }
         if (text) {
@@ -64,7 +97,41 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
         setIsPlayingAudio(false);
       }
     },
-    [currentIdx, lesson.id, playUrl]
+    [lesson.id, playSequence, playUrl]
+  );
+
+  /**
+   * Plays one tapped word-order token.
+   *
+   * The tokens are an ayah's words, so tapping one plays that word as the Qari recites it —
+   * the same clip the reader plays for the same word. Falling straight to the synthesizer (as
+   * this did) meant a learner building "قُلْ هُوَ ٱللَّهُ أَحَدٌ" heard it in whatever voice their
+   * system happened to have, which is usually an English voice reading Arabic script or, more
+   * often, nothing at all.
+   */
+  const playTokenAudio = useCallback(
+    async (token: string, tokenIndex: number): Promise<void> => {
+      const anchor = currentActivity?.quranAnchor;
+      if (anchor && currentActivity) {
+        const wordIndex = spanWordIndexForToken(currentActivity.correctAnswer, token);
+        if (wordIndex !== null) {
+          const single = {
+            surah: anchor.surah,
+            ayah: anchor.ayah,
+            startWord: wordIndex,
+            endWord: wordIndex,
+          };
+          const played = await playUrl(
+            spanPlaybackKey(single),
+            wordAudioCandidates(anchor.surah, anchor.ayah, wordIndex)
+          );
+          if (played) return;
+        }
+      }
+      // Not Quranic text (a letter, or a rule name): the synthesizer is the only source left.
+      await speak(`token:${currentActivity?.id ?? currentIdx}:${tokenIndex}`, token, 'ar-SA');
+    },
+    [currentActivity, currentIdx, playUrl, speak]
   );
 
   const checkAnswer = useCallback((): void => {
@@ -269,6 +336,18 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
           <p className="text-sm text-muted-foreground">{currentActivity.instruction}</p>
         </div>
 
+        {/*
+          The colour key, on the Tajweed levels only.
+
+          Levels 4-10 teach the rules that the reader paints, so a learner practising "مِنۢ بَعْدِ"
+          here can see what the colour means and what to do; levels 1-3 teach letters and short
+          vowels, which carry no rule colour, so a key there would be noise. Collapsed by default
+          so the activity itself stays above the fold.
+        */}
+        {lesson.level >= 4 && (
+          <TajweedColorKey collapsible showInstructions className="text-left" />
+        )}
+
         {currentActivity.promptArabic && (
           <div className="space-y-4">
             <div className="text-center py-6 px-4 bg-surface rounded-2xl border border-border space-y-3">
@@ -281,7 +360,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
               </p>
               <button
                 type="button"
-                onClick={() => void playPromptAudio(currentActivity.promptArabic, currentActivity.promptAudioUrl)}
+                onClick={() => void playPromptAudio(currentActivity)}
                 className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 ${
                   isPlayingAudio
                     ? 'bg-secondary text-secondary-foreground shadow-md ring-2 ring-secondary/40'
@@ -346,7 +425,7 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                     disabled={isAllUsed || isAnswerChecked}
                     onClick={() => {
                       setAssembledTokens((previous) => [...previous, token]);
-                      void speak(`token:${currentIdx}:${tokenIndex}`, token, 'ar-SA');
+                      void playTokenAudio(token, tokenIndex);
                     }}
                     lang="ar"
                     dir="rtl"

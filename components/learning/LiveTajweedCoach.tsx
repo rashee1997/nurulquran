@@ -24,6 +24,7 @@ import {
   normalizeFeedbackLanguage,
 } from '@/lib/i18n/language';
 import { AudioLevelMeter } from './AudioLevelMeter';
+import { TajweedColorKey } from '@/components/quran/TajweedColorKey';
 
 interface LiveTajweedCoachProps {
   currentLessonTitle?: string;
@@ -427,6 +428,15 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               </button>
             )}
           </div>
+        </div>
+
+        {/*
+          Reference, not the point of the screen: the coach exists for the learner to recite,
+          so the key is collapsed and can be opened beside the rule they are practising. It is
+          the same component the reader and the lessons render.
+        */}
+        <div className="px-3 pt-3">
+          <TajweedColorKey variant="stacked" collapsible />
         </div>
 
         {/* Live Audio Recitation Bar */}

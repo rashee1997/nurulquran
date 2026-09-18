@@ -7,6 +7,7 @@ import { FEEDBACK_LANGUAGE_OPTIONS, isEnglishEnabled, isTamilEnabled, type Feedb
 import type { RulePair } from '@/lib/arabic/types';
 import { BilingualLines, LabelChip, renderAyahWithToken } from './Bilingual';
 import { BookOpen, GitCompareArrows, Quote, Sparkles } from 'lucide-react';
+import { tajweedMetaFor } from '@/lib/quran/tajweed';
 
 interface RegisterBridgePanelProps {
   /** Lexicon entries to render, in order. */
@@ -95,6 +96,7 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
 
       {entries.map((entry) => {
         const view = buildRegisterBridgeView(entry, language);
+        const tajweedMeta = tajweedMetaFor(view.classical?.tajweedRule);
 
         return (
           <div key={entry.id} className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
@@ -135,9 +137,23 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
                         <span className="text-[10px] font-bold text-muted-foreground">
                           Q {view.classical.ayahRef.surah}:{view.classical.ayahRef.ayah}
                         </span>
-                        {view.classical.tajweedRule && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-secondary-subtle text-secondary-strong border border-secondary/30 font-semibold">
-                            {view.classical.tajweedRule}
+                        {/*
+                          The rule is named and painted in the same colour the reader uses.
+                          It previously printed the raw data key ("ikhfa"), which is not a thing a
+                          learner can look up in their Mushaf, and carried no colour at all — so the
+                          one screen that ties a classical token to its rule taught neither the name
+                          nor the colour.
+                        */}
+                        {tajweedMeta && (
+                          <span className="inline-flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded-md bg-secondary-subtle border border-secondary/30 font-semibold">
+                            <span
+                              aria-hidden="true"
+                              className={`h-2 w-2 shrink-0 rounded-sm bg-current ${tajweedMeta.colorClass}`}
+                            />
+                            <span className={tajweedMeta.colorClass}>{tajweedMeta.name}</span>
+                            <span className="font-normal text-muted-foreground" lang="ta">
+                              {tajweedMeta.nameTa}
+                            </span>
                           </span>
                         )}
                       </div>

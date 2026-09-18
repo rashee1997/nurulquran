@@ -1,3 +1,5 @@
+import type { RecitationSpan } from '@/lib/quran/word-audio';
+
 export type ActivityType = 
   | 'listen_repeat'
   | 'multiple_choice'
@@ -12,6 +14,20 @@ export interface Activity {
   instruction: string;
   promptArabic?: string;
   promptAudioUrl?: string;
+  /**
+   * Where this activity's Arabic actually appears in the Quran, when it is Quranic text:
+   * the source of `promptArabic`, or of the `wordTokens` sequence for a word-order activity.
+   *
+   * With this set, "Hear Pronunciation" plays the audited word-by-word recitation of exactly
+   * these words — the same Qari clips the reader plays, keyless and cached — instead of
+   * synthesizing the text. Without it, a Quranic example had to be spoken by the platform
+   * speech engine (no Arabic voice on most desktops) and then by server Gemini TTS, whose quota
+   * returns 429, so the button produced silence.
+   *
+   * Every reference below was verified against the live text: the example must appear as a
+   * contiguous run of words inside the named ayah.
+   */
+  quranAnchor?: RecitationSpan;
   promptTranslationEn?: string;
   promptTranslationTa?: string;
   options?: string[];
@@ -292,6 +308,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l4-1-a2',
+            // Al-Baqarah 2:62, words 8-9 — the Izhar example (source verified against the text).
+            quranAnchor: { surah: 2, ayah: 62, startWord: 8, endWord: 9 },
             type: 'listen_repeat',
             title: 'Recite Example: مَنْ ءَامَنَ',
             instruction: 'Listen and pronounce with clear Izhar without dragging or nasal pause:',
@@ -323,6 +341,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l4-2-a2',
+            // Al-Baqarah 2:8, words 3-4 — the Idgham example (source verified against the text).
+            quranAnchor: { surah: 2, ayah: 8, startWord: 3, endWord: 4 },
             type: 'listen_repeat',
             title: 'Recite Example: مَن يَقُولُ',
             instruction: 'Merge the Noon into Yaa with a melodious 2-count Ghunnah:',
@@ -354,6 +374,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l4-3-a2',
+            // Al-Baqarah 2:27, words 5-6 — the Iqlab example (source verified against the text).
+            quranAnchor: { surah: 2, ayah: 27, startWord: 5, endWord: 6 },
             type: 'listen_repeat',
             title: 'Recite Example: مِنۢ بَعْدِ',
             instruction: 'Turn Noon into Meem with gentle contact of lips and 2-count Ghunnah:',
@@ -393,6 +415,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l5-1-a2',
+            // Az-Zumar 39:34, words 1-3 — the Idgham Shafawi example (source verified).
+            quranAnchor: { surah: 39, ayah: 34, startWord: 1, endWord: 3 },
             type: 'listen_repeat',
             title: 'Practice: لَهُم مَّا يَشَآءُونَ',
             instruction: 'Merge the two Meems with full 2-count nasal resonance (Idgham Muthlayn):',
@@ -463,6 +487,9 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l6-1-a2',
+            // Al-Baqarah 2:49, word 5 — the Tarqeeq example. The word occurs in many ayahs; this
+            // one keeps the original kasra before the Raa, the exact condition being taught.
+            quranAnchor: { surah: 2, ayah: 49, startWord: 5, endWord: 5 },
             type: 'listen_repeat',
             title: 'Recite Light Raa: فِرْعَوْنَ',
             instruction: 'Pronounce Raa with Tarqeeq (light, thin resonance) because of the preceding original Kasra:',
@@ -523,6 +550,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l7-1-a2',
+            // Al-Kawthar 108:1, words 1-2 — the Madd example (source verified against the text).
+            quranAnchor: { surah: 108, ayah: 1, startWord: 1, endWord: 2 },
             type: 'listen_repeat',
             title: 'Recite Madd Munfasil: إِنَّآ أَعْطَيْنَـٰكَ',
             instruction: 'Hold the Madd for 4-5 counts across the word boundary:',
@@ -544,6 +573,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
         activities: [
           {
             id: 'l7-2-a1',
+            // Al-Fatihah 1:7, words 8-9 — the Madd Lazim example (source verified).
+            quranAnchor: { surah: 1, ayah: 7, startWord: 8, endWord: 9 },
             type: 'listen_repeat',
             title: 'Recite: وَلَا ٱلضَّآلِّينَ',
             instruction: 'Hold the Alif before the Shaddah for a full 6 counts:',
@@ -583,6 +614,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l8-1-a2',
+            // Al-Falaq 113:1, words 1-4 — the whole ayah (source verified against the text).
+            quranAnchor: { surah: 113, ayah: 1, startWord: 1, endWord: 4 },
             type: 'listen_repeat',
             title: 'Recite: قُلْ أَعُوذُ بِرَبِّ ٱلْفَلَقِ',
             instruction: 'Stop on the Qaf with crisp echoing resonance (Qalqalah Wusta):',
@@ -698,6 +731,9 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
         activities: [
           {
             id: 'l10-1-a1',
+            // Al-Fatihah 1:1 — the basmalah is this surah's first ayah (words 1-4), so the
+            // tokens above are its four words in order (source verified against the text).
+            quranAnchor: { surah: 1, ayah: 1, startWord: 1, endWord: 4 },
             type: 'word_order',
             title: 'Assemble the Basmalah',
             instruction: 'Assemble the sacred opening verse in order:',
@@ -708,6 +744,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
           },
           {
             id: 'l10-1-a2',
+            // Al-Fatihah 1:7, words 5-9 — the second half of the ayah (source verified).
+            quranAnchor: { surah: 1, ayah: 7, startWord: 5, endWord: 9 },
             type: 'listen_repeat',
             title: 'Recite with 6-count Madd: غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ',
             instruction: 'Maintain Izhar Shafawi on "Alayhim" and a grand 6-count Madd Lazim on "Walad-Daaalleen":',
@@ -729,6 +767,8 @@ export const CURRICULUM_LEVELS: CurriculumLevel[] = [
         activities: [
           {
             id: 'l10-2-a1',
+            // Al-Ikhlas 112:1, the whole ayah (words 1-4) (source verified against the text).
+            quranAnchor: { surah: 112, ayah: 1, startWord: 1, endWord: 4 },
             type: 'word_order',
             title: 'Assemble Surah Al-Ikhlas Ayah 1',
             instruction: 'Place words in exact divine order:',
