@@ -103,6 +103,14 @@
   --color-tajweed-madd: var(--tajweed-madd);
   --color-tajweed-madd-long: var(--tajweed-madd-long);
   --color-tajweed-silent: var(--tajweed-silent);
+
+  /* Motion tokens — durations and easing are named, never inlined ad hoc. Animate
+     only transform/opacity so transitions stay on the compositor (60fps target). */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-slow: 300ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /* ==========================================================================
@@ -364,15 +372,44 @@ body {
 }
 
 /*
- * Respect the user's motion preference for the ambient attention animations
- * (recording indicators, loading dots, combo flourishes). Nothing here carries
- * meaning that is lost when the motion is removed.
+ * Respect the user's motion preference globally. Nothing in the app conveys meaning
+ * through motion alone, so every animation and transition is collapsed for users who
+ * ask for reduced motion — ambient indicators (ping/pulse), enter/exit utilities
+ * (animate-in fade/zoom/slide), and all transitions alike. JS-driven effects such as
+ * the review-session confetti gate themselves on the same media query.
  */
 @media (prefers-reduced-motion: reduce) {
-  .animate-ping,
-  .animate-pulse,
-  .animate-bounce {
-    animation: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Keyboard focus floor (WCAG 2.4.7; sized toward the 2.4.13 guidance): every interactive
+ * element shows a 2px solid ring at ≥3:1 against both themes when tabbed to. Applied via
+ * :where() so any component can override it with a stronger indicator without a
+ * specificity fight. `border-radius: inherit` keeps the outline hugging rounded controls.
+ */
+:where(a, button, [role='button'], input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Panes that scroll inside a modal or drawer must not chain their scroll to the page. */
+.scroll-contained {
+  overscroll-behavior: contain;
+}
+
+/* Respect the reduced-motion collapse above: no smooth scroll for anchor jumps. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
   }
 }
 

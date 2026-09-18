@@ -29,6 +29,7 @@ import { db, VerseProgress, HifzTier } from '@/lib/db';
 import { SURAHS } from '@/lib/quran/surahs';
 import { recordActivity } from '@/lib/learning/activity';
 import { track } from '@/lib/telemetry/events';
+import { PlannerCalendar } from '@/components/memorize/PlannerCalendar';
 
 const TIER_ORDER: HifzTier[] = ['sabaq', 'sabqi', 'manzil'];
 
@@ -273,6 +274,8 @@ export default function HifzPlannerPage() {
         </div>
         {allocationNote && <p className="text-[11px] text-primary-strong font-semibold">{allocationNote}</p>}
       </div>
+
+      <PlannerCalendar pace={pace} />
 
       {/* Tiers */}
       <div className="space-y-6">

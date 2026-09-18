@@ -30,6 +30,7 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null);
   const [replayUrl, setReplayUrl] = useState<string | null>(null);
   const [qariUrl, setQariUrl] = useState<string | null>(null);
+  const [qariFailed, setQariFailed] = useState(false);
   const gradedForRef = useRef<string | null>(null);
 
   const verseKey = `${verse.surah}:${verse.ayah}`;
@@ -148,6 +149,7 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
     setSavedSessionId(null);
     setReplayUrl(null);
     setQariUrl(null);
+    setQariFailed(false);
     live.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verseKey]);
@@ -292,13 +294,38 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
                 {replayUrl && (
                   <div className="rounded-xl bg-surface border border-border p-2">
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Your recitation</p>
-                    <audio controls src={replayUrl} className="w-full h-8" preload="none" />
+                    {/* Fixed-height slot: the player mounting must not shift the card (CLS). */}
+                    <div className="h-10 flex items-center">
+                      <audio
+                        controls
+                        src={replayUrl}
+                        className="w-full h-8"
+                        preload="none"
+                        aria-label="Play your recitation"
+                      />
+                    </div>
                   </div>
                 )}
                 {qariUrl && (
                   <div className="rounded-xl bg-surface border border-border p-2">
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Qari reference</p>
-                    <audio controls src={qariUrl} className="w-full h-8" preload="none" />
+                    {qariFailed ? (
+                      <div className="h-10 flex items-center text-[11px] text-warning-strong" role="status">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mr-1.5" aria-hidden="true" />
+                        Qari clip unavailable offline.
+                      </div>
+                    ) : (
+                      <div className="h-10 flex items-center">
+                        <audio
+                          controls
+                          src={qariUrl}
+                          className="w-full h-8"
+                          preload="none"
+                          aria-label="Play the Qari reference recitation"
+                          onError={() => setQariFailed(true)}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

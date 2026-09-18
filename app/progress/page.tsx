@@ -15,7 +15,9 @@ import {
   BellOff,
   CalendarClock,
   CheckCircle2,
+  Play,
 } from 'lucide-react';
+import { ReplayDrawer } from '@/components/progress/ReplayDrawer';
 import { db } from '@/lib/db';
 import { localDayKey, shiftLocalDayKey } from '@/lib/time/day';
 import { dailyCounts, track } from '@/lib/telemetry/events';
@@ -73,6 +75,7 @@ export default function ProgressPage() {
   const [deadlineStatus, setDeadlineStatus] = useState<string | null>(null);
   const [reminderHour, setReminderHour] = useState(profile?.reminderHour ?? 20);
   const [reminderStatus, setReminderStatus] = useState<string | null>(null);
+  const [replayOpen, setReplayOpen] = useState(false);
 
   const loadHeatmap = useCallback(async () => {
     const to = localDayKey();
@@ -493,6 +496,28 @@ export default function ProgressPage() {
         )}
       </div>
 
+      {/* Recitation replay history */}
+      <div className="p-5 sm:p-6 rounded-2xl bg-card border border-border shadow-xs space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Play className="w-4 h-4 text-primary" />
+            <span>Recitation replay</span>
+          </h2>
+          <button
+            type="button"
+            onClick={() => setReplayOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-xs transition-colors"
+          >
+            <Play className="w-3.5 h-3.5" aria-hidden="true" />
+            Browse saved attempts
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Attempts saved from hidden-verse recitation (mode H) can be replayed beside the Qari reference — stored on
+          this device only, never uploaded.
+        </p>
+      </div>
+
       {/* Reminders */}
       <div className="p-5 sm:p-6 rounded-2xl bg-card border border-border shadow-xs space-y-3">
         <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
@@ -551,6 +576,8 @@ export default function ProgressPage() {
           </>
         )}
       </div>
+
+      <ReplayDrawer isOpen={replayOpen} onClose={() => setReplayOpen(false)} />
     </div>
   );
 }

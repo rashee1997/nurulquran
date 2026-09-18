@@ -58,6 +58,8 @@ export interface ReaderPreferences {
   setShowTamil: (enabled: boolean) => void;
   showTajweedColors: boolean;
   setShowTajweedColors: (enabled: boolean) => void;
+  showMistakeHighlights: boolean;
+  setShowMistakeHighlights: (enabled: boolean) => void;
 }
 
 export function useReaderPreferences(): ReaderPreferences {
@@ -66,6 +68,7 @@ export function useReaderPreferences(): ReaderPreferences {
   const [showEnglish, setShowEnglishState] = useState(true);
   const [showTamil, setShowTamilState] = useState(true);
   const [showTajweedColors, setShowTajweedColorsState] = useState(true);
+  const [showMistakeHighlights, setShowMistakeHighlightsState] = useState(false);
 
   const fontWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingFontSizeRef = useRef<number | null>(null);
@@ -85,6 +88,9 @@ export function useReaderPreferences(): ReaderPreferences {
         }
         if (typeof profile.tajweedColorsEnabled === 'boolean') {
           setShowTajweedColorsState(profile.tajweedColorsEnabled);
+        }
+        if (typeof profile.mistakeHighlightsEnabled === 'boolean') {
+          setShowMistakeHighlightsState(profile.mistakeHighlightsEnabled);
         }
         const languages = languagesFrom(profile.preferredTranslationLang);
         setShowEnglishState(languages.en);
@@ -192,6 +198,14 @@ export function useReaderPreferences(): ReaderPreferences {
     [persist]
   );
 
+  const setShowMistakeHighlights = useCallback(
+    (enabled: boolean): void => {
+      setShowMistakeHighlightsState(enabled);
+      void persist({ mistakeHighlightsEnabled: enabled });
+    },
+    [persist]
+  );
+
   return {
     ready,
     fontSize,
@@ -202,5 +216,7 @@ export function useReaderPreferences(): ReaderPreferences {
     setShowTamil,
     showTajweedColors,
     setShowTajweedColors,
+    showMistakeHighlights,
+    setShowMistakeHighlights,
   };
 }

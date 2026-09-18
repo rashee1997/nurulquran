@@ -62,6 +62,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     setShowTamil,
     showTajweedColors,
     setShowTajweedColors,
+    showMistakeHighlights,
+    setShowMistakeHighlights,
   } = useReaderPreferences();
   const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -89,6 +91,28 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     [chapter.id]
   );
   const noteRows = useLiveQuery(() => db.notes.where('surah').equals(chapter.id).toArray(), [chapter.id]);
+
+  /**
+   * Weak-spot overlay data: word indexes with recitation mistakes in this surah from the last
+   * 60 days, keyed by ayah. The `surah` index answers it without a table scan; entries older
+   * than the window are filtered in memory (a small set per surah).
+   */
+  const mistakeRows = useLiveQuery(
+    () => db.recitationMistakes.where('surah').equals(chapter.id).toArray(),
+    [chapter.id]
+  );
+  const mistakeWordsByAyah = useMemo(() => {
+    const map = new Map<number, Set<number>>();
+    if (!mistakeRows) return map;
+    const cutoff = Date.now() - 60 * 86_400_000;
+    for (const row of mistakeRows) {
+      if (new Date(row.at).getTime() < cutoff) continue;
+      const set = map.get(row.ayah) ?? new Set<number>();
+      set.add(row.wordIndex);
+      map.set(row.ayah, set);
+    }
+    return map;
+  }, [mistakeRows]);
 
   const bookmarkedAyahs = useMemo(() => {
     const set = new Set<number>();
@@ -483,6 +507,16 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 />
                 <span className="text-foreground">Tajweed Colours</span>
               </label>
+
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showMistakeHighlights}
+                  onChange={(event) => setShowMistakeHighlights(event.target.checked)}
+                  className="rounded-sm accent-primary"
+                />
+                <span className="text-foreground">Weak-spot highlights</span>
+              </label>
             </div>
           </div>
 
@@ -500,6 +534,18 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 Tajweed colour key
               </span>
               <TajweedColorKey showInstructions />
+            </div>
+          )}
+
+          {showMistakeHighlights && (
+            <div className="pt-3 border-t border-border space-y-1">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Weak-spot key
+              </span>
+              <p className="text-[11px] text-muted-foreground">
+                <span className="underline decoration-dotted decoration-danger-strong" aria-hidden="true">Underlined</span> words are
+                ones you skipped, substituted or fumbled in recent recitations (last 60 days). Tap a word for details.
+              </p>
             </div>
           )}
         </div>
@@ -541,6 +587,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 showEnglish={showEnglish}
                 showTamil={showTamil}
                 showTajweedColors={showTajweedColors}
+                mistakeWordIndexes={showMistakeHighlights ? mistakeWordsByAyah.get(verse.ayah) : undefined}
                 isCurrentAudio={isCurrentAyah}
                 isPlaying={isPlaying}
                 srsState={progress?.state as SrsState | undefined}

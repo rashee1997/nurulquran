@@ -68,7 +68,14 @@ export const DownloadSurahControl: React.FC<DownloadSurahControlProps> = ({ sura
   if (progress) {
     const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-hero-card-bg border border-hero-border text-hero-fg text-xs font-semibold">
+      <div
+        role="progressbar"
+        aria-valuenow={percent}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Downloading surah ${surahId} for offline use`}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-hero-card-bg border border-hero-border text-hero-fg text-xs font-semibold"
+      >
         <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
         <span>
           Downloading… {progress.done}/{progress.total}

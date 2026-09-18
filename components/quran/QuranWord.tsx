@@ -11,6 +11,8 @@ interface QuranWordItemProps {
   /** Tajweed segments belonging to this word (already filtered by word index). */
   segments?: TajweedSegment[];
   showTajweedColors?: boolean;
+  /** The learner has recorded recitation mistakes on this word (weak-spot overlay). */
+  hasMistake?: boolean;
   onClick: (word: QuranWord) => void;
 }
 
@@ -27,6 +29,7 @@ export const QuranWordItem: React.FC<QuranWordItemProps> = ({
   isSelected = false,
   segments,
   showTajweedColors = false,
+  hasMistake = false,
   onClick,
 }) => {
   const hasSegments = showTajweedColors && segments !== undefined && segments.length > 0;
@@ -48,11 +51,11 @@ export const QuranWordItem: React.FC<QuranWordItemProps> = ({
         isSelected
           ? 'bg-primary-subtle text-primary-strong ring-2 ring-primary'
           : 'hover:bg-surface-hover text-foreground'
-      }`}
+      } ${hasMistake ? 'underline decoration-dotted decoration-danger-strong decoration-2 underline-offset-[6px]' : ''}`}
       style={{ fontSize: `${fontSize}px` }}
       aria-label={`Word ${word.wordIndex} of ayah ${word.surah}:${word.ayah}${
         word.transliteration ? `, ${word.transliteration}` : ''
-      }. Open word details.`}
+      }${hasMistake ? '. A recent recitation mistake was recorded on this word.' : ''}. Open word details.`}
       title={word.transliteration ? `${word.transliteration} — tap for meaning and root` : 'Tap for word details'}
     >
       {hasSegments

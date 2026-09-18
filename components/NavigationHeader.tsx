@@ -198,6 +198,47 @@ export const NavigationHeader: React.FC = () => {
   const activeItem = getActiveItem();
   const ActiveIcon = activeItem.icon;
 
+  /**
+   * Arrow-key traversal for the nav menu (WAI-ARIA menu pattern): ↓/↑ move focus between
+   * items, Home/End jump, Esc closes and returns focus to the trigger. Keys are handled on
+   * the trigger and the popover together so focus never escapes into the page while open.
+   */
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLButtonElement | HTMLDivElement>): void => {
+    if (!dropdownOpen) return;
+    const menu = document.getElementById('header-nav-menu');
+    const items = menu
+      ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      : [];
+    if (items.length === 0) return;
+    const currentIndex = items.findIndex((el) => el === document.activeElement);
+
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowUp': {
+        event.preventDefault();
+        const delta = event.key === 'ArrowDown' ? 1 : -1;
+        const nextIndex = currentIndex === -1 ? (delta === 1 ? 0 : items.length - 1) : (currentIndex + delta + items.length) % items.length;
+        items[nextIndex]?.focus();
+        break;
+      }
+      case 'Home':
+        event.preventDefault();
+        items[0]?.focus();
+        break;
+      case 'End':
+        event.preventDefault();
+        items[items.length - 1]?.focus();
+        break;
+      case 'Escape':
+        event.preventDefault();
+        setDropdownOpen(false);
+        document.getElementById('header-nav-dropdown-btn')?.focus();
+        break;
+      default:
+        break;
+    }
+  };
+
   const levelInfo = calculateLevel(profile?.totalXp ?? 0);
   const achievements = getAchievementsList({
     totalXp: profile?.totalXp ?? 0,
@@ -237,9 +278,11 @@ export const NavigationHeader: React.FC = () => {
               <button
                 id="header-nav-dropdown-btn"
                 onClick={() => setDropdownOpen((prev) => !prev)}
+                onKeyDown={handleMenuKeyDown}
                 type="button"
                 aria-haspopup="true"
                 aria-expanded={dropdownOpen}
+                aria-controls="header-nav-menu"
                 className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-left transition-all cursor-pointer select-none text-xs font-semibold ${
                   dropdownOpen
                     ? 'border-primary bg-primary/10 text-primary shadow-xs'
@@ -261,7 +304,13 @@ export const NavigationHeader: React.FC = () => {
 
               {/* Dropdown Menu Popover */}
               {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-2 w-[290px] sm:w-[350px] max-h-[calc(100vh-80px)] overflow-y-auto rounded-2xl border border-border bg-card/98 backdrop-blur-xl shadow-2xl p-2.5 z-50 animate-in fade-in-50 zoom-in-95 duration-150 space-y-3">
+                <div
+                  id="header-nav-menu"
+                  role="menu"
+                  aria-labelledby="header-nav-dropdown-btn"
+                  onKeyDown={handleMenuKeyDown}
+                  className="absolute top-full left-0 mt-2 w-[290px] sm:w-[350px] max-h-[calc(100vh-80px)] overflow-y-auto scroll-contained rounded-2xl border border-border bg-card/98 backdrop-blur-xl shadow-2xl p-2.5 z-50 animate-in fade-in-50 zoom-in-95 duration-150 space-y-3"
+                >
                   <div className="px-2 py-1.5 flex items-center justify-between border-b border-border/60">
                     <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                       <LayoutGrid className="w-3 h-3 text-primary" />
@@ -283,8 +332,10 @@ export const NavigationHeader: React.FC = () => {
                             <Link
                               key={item.href}
                               href={item.href}
+                              role="menuitem"
+                              tabIndex={-1}
                               onClick={() => setDropdownOpen(false)}
-                              className={`flex items-start gap-2.5 p-2 rounded-xl text-left transition-all ${
+                              className={`flex items-start gap-2.5 p-2 rounded-xl text-left transition-colors ${
                                 isCurrent
                                   ? 'bg-primary/10 text-primary font-bold shadow-2xs'
                                   : 'text-foreground hover:bg-muted/70 hover:text-foreground'
@@ -303,7 +354,7 @@ export const NavigationHeader: React.FC = () => {
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-xs font-bold truncate">{t(`nav.item.${item.key}.label`, item.label)}</span>
                                   {item.badge && (
-                                    <span className="px-1.5 py-0.2 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase">
+                                    <span className="px-1.5 py-0.2 rounded-md bg-secondary-subtle text-secondary-strong text-[9px] font-black uppercase">
                                       {item.badge}
                                     </span>
                                   )}
@@ -382,7 +433,9 @@ export const NavigationHeader: React.FC = () => {
               onClick={() => setMobileMenuOpen((prev) => !prev)}
               type="button"
               className="md:hidden p-2 rounded-xl text-muted-foreground hover:bg-muted border border-border shrink-0"
-              aria-label="Toggle Navigation Drawer"
+              aria-label={mobileMenuOpen ? 'Close navigation drawer' : 'Open navigation drawer'}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-nav-drawer"
             >
               {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
@@ -391,7 +444,12 @@ export const NavigationHeader: React.FC = () => {
 
         {/* Mobile Slide-Down Drawer */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-border bg-card/98 backdrop-blur-md p-4 space-y-4 animate-in slide-in-from-top-2 max-h-[85vh] overflow-y-auto">
+          <div
+            id="mobile-nav-drawer"
+            role="region"
+            aria-label="Site navigation"
+            className="md:hidden border-t border-border bg-card/98 backdrop-blur-md p-4 space-y-4 animate-in slide-in-from-top-2 max-h-[85vh] overflow-y-auto scroll-contained"
+          >
             <div className="flex items-center justify-between pb-3 border-b border-border">
               <XPBar
                 currentXp={levelInfo.currentLevelXp}
@@ -433,7 +491,7 @@ export const NavigationHeader: React.FC = () => {
                             <ItemIcon className="w-4 h-4" />
                             <span>{t(`nav.item.${item.key}.label`, item.label)}</span>
                             {item.badge && (
-                              <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[9px] font-bold">
+                              <span className="px-1.5 py-0.2 rounded-md bg-secondary-subtle text-secondary-strong text-[9px] font-bold">
                                 {item.badge}
                               </span>
                             )}

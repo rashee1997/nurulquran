@@ -48,6 +48,7 @@ export type EventName =
   | 'mistakes.page_viewed'
   | 'mistakes.verse_jump'
   | 'mistakes.priority_review_graded'
+  | 'palette.action'
   | 'recite.replay_played'
   | 'recite.replay_compared_qari'
   | 'recite.replay_saved'

@@ -32,6 +32,8 @@ export interface UserProfile {
    */
   preferredTranslationLang: 'en' | 'ta' | 'both';
   tajweedColorsEnabled: boolean;
+  /** Overlay recent recitation mistakes on the Mushaf as weak-spot underlines; default off. */
+  mistakeHighlightsEnabled?: boolean;
   arabicFontSize: number;
   reciterId: string;
   unlockedLevels?: number[]; // Explicitly unlocked level tiers (e.g. from Tajweed Placement Exam)
@@ -437,6 +439,7 @@ const userProfileRowSchema = z.object({
   lastActiveDate: z.string().min(1),
   preferredTranslationLang: z.enum(['en', 'ta', 'both']),
   tajweedColorsEnabled: z.boolean(),
+  mistakeHighlightsEnabled: z.boolean().optional(),
   arabicFontSize: z.number().min(1),
   reciterId: z.string().min(1),
   unlockedLevels: z.array(z.number().int().min(1)).optional(),

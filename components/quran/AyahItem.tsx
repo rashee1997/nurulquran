@@ -33,6 +33,8 @@ interface AyahItemProps {
   onSaveNote?: (verse: Verse, text: string) => Promise<void> | void;
   /** Index of the word currently being recited, for word-synced playback. */
   activeWordIndex?: number | null;
+  /** Word indexes with recent recitation mistakes (weak-spot overlay); undefined hides the overlay. */
+  mistakeWordIndexes?: ReadonlySet<number>;
 }
 
 const AyahItemCard: React.FC<AyahItemProps> = ({
@@ -55,6 +57,7 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
   noteText,
   onSaveNote,
   activeWordIndex = null,
+  mistakeWordIndexes,
 }) => {
   const stateMeta = srsState ? STATE_LABELS[srsState] : null;
   const [noteOpen, setNoteOpen] = useState(false);
@@ -256,6 +259,7 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
                 segments={tajweedByWord[index]}
                 showTajweedColors={showTajweedColors && tajweedAligned}
                 isSelected={activeWordIndex !== null && isCurrentAudio && activeWordIndex === word.wordIndex}
+                hasMistake={mistakeWordIndexes?.has(word.wordIndex) ?? false}
                 onClick={onWordClick}
               />
               {index < verse.words.length - 1 ? ' ' : null}

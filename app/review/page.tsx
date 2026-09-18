@@ -8,6 +8,7 @@ import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { Verse } from '@/lib/quran/types';
 import { recordActivity } from '@/lib/learning/activity';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
+import { StatePanel } from '@/components/system/StatePanel';
 import confetti from 'canvas-confetti';
 import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2, Layers, Filter } from 'lucide-react';
 import Link from 'next/link';
@@ -206,10 +207,15 @@ export default function SrsReviewPage() {
         });
 
         if (quality >= 4) {
-          try {
-            confetti({ particleCount: 40, spread: 50 });
-          } catch (error) {
-            console.warn('Celebration effect unavailable:', error);
+          // Celebration is decorative only: skipped entirely for reduced-motion users.
+          const motionAllowed =
+            typeof window === 'undefined' || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          if (motionAllowed) {
+            try {
+              confetti({ particleCount: 40, spread: 50, disableForReducedMotion: true });
+            } catch (error) {
+              console.warn('Celebration effect unavailable:', error);
+            }
           }
         }
 
@@ -244,9 +250,8 @@ export default function SrsReviewPage() {
 
   if (loading) {
     return (
-      <div className="text-center py-20 text-muted-foreground">
-        <Clock className="w-8 h-8 mx-auto mb-2 animate-spin text-primary" />
-        <p className="text-xs">Building today’s review queue…</p>
+      <div className="max-w-md mx-auto">
+        <StatePanel variant="loading" title="Building today’s review queue…" description="Weakest recall first — ordering your scheduled ayahs." minHeight="min-h-[16rem]" />
       </div>
     );
   }
