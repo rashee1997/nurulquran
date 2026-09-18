@@ -25,8 +25,10 @@ import { CURRICULUM_LEVELS } from '@/lib/learning/curriculum';
 import { SURAHS } from '@/lib/quran/surahs';
 import { track } from '@/lib/telemetry/events';
 import { isStreakAtRisk } from '@/lib/learning/activity';
+import { useLocale } from '@/lib/i18n/useLocale';
 
 export default function DashboardPage() {
+  const { t } = useLocale();
   /**
    * Live views over IndexedDB, like the header. A one-shot read left the due count and the
    * memorised count stale after a review until the page was reloaded.
@@ -96,10 +98,13 @@ export default function DashboardPage() {
               <span>Level {levelInfo.level} • {levelInfo.title} ({levelInfo.titleArabic})</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Bismillah, Welcome to NurulQuran
+              {t('dashboard.hero.title', 'Bismillah, Welcome to NurulQuran')}
             </h1>
             <p className="text-hero-muted text-xs sm:text-sm max-w-xl">
-              Study Arabic reading, Tajweed and memorization with spaced repetition, plus English and Tamil translations.
+              {t(
+                'dashboard.hero.subtitle',
+                'Study Arabic reading, Tajweed and memorization with spaced repetition, plus English and Tamil translations.'
+              )}
             </p>
           </div>
 
@@ -109,17 +114,17 @@ export default function DashboardPage() {
             </div>
             <div>
               <span className="text-[11px] text-hero-muted font-semibold uppercase tracking-wider block">
-                Active Streak
+                {t('dashboard.streak.active', 'Active Streak')}
               </span>
               <p className="text-xl font-extrabold text-hero-fg">
-                {profile?.streakCount || 1} Day Streak
+                {profile?.streakCount || 1} {t('dashboard.streak.day', 'Day Streak')}
               </p>
               <span className="text-[10px] text-secondary font-medium">
                 {streakAtRisk
-                  ? 'Not practised yet today — your streak is at risk.'
+                  ? t('dashboard.streak.at_risk', 'Not practised yet today — your streak is at risk.')
                   : freezes > 0
-                    ? `${freezes} freeze token${freezes === 1 ? '' : 's'} protect a missed day.`
-                    : 'Practise today to keep your streak.'}
+                    ? `${freezes} ${t('dashboard.streak.freeze_available', 'freeze token(s) protect a missed day.')}`
+                    : t('dashboard.streak.practice_today', 'Practise today to keep your streak.')}
               </span>
             </div>
           </div>
@@ -138,7 +143,7 @@ export default function DashboardPage() {
               <BookOpen className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <span className="text-[11px] font-bold text-primary-strong uppercase tracking-wider">Continue reading</span>
+              <span className="text-[11px] font-bold text-primary-strong uppercase tracking-wider">{t('dashboard.continue_reading', 'Continue reading')}</span>
               <h3 className="text-sm font-bold text-foreground truncate">
                 {readingSurah.nameSimple} · Ayah {readingPosition.surah}:{readingPosition.ayah}
               </h3>
@@ -178,7 +183,11 @@ export default function DashboardPage() {
               href={`/learn/${nextLesson.id}`}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-98"
             >
-              <span>{completedLessonIds.size > 0 ? 'Resume Lesson' : 'Start Lesson'}</span>
+              <span>
+                {completedLessonIds.size > 0
+                  ? t('dashboard.resume_lesson', 'Resume Lesson')
+                  : t('dashboard.start_lesson', 'Start Lesson')}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
@@ -310,7 +319,7 @@ export default function DashboardPage() {
               <span>Three games</span>
             </div>
             <h2 className="text-xl font-bold text-foreground">
-              Practice Games
+              {t('dashboard.games.title', 'Practice Games')}
             </h2>
             <p className="text-xs text-muted-foreground max-w-xl">
               Reinforce memorization with word ordering, similar-verse discrimination and recall matching.
@@ -321,7 +330,7 @@ export default function DashboardPage() {
             href="/games"
             className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-xs flex items-center gap-2 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity shrink-0"
           >
-            <span>Open games</span>
+            <span>{t('dashboard.games.open', 'Open games')}</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -400,7 +409,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-foreground">
-              Ten Memorization Modes
+              {t('dashboard.modes.title', 'Ten Memorization Modes')}
             </h2>
             <p className="text-xs text-muted-foreground">
               Exercises for auditory, visual and associative recall.
@@ -410,7 +419,7 @@ export default function DashboardPage() {
             href="/memorize"
             className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
           >
-            <span>Explore All</span>
+            <span>{t('dashboard.modes.explore_all', 'Explore All')}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>
@@ -446,7 +455,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-foreground">
-              Daily Surahs & Reader
+              {t('dashboard.surahs.title', 'Daily Surahs & Reader')}
             </h2>
             <p className="text-xs text-muted-foreground">
               Read the Uthmani script with colour-coded Tajweed, audio, and English and Tamil translations.
@@ -456,7 +465,7 @@ export default function DashboardPage() {
             href="/quran"
             className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
           >
-            <span>All 114 Surahs</span>
+            <span>{t('dashboard.surahs.all', 'All 114 Surahs')}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>

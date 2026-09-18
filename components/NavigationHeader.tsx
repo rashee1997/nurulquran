@@ -33,9 +33,12 @@ import { CommandPalette } from './system/CommandPalette';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, initializeDatabase } from '@/lib/db';
 import { calculateLevel, getAchievementsList } from '@/lib/learning/xp-engine';
+import { useLocale } from '@/lib/i18n/useLocale';
 
 interface NavItem {
   href: string;
+  /** i18n key suffix under `nav.item.<key>.label` / `.desc`. */
+  key: string;
   label: string;
   desc: string;
   icon: React.ElementType;
@@ -44,35 +47,40 @@ interface NavItem {
 
 interface NavCategory {
   category: string;
+  /** i18n key under `nav.category.<categoryKey>`. */
+  categoryKey: string;
   items: NavItem[];
 }
 
 const NAV_CATEGORIES: NavCategory[] = [
   {
     category: 'Core Study',
+    categoryKey: 'core_study',
     items: [
-      { href: '/dashboard', label: 'Dashboard', desc: 'Progress, streak and recent activity', icon: Compass },
-      { href: '/quran', label: 'Quran Reader', desc: 'Uthmani text with audio, morphology and translations', icon: BookOpen },
-      { href: '/learn', label: 'Curriculum', desc: 'Tajweed and Arabic lessons, Levels 1–10', icon: BookOpen },
-      { href: '/arabic-lab', label: 'Arabic Lab', desc: 'Quranic and spoken Arabic, writing and iʿrāb', icon: Languages },
-      { href: '/lessons/tafsir', label: 'Tafseer Lessons', desc: 'Bilingual exegesis with a live voice storyteller', icon: Sparkles },
-      { href: '/library', label: 'Library', desc: 'Bookmarks, collections and your notes', icon: Bookmark },
+      { href: '/dashboard', key: 'dashboard', label: 'Dashboard', desc: 'Progress, streak and recent activity', icon: Compass },
+      { href: '/quran', key: 'quran', label: 'Quran Reader', desc: 'Uthmani text with audio, morphology and translations', icon: BookOpen },
+      { href: '/learn', key: 'curriculum', label: 'Curriculum', desc: 'Tajweed and Arabic lessons, Levels 1–10', icon: BookOpen },
+      { href: '/arabic-lab', key: 'arabic_lab', label: 'Arabic Lab', desc: 'Quranic and spoken Arabic, writing and iʿrāb', icon: Languages },
+      { href: '/lessons/tafsir', key: 'tafsir', label: 'Tafseer Lessons', desc: 'Bilingual exegesis with a live voice storyteller', icon: Sparkles },
+      { href: '/library', key: 'library', label: 'Library', desc: 'Bookmarks, collections and your notes', icon: Bookmark },
     ],
   },
   {
     category: 'Memorization',
+    categoryKey: 'memorization',
     items: [
-      { href: '/games', label: 'Practice Games', desc: 'Word order, similar-verse and recall drills', icon: Gamepad2 },
-      { href: '/memorize', label: 'Memorization Modes', desc: 'Ten recall drills linked to spaced repetition', icon: Brain },
-      { href: '/memorize/planner', label: 'Hifz Planner', desc: 'Daily portions and memorization targets', icon: Layers },
-      { href: '/review', label: 'Review Queue', desc: 'Today’s spaced-repetition review queue', icon: Clock },
-      { href: '/progress', label: 'Progress & Goals', desc: 'Heatmap, goals, weak spots and reminders', icon: BarChart3 },
+      { href: '/games', key: 'games', label: 'Practice Games', desc: 'Word order, similar-verse and recall drills', icon: Gamepad2 },
+      { href: '/memorize', key: 'memorize', label: 'Memorization Modes', desc: 'Ten recall drills linked to spaced repetition', icon: Brain },
+      { href: '/memorize/planner', key: 'planner', label: 'Hifz Planner', desc: 'Daily portions and memorization targets', icon: Layers },
+      { href: '/review', key: 'review', label: 'Review Queue', desc: 'Today’s spaced-repetition review queue', icon: Clock },
+      { href: '/progress', key: 'progress', label: 'Progress & Goals', desc: 'Heatmap, goals, weak spots and reminders', icon: BarChart3 },
     ],
   },
   {
     category: 'Preferences',
+    categoryKey: 'preferences',
     items: [
-      { href: '/settings', label: 'Settings', desc: 'Audio, language, theme and data backup', icon: Settings },
+      { href: '/settings', key: 'settings', label: 'Settings', desc: 'Audio, language, theme and data backup', icon: Settings },
     ],
   },
 ];
@@ -80,6 +88,7 @@ const NAV_CATEGORIES: NavCategory[] = [
 const ALL_NAV_ITEMS: NavItem[] = NAV_CATEGORIES.flatMap((c) => c.items);
 
 export const NavigationHeader: React.FC = () => {
+  const { t } = useLocale();
   const pathname = usePathname();
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isAchievementOpen, setIsAchievementOpen] = useState(false);
@@ -263,7 +272,7 @@ export const NavigationHeader: React.FC = () => {
                   {NAV_CATEGORIES.map((cat, catIdx) => (
                     <div key={catIdx} className="space-y-1">
                       <div className="px-2 text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider">
-                        {cat.category}
+                        {t(`nav.category.${cat.categoryKey}`, cat.category)}
                       </div>
                       <div className="space-y-0.5">
                         {cat.items.map((item) => {
@@ -292,7 +301,7 @@ export const NavigationHeader: React.FC = () => {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="text-xs font-bold truncate">{item.label}</span>
+                                  <span className="text-xs font-bold truncate">{t(`nav.item.${item.key}.label`, item.label)}</span>
                                   {item.badge && (
                                     <span className="px-1.5 py-0.2 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase">
                                       {item.badge}
@@ -303,7 +312,7 @@ export const NavigationHeader: React.FC = () => {
                                   )}
                                 </div>
                                 <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5 font-normal">
-                                  {item.desc}
+                                  {t(`nav.item.${item.key}.desc`, item.desc)}
                                 </p>
                               </div>
                             </Link>
@@ -365,7 +374,7 @@ export const NavigationHeader: React.FC = () => {
               className="flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-md shadow-primary/20 active:scale-95 transition-all shrink-0"
             >
               <MessagesSquare className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Study Assistant</span>
+              <span className="hidden sm:inline">{t('nav.study_assistant', 'Study Assistant')}</span>
             </button>
 
             {/* Mobile Drawer Menu Toggle */}
@@ -403,7 +412,7 @@ export const NavigationHeader: React.FC = () => {
               {NAV_CATEGORIES.map((cat, catIdx) => (
                 <div key={catIdx} className="space-y-1.5">
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1">
-                    {cat.category}
+                    {t(`nav.category.${cat.categoryKey}`, cat.category)}
                   </span>
                   <div className="grid grid-cols-1 gap-1">
                     {cat.items.map((item) => {
@@ -422,7 +431,7 @@ export const NavigationHeader: React.FC = () => {
                         >
                           <div className="flex items-center gap-2.5">
                             <ItemIcon className="w-4 h-4" />
-                            <span>{item.label}</span>
+                            <span>{t(`nav.item.${item.key}.label`, item.label)}</span>
                             {item.badge && (
                               <span className="px-1.5 py-0.2 rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[9px] font-bold">
                                 {item.badge}

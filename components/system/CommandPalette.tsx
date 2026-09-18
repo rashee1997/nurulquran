@@ -7,6 +7,7 @@ import { SURAHS } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
 import { normalizeForSearch } from '@/lib/quran/arabic-text';
 import { track } from '@/lib/telemetry/events';
+import { useLocale } from '@/lib/i18n/useLocale';
 
 interface SurahMatch {
   kind: 'surah';
@@ -74,6 +75,7 @@ function matchSurahs(raw: string, limit: number): SurahMatch[] {
  * Tamil verse text — one entry point instead of separate search boxes per page.
  */
 export const CommandPalette: React.FC = () => {
+  const { t } = useLocale();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -218,7 +220,7 @@ export const CommandPalette: React.FC = () => {
         className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background hover:bg-muted text-muted-foreground text-xs font-medium transition-colors shrink-0"
       >
         <Search className="w-3.5 h-3.5" />
-        <span>Search</span>
+        <span>{t('nav.search', 'Search')}</span>
         <kbd className="ml-1 px-1.5 py-0.5 rounded-md bg-muted border border-border text-[10px] font-mono">
           ⌘K
         </kbd>
