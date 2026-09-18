@@ -435,7 +435,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="text-right">
-                <span className="font-arabic text-2xl text-primary-strong">
+                <span className="font-arabic text-2xl text-primary-strong" lang="ar" dir="rtl">
                   {s.nameArabic}
                 </span>
               </div>

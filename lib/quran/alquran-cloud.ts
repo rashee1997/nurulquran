@@ -11,7 +11,7 @@ import {
 } from './types';
 import { getChapterMetadata, hasSeparateBasmala } from './surahs';
 import { analyzeTajweed } from './tajweed';
-import { containsNormalized, normalizeForSearch } from './arabic-text';
+import { containsNormalized, isMarkOnlyToken, normalizeForSearch } from './arabic-text';
 import {
   getVerifiedOfflineVerse,
   VERIFIED_OFFLINE_VERSES,
@@ -159,26 +159,23 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * Arabic letters and Arabic-Indic digits.
+ *
+ * Used to prove a payload is scripture rather than a translation. The provider must never
+ * treat a non-Arabic string as the Uthmani text: it is displayed as the Quran, indexed word
+ * by word, and analysed for Tajweed, so an English string slipping through would be rendered
+ * as the Quran with a Tajweed colouring derived from English letters.
+ */
+const ARABIC_SCRIPTURE_PATTERN = /[\u0621-\u064A\u0671-\u06D3]/;
+
+function isArabicScripture(text: string): boolean {
+  return ARABIC_SCRIPTURE_PATTERN.test(text);
+}
+
 /** Strips Mushaf end-of-ayah markers from a token so words stay word-pure. */
 function stripAyahMarker(token: string): string {
   return token.replace(/[\u06DD\u06DE][\u0660-\u0669\u06F0-\u06F9]*/g, '').trim();
-}
-
-/** Standalone Quranic pause (waqf) and annotation marks. */
-const PAUSE_AND_ANNOTATION_MARKS = /[\u0610-\u061A\u06D6-\u06ED]/g;
-
-/**
- * True for a token that carries no letters at all — only pause or annotation marks.
- *
- * The text edition emits these as their own whitespace-separated tokens: Ayat al-Kursi
- * (2:255) carries eight of them. They are not words, and counting them as words made the
- * list eight entries too long. A word's position in that list is what addresses its
- * recitation clip, so every word after the first pause mark played a different word's audio
- * (and the tail of the ayah played nothing). The marks remain in `textUthmani`, which is the
- * text a learner reads and recites; they are excluded only from the word list.
- */
-function isMarkOnlyToken(token: string): boolean {
-  return token.replace(PAUSE_AND_ANNOTATION_MARKS, '').length === 0;
 }
 
 /**
@@ -330,6 +327,9 @@ export class AlQuranCloudProvider implements QuranProvider {
       .trim()
       .split(/\s+/)
       .map((raw) => stripAyahMarker(raw))
+      // A token that is only a pause or annotation mark is not a word. Its position in this
+      // list addresses both the recitation clip and the Tajweed segment for that word, so
+      // `analyzeTajweed` applies the very same filter — see `isMarkOnlyToken`.
       .filter((token) => token.length > 0 && !isMarkOnlyToken(token))
       .map((wordStr, index) => {
         const wordIndex = index + 1;
@@ -371,6 +371,17 @@ export class AlQuranCloudProvider implements QuranProvider {
     // indexes, and the Tajweed segments — must describe the ayah itself, not the ayah plus
     // the basmala the edition glued to it.
     const textUthmani = stripLeadingBasmala(input.textUthmani, surah, ayah);
+
+    // Last line of defence for the central invariant: never render non-Arabic content as
+    // the Quran. Every path into this method (single-ayah, bulk chapter, and the verified
+    // offline corpus) passes through here, so the check cannot be bypassed by a new caller.
+    if (!isArabicScripture(textUthmani)) {
+      throw new QuranUnavailableError(
+        surah,
+        ayah,
+        'The text service returned a non-Arabic payload for the Uthmani text.'
+      );
+    }
     return {
       surah,
       ayah,
@@ -398,9 +409,23 @@ export class AlQuranCloudProvider implements QuranProvider {
   private composeFromAyahEditions(surah: number, ayah: number, editions: AyahEdition[]): Verse {
     const pick = (identifier: string) =>
       editions.find((edition) => edition.edition?.identifier === identifier);
-    const uthmani = pick('quran-uthmani') ?? editions[0];
+    /*
+     * The Uthmani edition is required by name.
+     *
+     * This previously read `pick('quran-uthmani') ?? editions[0]`. Falling back to "whatever
+     * came first" is a scripture-substitution risk with a maximal blast radius: the editions
+     * are requested in the order `quran-uthmani,en.sahih,ta.tamil`, so if the Uthmani edition
+     * were ever absent from a response the English translation would have been adopted as the
+     * Quranic text and then word-split and Tajweed-analyzed as if it were Arabic. A missing
+     * edition is now a failure, never a substitution.
+     */
+    const uthmani = pick('quran-uthmani');
     if (!uthmani || typeof uthmani.text !== 'string' || uthmani.text.length === 0) {
-      throw new QuranUnavailableError(surah, ayah, 'The text service returned no Uthmani text.');
+      throw new QuranUnavailableError(
+        surah,
+        ayah,
+        'The text service did not return the Uthmani edition for this verse.'
+      );
     }
 
     return this.composeVerse({
@@ -526,12 +551,23 @@ export class AlQuranCloudProvider implements QuranProvider {
     const uthmaniAyahs = pick('quran-uthmani')?.ayahs;
     if (!Array.isArray(uthmaniAyahs) || uthmaniAyahs.length === 0) return [];
 
+    /*
+     * Pairing a translation with its verse requires the *within-surah* number.
+     *
+     * The previous version also accepted `ayah.number` — which is the **global** ayah number
+     * (1-6236) — as a match for a within-surah number. For Al-Baqarah (global 8-293) that
+     * means ayah 8 would have matched global 8, which is 2:1, silently pairing a verse with
+     * another verse's translation. Rather than guess, a payload without `numberInSurah` is
+     * rejected here so `getChapterVerses` falls back to the per-ayah endpoint, which requests
+     * each verse's editions together and needs no matching at all.
+     */
+    if (uthmaniAyahs.some((ayah) => typeof ayah.numberInSurah !== 'number')) return [];
+
     const translationFor = (identifier: string, ayahNumber: number): string => {
       const ayahs = pick(identifier)?.ayahs;
       if (!Array.isArray(ayahs)) return '';
-      const match = ayahs.find(
-        (ayah) => ayah.numberInSurah === ayahNumber || ayah.number === ayahNumber
-      );
+      // Strict match only: a missing translation is honest, a mismatched one is not.
+      const match = ayahs.find((ayah) => ayah.numberInSurah === ayahNumber);
       return match?.text ?? '';
     };
 

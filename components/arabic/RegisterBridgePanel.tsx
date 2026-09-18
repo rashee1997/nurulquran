@@ -53,7 +53,7 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
               <p className="text-[10px] font-bold uppercase tracking-wider text-secondary-strong">
                 Classical (Quranic)
               </p>
-              <p className="font-arabic text-xl leading-loose text-foreground" dir="rtl">
+              <p className="font-arabic text-xl leading-loose text-foreground" dir="rtl" lang="ar">
                 {rulePair.classical.arabic}
               </p>
               <BilingualLines
@@ -66,7 +66,7 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
               <p className="text-[10px] font-bold uppercase tracking-wider text-primary-strong">
                 Spoken (everyday)
               </p>
-              <p className="font-arabic text-xl leading-loose text-foreground" dir="rtl">
+              <p className="font-arabic text-xl leading-loose text-foreground" dir="rtl" lang="ar">
                 {rulePair.spoken.arabic}
               </p>
               <BilingualLines
@@ -100,7 +100,7 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
           <div key={entry.id} className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border flex flex-wrap items-center justify-between gap-2 bg-muted/40">
               <div className="flex items-center gap-2">
-                <span className="font-arabic text-2xl text-foreground leading-none" dir="rtl">
+                <span className="font-arabic text-2xl text-foreground leading-none" dir="rtl" lang="ar">
                   {view.lemma}
                 </span>
                 <span className="text-[11px] italic text-muted-foreground">{view.transliteration}</span>
@@ -121,14 +121,14 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
                     </span>
                   </div>
 
-                  <p className="font-arabic text-3xl text-foreground text-center leading-loose" dir="rtl">
+                  <p className="font-arabic text-3xl text-foreground text-center leading-loose" dir="rtl" lang="ar">
                     {view.classical.arabic}
                   </p>
 
                   <div className="flex items-start gap-2 p-3 rounded-xl bg-card/80 border border-border">
                     <Quote className="w-3.5 h-3.5 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="space-y-1 min-w-0">
-                      <p className="font-arabic text-lg leading-loose text-foreground" dir="rtl">
+                      <p className="font-arabic text-lg leading-loose text-foreground" dir="rtl" lang="ar">
                         {renderAyahWithToken(view.classical.ayahTextUthmani, view.classical.arabic)}
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +180,7 @@ export const RegisterBridgePanel: React.FC<RegisterBridgePanelProps> = ({
                   </span>
                 </div>
 
-                <p className="font-arabic text-3xl text-foreground text-center leading-loose" dir="rtl">
+                <p className="font-arabic text-3xl text-foreground text-center leading-loose" dir="rtl" lang="ar">
                   {view.spoken.arabic}
                 </p>
                 <p className="text-center text-[11px] italic text-muted-foreground">

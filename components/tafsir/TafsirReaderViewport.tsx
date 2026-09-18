@@ -195,13 +195,13 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
                   Verified offline copy
                 </span>
               )}
-              <span className="font-arabic text-hero-muted" dir="rtl">
+              <span className="font-arabic text-hero-muted" dir="rtl" lang="ar">
                 {segment.surahNameArabic}
               </span>
             </div>
           </div>
 
-          <p className="font-arabic text-2xl sm:text-3xl leading-loose text-hero-fg">
+          <p className="font-arabic text-2xl sm:text-3xl leading-loose text-hero-fg" dir="rtl" lang="ar">
             {segment.textUthmani}
           </p>
 

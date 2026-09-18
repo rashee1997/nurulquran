@@ -139,16 +139,17 @@ function MemorizationContent() {
    * synthesizer when the recording cannot be loaded. Each call supersedes the last,
    * which is what stops overlapping recitations when the learner taps quickly.
    */
-  const playAudio = async (url?: string, text?: string): Promise<void> => {
-    if (url && text) {
-      const played = await playUrl(`memorize:${text.slice(0, 24)}`, url);
-      if (played) return;
-    } else if (url) {
-      const played = await playUrl(`memorize:${url}`, url);
+  const playAudio = async (url?: string, text?: string, verseKey?: string): Promise<void> => {
+    // The key identifies the *verse*, never a prefix of its text. Two verses that open with
+    // the same words (the ten identical refrains of Al-Mursalat, for instance) produced the
+    // same key, so the shared player could mark the wrong row as playing.
+    const key = verseKey ?? url ?? 'unknown';
+    if (url) {
+      const played = await playUrl(`memorize:${key}`, url);
       if (played) return;
     }
     if (text) {
-      await speak(`memorize-speech:${text.slice(0, 24)}`, text, 'ar-SA');
+      await speak(`memorize-speech:${key}`, text, 'ar-SA');
     }
   };
 
@@ -366,7 +367,13 @@ function MemorizationContent() {
 
               <div className="flex items-center justify-center gap-3">
                 <button
-                  onClick={() => void playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
+                  onClick={() =>
+                    void playAudio(
+                      currentVerse.audioUrl,
+                      currentVerse.textUthmani,
+                      `${currentVerse.surah}:${currentVerse.ayah}`
+                    )
+                  }
                   className="flex items-center gap-2 px-5 py-3 rounded-xl bg-surface border border-border hover:bg-surface-hover text-foreground text-xs font-bold transition-all active:scale-95"
                 >
                   <Volume2 className="w-4 h-4" />
@@ -537,7 +544,13 @@ function MemorizationContent() {
 
               <div className="text-center py-4">
                 <button
-                  onClick={() => void playAudio(currentVerse.audioUrl, currentVerse.textUthmani)}
+                  onClick={() =>
+                    void playAudio(
+                      currentVerse.audioUrl,
+                      currentVerse.textUthmani,
+                      `${currentVerse.surah}:${currentVerse.ayah}`
+                    )
+                  }
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold shadow-md active:scale-95 transition-all"
                 >
                   <Volume2 className="w-5 h-5" />

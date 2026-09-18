@@ -31,6 +31,9 @@ export const QuranWordItem: React.FC<QuranWordItemProps> = ({
 }) => {
   const hasSegments = showTajweedColors && segments !== undefined && segments.length > 0;
 
+  // `lang` is what tells a screen reader to read the word in Arabic. The surrounding document
+  // is `lang="en"`, so without it the most important text in the app is announced with an
+  // English voice.
   return (
     <button
       type="button"
@@ -39,6 +42,8 @@ export const QuranWordItem: React.FC<QuranWordItemProps> = ({
         event.stopPropagation();
         onClick(word);
       }}
+      lang="ar"
+      dir="rtl"
       className={`font-arabic inline-block px-1.5 py-0.5 rounded-lg align-baseline transition-colors duration-150 cursor-pointer ${
         isSelected
           ? 'bg-primary-subtle text-primary-strong ring-2 ring-primary'

@@ -27,7 +27,8 @@ import { StreakBadge } from './gamification/StreakBadge';
 import { AchievementModal } from './gamification/AchievementModal';
 import { TutorPanel } from './ai/TutorPanel';
 import { ThemeToggle } from './ThemeToggle';
-import { db, UserProfile, initializeDatabase } from '@/lib/db';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, initializeDatabase } from '@/lib/db';
 import { calculateLevel, getAchievementsList } from '@/lib/learning/xp-engine';
 
 interface NavItem {
@@ -75,8 +76,6 @@ const ALL_NAV_ITEMS: NavItem[] = NAV_CATEGORIES.flatMap((c) => c.items);
 
 export const NavigationHeader: React.FC = () => {
   const pathname = usePathname();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [stats, setStats] = useState({ memorizedCount: 0, completedLessonsCount: 0 });
   const [isAiOpen, setIsAiOpen] = useState(false);
   const [isAchievementOpen, setIsAchievementOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -92,31 +91,30 @@ export const NavigationHeader: React.FC = () => {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Seed the profile row once. Everything below *reacts* to the database instead of polling
+  // it, so the header repaints only when a row actually changes.
   useEffect(() => {
-    async function loadData() {
-      const p = await initializeDatabase();
-      setProfile(p);
-      if (typeof window !== 'undefined') {
-        const memCount = await db.verseProgress.where('state').equals('memorized').or('state').equals('mastered').count();
-        const lesCount = await db.lessonHistory.count();
-        setStats({ memorizedCount: memCount, completedLessonsCount: lesCount });
-      }
-    }
-    loadData();
-
-    // Listen for database changes periodically
-    const interval = setInterval(async () => {
-      if (typeof window !== 'undefined') {
-        const p = await db.userProfile.get('default_user');
-        if (p) setProfile(p);
-        const memCount = await db.verseProgress.where('state').equals('memorized').or('state').equals('mastered').count();
-        const lesCount = await db.lessonHistory.count();
-        setStats({ memorizedCount: memCount, completedLessonsCount: lesCount });
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
+    void initializeDatabase().catch((error: unknown) => {
+      console.warn('Profile could not be initialised:', error);
+    });
   }, []);
+
+  /**
+   * Live views over the learner's data.
+   *
+   * This replaced a `setInterval` that re-queried IndexedDB every three seconds on every
+   * route — including the landing page — and pushed fresh objects into state each tick, so the
+   * whole header re-rendered three times a second whether or not anything had changed, while
+   * the memorised-verse count used a compound `.or()` that scans. `anyOf` uses the `state`
+   * index and `useLiveQuery` fires only on real writes.
+   */
+  const profile = useLiveQuery(() => db.userProfile.get('default_user'), [], undefined);
+  const memorizedCount = useLiveQuery(
+    () => db.verseProgress.where('state').anyOf('memorized', 'mastered').count(),
+    [],
+    0
+  );
+  const completedLessonsCount = useLiveQuery(() => db.lessonHistory.count(), [], 0);
 
   // Handle outside click & escape key for dropdown
   useEffect(() => {
@@ -184,8 +182,8 @@ export const NavigationHeader: React.FC = () => {
   const achievements = getAchievementsList({
     totalXp: profile?.totalXp ?? 0,
     streakCount: profile?.streakCount || 1,
-    memorizedCount: stats.memorizedCount,
-    completedLessonsCount: stats.completedLessonsCount,
+    memorizedCount,
+    completedLessonsCount,
   });
 
   return (
@@ -197,7 +195,9 @@ export const NavigationHeader: React.FC = () => {
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 sm:gap-2.5 shrink-0 group" title="NurulQuran Home">
               <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-md shadow-primary/20 group-hover:scale-105 transition-transform">
-                <span className="font-arabic text-lg sm:text-xl font-bold">ن</span>
+                <span className="font-arabic text-lg sm:text-xl font-bold" lang="ar" dir="rtl">
+                  ن
+                </span>
               </div>
               <div className="flex flex-col">
                 <span className="font-extrabold text-sm sm:text-base tracking-tight text-foreground leading-none">

@@ -33,6 +33,11 @@ const STATUS_PRESENTATION: Record<
   idle: { label: 'Storyteller is off', labelTamil: 'கதை ஆசிரியர் அணைக்கப்பட்டுள்ளார்', tone: 'idle' },
   requesting_token: { label: 'Opening a lesson…', labelTamil: 'இணைக்கிறது…', tone: 'busy' },
   connecting: { label: 'Connecting…', labelTamil: 'இணைக்கிறது…', tone: 'busy' },
+  reconnecting: {
+    label: 'Reconnecting…',
+    labelTamil: 'மீண்டும் இணைக்கிறது…',
+    tone: 'busy',
+  },
   active: { label: 'Listening to you', labelTamil: 'உங்களைக் கேட்கிறார்', tone: 'live' },
   speaking: { label: 'Ameen is telling the story', labelTamil: 'ஆமீன் கதை சொல்கிறார்', tone: 'speaking' },
   interrupted: { label: 'Your turn', labelTamil: 'உங்கள் முறை', tone: 'live' },
@@ -51,6 +56,7 @@ const TONE_CLASSES: Record<StatusTone, string> = {
 const RUNNING_STATUSES: readonly LiveStorytellerStatus[] = [
   'requesting_token',
   'connecting',
+  'reconnecting',
   'active',
   'speaking',
   'interrupted',
@@ -99,7 +105,9 @@ export const GeminiLiveStorytellerBar: React.FC<GeminiLiveStorytellerBarProps> =
                 : 'bg-surface-muted text-muted-foreground border-border'
             }`}
           >
-            {status === 'requesting_token' || status === 'connecting' ? (
+            {status === 'requesting_token' ||
+            status === 'connecting' ||
+            status === 'reconnecting' ? (
               <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
             ) : (
               <Radio className="w-4 h-4" aria-hidden="true" />

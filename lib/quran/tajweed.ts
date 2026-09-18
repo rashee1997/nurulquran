@@ -1,3 +1,4 @@
+import { isMarkOnlyToken } from './arabic-text';
 import { TajweedData, TajweedRule, TajweedSegment } from './types';
 
 /**
@@ -94,7 +95,10 @@ export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
     colorClass: 'text-tajweed-qalqalah font-semibold',
     name: 'Qalqalah (Echo)',
     nameTa: 'கல்கலா (எதிரொலித்தல்)',
-    description: 'Bouncing echo when ق ط ب ج د carries Sukoon (and when stopping on it).',
+    // Scoped to what the engine actually detects. It requires an explicit Sukoon, so the
+    // echo produced by *stopping* on one of these letters is not highlighted; claiming it here
+    // would tell the learner a rule is shown that never appears.
+    description: 'Bouncing echo when ق ط ب ج د carries an explicit Sukoon in the script.',
   },
   idgham_with_ghunnah: {
     colorClass: 'text-tajweed-idgham font-semibold',
@@ -103,7 +107,9 @@ export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
     description: 'Noon Sakinah or Tanween merges into a following ي ن م و with two counts of nasalization.',
   },
   idgham_without_ghunnah: {
-    colorClass: 'text-tajweed-idgham font-semibold opacity-85',
+    // No opacity modifier: reducing the alpha of scripture text lowers its effective contrast
+    // against the page and pushes an otherwise legible colour below the WCAG floor.
+    colorClass: 'text-tajweed-idgham font-semibold',
     name: 'Idgham without Ghunnah',
     nameTa: 'இட்காம் (மூக்கொலி இன்றி கலத்தல்)',
     description: 'Noon Sakinah or Tanween merges completely into a following ل or ر, with no nasalization.',
@@ -139,12 +145,25 @@ export const TAJWEED_META: Record<TajweedRule, TajweedRuleMeta> = {
     description: 'Extended elongation of 4-5 counts before a Hamzah, or 6 counts before a Sukoon/Shaddah.',
   },
   silent: {
-    colorClass: 'text-tajweed-silent opacity-75',
+    colorClass: 'text-tajweed-silent',
     name: 'Silent Letter',
     nameTa: 'ஓதப்படாத எழுத்து',
     description: 'Written in the Mushaf but not pronounced in continuous recitation.',
   },
 };
+
+/** Every rule with a name, for a legend that carries the meaning without relying on colour. */
+export const TAJWEED_LEGEND: Array<{
+  rule: TajweedRule;
+  name: string;
+  nameTa: string;
+  colorClass: string;
+}> = (Object.keys(TAJWEED_META) as TajweedRule[]).map((rule) => ({
+  rule,
+  name: TAJWEED_META[rule].name,
+  nameTa: TAJWEED_META[rule].nameTa,
+  colorClass: TAJWEED_META[rule].colorClass,
+}));
 
 interface Unit {
   /** Exact substring of the verse for this letter and its attached marks. */
@@ -303,8 +322,16 @@ export function analyzeTajweed(surah: number, ayah: number, textUthmani: string)
 
   tokens.forEach((token, tokenIndex) => {
     if (token.kind !== 'word') return;
-    // A token that is only an ayah marker is not a word and must not consume a word index.
+    // Two kinds of token are not words and must not consume a word index: an end-of-ayah
+    // marker, and a standalone waqf/annotation sign such as `ۚ`.
+    //
+    // The second check has to be byte-for-byte the same rule `AlQuranCloudProvider.buildWords`
+    // applies. The index minted here is used by the reader to look up the Nth entry of
+    // `Verse.words`, so if one tokenizer counts a pause mark and the other does not, every
+    // Tajweed colour after that mark is painted onto the wrong word — measured at +8 words of
+    // drift in Ayat al-Kursi when only `buildWords` filtered them.
     if (token.text.replace(AYAH_MARKER_PATTERN, '').trim().length === 0) return;
+    if (isMarkOnlyToken(token.text)) return;
     const units = buildUnits(token.text, wordCounter);
     words.push({ tokenIndex, units });
     for (const unit of units) {
@@ -349,7 +376,15 @@ export function analyzeTajweed(surah: number, ayah: number, textUthmani: string)
   return { surah, ayah, segments };
 }
 
-/** Groups segments by word index for per-word rendering (word 0 = first word). */
+/**
+ * Groups segments by word index for per-word rendering (word 0 = first word).
+ *
+ * The index is **positional within `Verse.words`**, not `QuranWord.wordIndex` (which is
+ * 1-based). `AyahItem` therefore indexes the group with the array position of the rendered
+ * word, which is exactly what `analyzeTajweed` numbers. `wordIndexFromSegments` below asserts
+ * that correspondence at runtime so a future divergence is reported instead of silently
+ * mis-colouring.
+ */
 export function groupSegmentsByWord(segments: readonly TajweedSegment[]): TajweedSegment[][] {
   const grouped: TajweedSegment[][] = [];
   for (const segment of segments) {
@@ -364,4 +399,21 @@ export function groupSegmentsByWord(segments: readonly TajweedSegment[]): Tajwee
 /** True when any segment in the group carries a rule. */
 export function wordHasTajweedRule(segments: readonly TajweedSegment[] | undefined): boolean {
   return Boolean(segments?.some((segment) => Boolean(segment.rule)));
+}
+
+/**
+ * How many words the segment list describes.
+ *
+ * A caller that also has the verse's word list can compare this to `words.length`; the two
+ * disagreeing means script text and segment indices were tokenized differently, which is the
+ * only way Tajweed colouring can silently land on the wrong word.
+ */
+export function countSegmentWords(segments: readonly TajweedSegment[]): number {
+  let highest = -1;
+  for (const segment of segments) {
+    if (typeof segment.wordIndex === 'number' && segment.wordIndex > highest) {
+      highest = segment.wordIndex;
+    }
+  }
+  return highest + 1;
 }

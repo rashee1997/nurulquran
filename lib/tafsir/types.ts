@@ -185,6 +185,8 @@ export type LiveStorytellerStatus =
   | 'idle'
   | 'requesting_token'
   | 'connecting'
+  /** The socket dropped and a bounded automatic retry is queued. */
+  | 'reconnecting'
   | 'active'
   | 'speaking'
   | 'interrupted'

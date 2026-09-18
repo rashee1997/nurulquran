@@ -112,7 +112,7 @@ export default function QuranIndexPage() {
             </div>
 
             <div className="text-right">
-              <span className="font-arabic text-2xl text-primary select-none">
+              <span lang="ar" dir="rtl" className="font-arabic text-2xl text-primary select-none">
                 {surah.nameArabic}
               </span>
             </div>

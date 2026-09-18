@@ -10,7 +10,13 @@ import { AudioBar, PlaybackIntent } from './AudioBar';
 import { MushafPageView } from './MushafPageView';
 import { MutashabihatModal } from './MutashabihatModal';
 import { MutashabihEntry } from '@/lib/quran/mutashabihat';
+import { TAJWEED_LEGEND } from '@/lib/quran/tajweed';
 import { db, SrsState, VerseProgress } from '@/lib/db';
+import {
+  MAX_ARABIC_FONT_SIZE,
+  MIN_ARABIC_FONT_SIZE,
+  useReaderPreferences,
+} from '@/hooks/use-reader-preferences';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
 import {
   Settings2,
@@ -39,10 +45,21 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   const [viewMode, setViewMode] = useState<'continuous' | 'mushaf'>('continuous');
   const [selectedWord, setSelectedWord] = useState<QuranWord | null>(null);
   const [activeMutashabih, setActiveMutashabih] = useState<MutashabihEntry | null>(null);
-  const [fontSize, setFontSize] = useState(30);
-  const [showEnglish, setShowEnglish] = useState(true);
-  const [showTamil, setShowTamil] = useState(true);
-  const [showTajweedColors, setShowTajweedColors] = useState(true);
+  /**
+   * Display preferences are read from and written back to the learner's profile, so a font
+   * size chosen to read the diacritics survives navigation. They were session-only state here
+   * while the profile fields for the same settings sat unread.
+   */
+  const {
+    fontSize,
+    setFontSize,
+    showEnglish,
+    setShowEnglish,
+    showTamil,
+    setShowTamil,
+    showTajweedColors,
+    setShowTajweedColors,
+  } = useReaderPreferences();
   const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playIntent, setPlayIntent] = useState<PlaybackIntent>({ token: 0, playing: false });
@@ -206,7 +223,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
             </Link>
           </div>
 
-          <h1 className="text-4xl sm:text-5xl font-arabic text-secondary py-1">
+          <h1 lang="ar" dir="rtl" className="text-4xl sm:text-5xl font-arabic text-secondary py-1">
             {chapter.nameArabic}
           </h1>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
@@ -291,7 +308,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         >
           <div className="flex items-center justify-between text-xs font-bold text-foreground border-b border-border pb-2">
             <span>Reader Preferences</span>
-            <span className="text-muted-foreground">Saved for this session</span>
+            <span className="text-muted-foreground">Saved on this device</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -303,8 +320,8 @@ Explain the root words, linguistic context, and practical spiritual reflections.
               <input
                 id="arabic-font-size"
                 type="range"
-                min={22}
-                max={46}
+                min={MIN_ARABIC_FONT_SIZE}
+                max={MAX_ARABIC_FONT_SIZE}
                 step={1}
                 value={fontSize}
                 onChange={(event) => setFontSize(Number(event.target.value))}
@@ -313,12 +330,15 @@ Explain the root words, linguistic context, and practical spiritual reflections.
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* At least one translation stays on, so the pair below never reaches
+                  "neither" — a state the stored preference has no way to represent. */}
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={showEnglish}
+                  disabled={showEnglish && !showTamil}
                   onChange={(event) => setShowEnglish(event.target.checked)}
-                  className="rounded-sm accent-primary"
+                  className="rounded-sm accent-primary disabled:opacity-50"
                 />
                 <span className="text-foreground">English (Sahih)</span>
               </label>
@@ -327,10 +347,13 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 <input
                   type="checkbox"
                   checked={showTamil}
+                  disabled={showTamil && !showEnglish}
                   onChange={(event) => setShowTamil(event.target.checked)}
-                  className="rounded-sm accent-primary"
+                  className="rounded-sm accent-primary disabled:opacity-50"
                 />
-                <span className="text-foreground font-tamil">தமிழ் (Tamil)</span>
+                <span className="text-foreground font-tamil" lang="ta">
+                  தமிழ் (Tamil)
+                </span>
               </label>
 
               <label className="flex items-center gap-1.5 cursor-pointer">
@@ -340,10 +363,43 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                   onChange={(event) => setShowTajweedColors(event.target.checked)}
                   className="rounded-sm accent-primary"
                 />
-                <span className="text-foreground">Tajweed Colors</span>
+                <span className="text-foreground">Tajweed Colours</span>
               </label>
             </div>
           </div>
+
+          {/*
+            The colour key.
+
+            Tajweed rules are conveyed by colour, and colour alone is not an accessible
+            channel: a learner with a colour-vision deficiency, or reading on a washed-out
+            screen, needs the rule named. Each entry pairs the swatch with its name in both
+            languages, so the mapping is available without hovering a `title` (which touch and
+            keyboard users cannot reach).
+          */}
+          {showTajweedColors && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Tajweed colour key
+              </span>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {TAJWEED_LEGEND.map((entry) => (
+                  <li key={entry.rule} className="flex items-start gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={`mt-1 h-3 w-3 shrink-0 rounded-sm bg-current ${entry.colorClass}`}
+                    />
+                    <span className="text-[11px] leading-snug">
+                      <span className={`font-semibold ${entry.colorClass}`}>{entry.name}</span>
+                      <span className="block font-tamil text-muted-foreground" lang="ta">
+                        {entry.nameTa}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

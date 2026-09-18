@@ -5,6 +5,7 @@ import { resolveAIModel, serverGeminiApiKey } from '@/lib/ai/resolver';
 import { quranProvider, QuranWordNotFoundError } from '@/lib/quran/alquran-cloud';
 import { getChapterMetadata } from '@/lib/quran/surahs';
 import { TAJWEED_META } from '@/lib/quran/tajweed';
+import type { TajweedRule } from '@/lib/quran/types';
 import { aiProviderVendorSchema, chatRequestSchema, parseWithSchema } from '@/lib/api/schemas';
 import { apiError, guardRequest, NOT_CONFIGURED, RATE_LIMITED } from '@/lib/api/http';
 import { callerKey, checkRateLimit } from '@/lib/api/rate-limit';
@@ -263,10 +264,27 @@ CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
             if (!target?.rule) {
               return { available: false, reason: 'No Tajweed rule is detectable in this verse from the script.' };
             }
-            const distractors = Object.keys(TAJWEED_META)
-              .filter((rule) => rule !== target.rule)
-              .slice(0, 3);
-            const options = shuffleWithSeed([target.rule, ...distractors], `${surah}:${ayah}:tajweed`);
+            /*
+             * Distractors are spread across the whole rule set, not taken in declaration
+             * order.
+             *
+             * `Object.keys(TAJWEED_META).filter(≠ answer).slice(0, 3)` always produced the
+             * same three rules for nearly every question (the first three keys, minus the
+             * answer), so the options became recognisable by elimination instead of by
+             * recognising the rule — the opposite of what a Tajweed quiz is for. The window
+             * now starts at a per-question offset and wraps, so every rule is eligible.
+             */
+            const allRules = Object.keys(TAJWEED_META) as TajweedRule[];
+            const others = allRules.filter((rule) => rule !== target.rule);
+            const offset = seededOrder(`${reference}:${target.rule}`, others.length)[0] ?? 0;
+            const distractors = Array.from(
+              { length: Math.min(3, others.length) },
+              (_, index) => others[(offset + index) % others.length]
+            );
+            const options = shuffleWithSeed(
+              [target.rule, ...distractors],
+              `${surah}:${ayah}:${target.rule}:tajweed`
+            );
             return {
               available: true,
               type,
@@ -299,8 +317,27 @@ CRITICAL INVARIANT — ZERO HALLUCINATION POLICY:
               reason: 'No word-level lexicon entry exists for this verse, so a word-meaning quiz cannot be built from verified data.',
             };
           }
+          /*
+           * Distractors must be *distinct* from the answer and from each other. Taking
+           * `slice(1, 4)` blindly could hand the learner a question whose correct option
+           * appears twice (two words in a verse often share an English gloss), which makes
+           * the "correct" answer ambiguous rather than testing recall.
+           */
           const target = words[0];
-          const otherMeanings = words.slice(1, 4).map((word) => word.translationEn);
+          const otherMeanings = Array.from(
+            new Set(
+              words
+                .slice(1)
+                .map((word) => word.translationEn)
+                .filter((meaning) => meaning !== target.translationEn)
+            )
+          ).slice(0, 3);
+          if (otherMeanings.length < 2) {
+            return {
+              available: false,
+              reason: 'This verse does not contain enough distinct word meanings to build an unambiguous multiple-choice question.',
+            };
+          }
           const options = shuffleWithSeed(
             [target.translationEn, ...otherMeanings],
             `${surah}:${ayah}:words`

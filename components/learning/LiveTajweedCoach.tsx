@@ -475,7 +475,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               <div className="flex-1 flex items-center justify-between gap-2">
                 <p className="text-xs text-muted-foreground leading-tight">
                   Tap the microphone to recite{' '}
-                  <span className="font-arabic font-bold text-foreground text-sm">
+                  <span className="font-arabic font-bold text-foreground text-sm" lang="ar" dir="rtl">
                     {promptArabic || 'this verse'}
                   </span>{' '}
                   aloud.
@@ -592,7 +592,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
               </span>
               <span className="text-[11px] text-muted-foreground">{targetRule || 'Tajweed & Makharij'}</span>
             </div>
-            <span className="font-arabic text-2xl font-bold text-foreground select-text leading-tight">
+            <span className="font-arabic text-2xl font-bold text-foreground select-text leading-tight" lang="ar" dir="rtl">
               {promptArabic}
             </span>
           </div>

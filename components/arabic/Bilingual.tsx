@@ -45,7 +45,7 @@ export const LabelChip: React.FC<{
   <span
     className={`inline-flex flex-wrap items-baseline gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${TONE_CLASSES[tone]}`}
   >
-    <span className="font-arabic text-sm leading-none" dir="rtl">
+    <span className="font-arabic text-sm leading-none" dir="rtl" lang="ar">
       {label.arabic}
     </span>
     {(isEnglishEnabled(language) || isTamilEnabled(language)) && (

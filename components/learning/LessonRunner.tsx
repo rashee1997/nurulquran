@@ -348,6 +348,8 @@ export const LessonRunner: React.FC<LessonRunnerProps> = ({ lesson, onFinished }
                       setAssembledTokens((previous) => [...previous, token]);
                       void speak(`token:${currentIdx}:${tokenIndex}`, token, 'ar-SA');
                     }}
+                    lang="ar"
+                    dir="rtl"
                     className={`font-arabic text-2xl px-4 py-2 rounded-xl border transition-all ${
                       isAllUsed
                         ? 'opacity-30 border-border pointer-events-none'

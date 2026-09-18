@@ -42,7 +42,7 @@ export const VerseCard: React.FC<{ result: Record<string, unknown> }> = ({ resul
       </div>
 
       <div className="p-3 bg-card rounded-xl border border-primary/20 text-right dir-rtl" dir="rtl">
-        <p className="font-arabic text-2xl text-foreground select-text leading-loose">
+        <p className="font-arabic text-2xl text-foreground select-text leading-loose" lang="ar" dir="rtl">
           {String(result.textUthmani)}
         </p>
       </div>
@@ -79,7 +79,7 @@ export const WordAnalysisCard: React.FC<{ result: Record<string, unknown> }> = (
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="font-arabic text-2xl text-foreground">
+        <span className="font-arabic text-2xl text-foreground" lang="ar" dir="rtl">
           {String(result.arabic)}
         </span>
         <span className="text-xs text-muted-foreground font-medium">

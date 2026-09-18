@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { GameSessionResult } from './schemas/streak-schema';
 import type { ArabicLabProgress } from '../arabic/types';
 import { localDayKey } from '../time/day';
+import { DEFAULT_GEMINI_TEXT_MODEL } from '../ai/models';
 
 export type SrsState = 'new' | 'learning' | 'familiar' | 'memorized' | 'review' | 'weak' | 'mastered';
 export type HifzTier = 'sabaq' | 'sabqi' | 'manzil';
@@ -19,7 +20,16 @@ export interface UserProfile {
   totalXp: number;
   streakCount: number;
   lastActiveDate: string; // YYYY-MM-DD
-  dailyGoalMinutes: number;
+  /**
+   * Reader display preferences.
+   *
+   * These three are the single source of truth for how the reader renders scripture. They
+   * previously existed here *and* as session-only state inside `QuranReader`, with different
+   * defaults, so a learner who enlarged the Arabic text lost the setting on the next
+   * navigation. `dailyGoalMinutes` was removed: it was seeded, validated on backup import and
+   * read by nothing at all, and a preference that silently does nothing is worse than no
+   * preference.
+   */
   preferredTranslationLang: 'en' | 'ta' | 'both';
   tajweedColorsEnabled: boolean;
   arabicFontSize: number;
@@ -177,7 +187,6 @@ export async function initializeDatabase(): Promise<UserProfile> {
       totalXp: 0,
       streakCount: 1,
       lastActiveDate: localDayKey(),
-      dailyGoalMinutes: 15,
       preferredTranslationLang: 'both',
       tajweedColorsEnabled: true,
       arabicFontSize: 28,
@@ -199,7 +208,6 @@ export async function initializeDatabase(): Promise<UserProfile> {
       totalXp: 0,
       streakCount: 1,
       lastActiveDate: today,
-      dailyGoalMinutes: 15,
       preferredTranslationLang: 'both',
       tajweedColorsEnabled: true,
       arabicFontSize: 28,
@@ -241,18 +249,24 @@ export async function initializeDatabase(): Promise<UserProfile> {
       id: SERVER_DEFAULT_PROVIDER_ID,
       name: 'Google Gemini (Server Default)',
       type: 'gemini',
-      models: ['gemini-3.8-flash'],
-      selectedModel: 'gemini-3.8-flash',
+      models: [DEFAULT_GEMINI_TEXT_MODEL],
+      selectedModel: DEFAULT_GEMINI_TEXT_MODEL,
       isDefault: true,
     });
-  } else if (existingProvider.selectedModel === 'gemini-2.5-flash') {
+  } else if (existingProvider.selectedModel !== DEFAULT_GEMINI_TEXT_MODEL) {
+    // Re-point the built-in provider at whatever the single source of truth currently says.
+    // Comparing against one hardcoded legacy id (as this did) only repaired the one stale value
+    // its author happened to know about; any other drift stayed broken. This row is app-managed
+    // and not user-editable, so normalising it is always safe.
     await db.aiProviders.update(SERVER_DEFAULT_PROVIDER_ID, {
-      models: ['gemini-3.8-flash'],
-      selectedModel: 'gemini-3.8-flash',
+      models: [DEFAULT_GEMINI_TEXT_MODEL],
+      selectedModel: DEFAULT_GEMINI_TEXT_MODEL,
     });
   }
 
-  return profile;
+  // Re-read rather than returning the object read before the corrective updates above, which
+  // could hand callers pre-migration values (e.g. the legacy seeded 50 XP).
+  return (await db.userProfile.get('default_user')) ?? profile;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -283,7 +297,6 @@ const userProfileRowSchema = z.object({
   totalXp: z.number().int().min(0),
   streakCount: z.number().int().min(0),
   lastActiveDate: z.string().min(1),
-  dailyGoalMinutes: z.number().min(1),
   preferredTranslationLang: z.enum(['en', 'ta', 'both']),
   tajweedColorsEnabled: z.boolean(),
   arabicFontSize: z.number().min(1),

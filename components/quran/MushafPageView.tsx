@@ -223,7 +223,7 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
           <span className="font-bold text-foreground">
             Surah {chapter.nameSimple} ({chapter.id})
           </span>
-          <span className="font-arabic text-sm text-primary font-bold">
+          <span className="font-arabic text-sm text-primary font-bold" lang="ar" dir="rtl">
             الجزء {Math.ceil(chapter.id / 4)}
           </span>
           <span className="font-bold text-foreground">

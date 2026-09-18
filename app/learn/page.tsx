@@ -235,7 +235,7 @@ export default function CurriculumMapPage() {
                       <span>Level {level.level}</span>
                     </span>
 
-                    <span className="font-arabic text-xl font-bold text-primary">
+                    <span className="font-arabic text-xl font-bold text-primary" lang="ar" dir="rtl">
                       {level.titleArabic}
                     </span>
 

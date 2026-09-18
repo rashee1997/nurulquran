@@ -181,16 +181,21 @@
   --hero-card-bg: rgba(255, 255, 255, 0.12);
   --pattern-dot: rgba(255, 255, 255, 0.4);
 
-  /* Tajweed Rules */
-  --tajweed-ghunnah: #d97706;
+  /* Tajweed Rules
+     Tuned for contrast against the card surface they are painted on (#ffffff). Every value
+     reaches at least 4.5:1, because these colours are applied to scripture the learner must
+     read closely and at the smallest supported font size (22px) they are normal-size text by
+     WCAG, not large text. Measured before this change: ghunnah 3.19:1, idgham 3.74:1,
+     ikhfa 3.77:1, silent 2.56:1. */
+  --tajweed-ghunnah: #b45309;
   --tajweed-qalqalah: #2563eb;
-  --tajweed-ikhfa: #059669;
-  --tajweed-idgham: #0d9488;
+  --tajweed-ikhfa: #047857;
+  --tajweed-idgham: #0f766e;
   --tajweed-izhar: #7c3aed;
   --tajweed-iqlab: #e11d48;
   --tajweed-madd: #9333ea;
   --tajweed-madd-long: #dc2626;
-  --tajweed-silent: #94a3b8;
+  --tajweed-silent: #64748b;
 }
 
 /* ==========================================================================
@@ -279,7 +284,9 @@
   --tajweed-iqlab: #fb7185;
   --tajweed-madd: #c084fc;
   --tajweed-madd-long: #f87171;
-  --tajweed-silent: #64748b;
+  /* Lightened for the dark surface (#0f1c16): the light-mode value measured 3.68:1 here,
+     which fails the 4.5:1 normal-text floor. This reaches 6.84:1. */
+  --tajweed-silent: #94a3b8;
 }
 
 /* ==========================================================================

@@ -195,7 +195,7 @@ const ChoiceCard: React.FC<ActivityProps<ArabicLabChoiceActivity>> = ({
             !correct ? (
               <p className="text-[11px] text-muted-foreground">
                 Correct answer:{' '}
-                <span className="font-arabic text-base text-foreground" dir="rtl">
+                <span className="font-arabic text-base text-foreground" dir="rtl" lang="ar">
                   {activity.correctAnswer}
                 </span>
               </p>
@@ -252,6 +252,8 @@ const BuildCard: React.FC<ActivityProps<ArabicLabBuildActivity>> = ({ activity, 
               disabled={checked}
               onClick={() => setPicked((current) => current.filter((_, i) => i !== index))}
               className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-arabic text-lg leading-none"
+              lang="ar"
+              dir="rtl"
             >
               {token}
             </button>
@@ -267,6 +269,8 @@ const BuildCard: React.FC<ActivityProps<ArabicLabBuildActivity>> = ({ activity, 
             disabled={checked}
             onClick={() => setPicked((current) => [...current, token])}
             className="px-3 py-1.5 rounded-lg bg-card border border-border hover:border-primary/50 font-arabic text-lg leading-none text-foreground disabled:opacity-50"
+            lang="ar"
+            dir="rtl"
           >
             {token}
           </button>
@@ -300,7 +304,7 @@ const BuildCard: React.FC<ActivityProps<ArabicLabBuildActivity>> = ({ activity, 
           extra={
             <p className="text-[11px] text-muted-foreground">
               Target:{' '}
-              <span className="font-arabic text-base text-foreground" dir="rtl">
+              <span className="font-arabic text-base text-foreground" dir="rtl" lang="ar">
                 {activity.correctAnswer}
               </span>
             </p>
@@ -440,7 +444,7 @@ const DialogueCard: React.FC<ActivityProps<ArabicLabDialogueActivity>> = ({ acti
                   </button>
                 )}
               </div>
-              <p className="font-arabic text-xl text-foreground leading-loose" dir="rtl">
+              <p className="font-arabic text-xl text-foreground leading-loose" dir="rtl" lang="ar">
                 {turn.arabicMsa}
               </p>
               {showTransliteration && (
@@ -514,6 +518,7 @@ const DictationCard: React.FC<ActivityProps<ArabicLabDictationActivity>> = ({
         rows={3}
         placeholder="اكتب الجملة هنا…"
         className="w-full p-3 rounded-xl border border-border bg-card font-arabic text-2xl leading-loose text-foreground focus:outline-none focus:border-primary resize-none"
+        lang="ar"
       />
 
       {!checked ? (
@@ -534,7 +539,7 @@ const DictationCard: React.FC<ActivityProps<ArabicLabDictationActivity>> = ({
           extra={
             <p className="text-[11px] text-muted-foreground">
               Expected:{' '}
-              <span className="font-arabic text-lg text-foreground" dir="rtl">
+              <span className="font-arabic text-lg text-foreground" dir="rtl" lang="ar">
                 {activity.dictationText}
               </span>
             </p>
@@ -725,7 +730,7 @@ export const ArabicLabRunner: React.FC<ArabicLabRunnerProps> = ({
               </span>
             </div>
             <h3 className="text-base font-bold text-foreground">{lesson.title}</h3>
-            <p className="font-arabic text-lg text-muted-foreground leading-loose" dir="rtl">
+            <p className="font-arabic text-lg text-muted-foreground leading-loose" dir="rtl" lang="ar">
               {lesson.titleArabic}
             </p>
           </div>

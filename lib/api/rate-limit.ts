@@ -64,9 +64,45 @@ export function checkRateLimit({ key, limit, windowMs }: RateLimitOptions): Rate
   return { allowed: true, remaining: limit - fresh.length, retryAfterSeconds: 0 };
 }
 
-/** Best-effort caller identity for rate limiting. */
+/**
+ * Best-effort caller identity for rate limiting.
+ *
+ * The address is taken from the **last** `x-forwarded-for` entry, not the first.
+ *
+ * Each proxy in the chain *appends* the peer it saw, so the final entry is the one written by
+ * the proxy closest to us — the only entry a client cannot forge. Reading the first entry (as
+ * this did) meant a caller could put any value there and get a fresh bucket per request, which
+ * defeated the limit on every expensive route at once: the evaluation, live-coach, chat, TTS
+ * and token-mint endpoints all key on this. A deployment whose proxy overwrites the header
+ * instead of appending is unaffected, since then first and last are the same value.
+ *
+ * When no address header is present at all there is genuinely nothing to identify a caller
+ * with. Those requests share one bucket deliberately: a shared bucket may throttle honest
+ * users behind a misconfigured proxy, whereas removing the limit would leave the paid AI
+ * endpoints unbounded. The condition is logged once so the misconfiguration is visible.
+ */
+let warnedAboutMissingCallerAddress = false;
+
 export function callerKey(req: Request, scope: string): string {
   const forwarded = req.headers.get('x-forwarded-for');
-  const ip = forwarded?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  const chain = forwarded?.split(',') ?? [];
+  const fromChain = chain[chain.length - 1]?.trim();
+
+  const ip =
+    (fromChain && fromChain.length > 0 ? fromChain : undefined) ??
+    req.headers.get('cf-connecting-ip') ??
+    req.headers.get('x-real-ip') ??
+    undefined;
+
+  if (!ip) {
+    if (!warnedAboutMissingCallerAddress) {
+      warnedAboutMissingCallerAddress = true;
+      console.warn(
+        'No caller address header is present, so rate limiting cannot distinguish clients. Ensure the proxy sets x-forwarded-for, or the limits will be shared across all callers.'
+      );
+    }
+    return `${scope}:unidentified`;
+  }
+
   return `${scope}:${ip}`;
 }

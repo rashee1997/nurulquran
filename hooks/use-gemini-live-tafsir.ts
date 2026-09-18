@@ -51,6 +51,32 @@ const FLUSH_INTERVAL_MS = 120;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 
 /**
+ * Bounded automatic recovery from a dropped or rejected Live socket.
+ *
+ * A Live session can end for reasons that have nothing to do with the learner: the ephemeral
+ * token reaches its limit, the network hiccups, or the server recycles the session. Every
+ * reconnect mints a *fresh* single-use token, so the retries are capped and spaced
+ * exponentially rather than retried forever — an unbounded loop would burn the learner's
+ * quota in silence while the UI pretended to be busy. Past the cap the learner is given an
+ * explicit "tap start", never a dead bar.
+ */
+const MAX_AUTO_RECONNECTS = 3;
+const RECONNECT_BASE_DELAY_MS = 1_200;
+const RECONNECT_MAX_DELAY_MS = 8_000;
+
+/**
+ * How long a session must stay live before it earns a fresh retry budget.
+ *
+ * Clearing the budget on the handshake alone is not a real bound. A server that accepts
+ * `setupComplete` and then drops the socket — a flapping endpoint, or an immediate `goAway` —
+ * would reset the counter on every attempt and reconnect forever, minting a fresh token each
+ * time. That is precisely the silent quota burn the cap exists to prevent. Only a session
+ * that was live long enough to be useful earns the reset, so a flapping endpoint exhausts its
+ * three attempts and then hands control back to the learner.
+ */
+const RECONNECT_STABLE_AFTER_MS = 10_000;
+
+/**
  * Renders a socket close into something an operator can act on.
  *
  * The code and reason are the only diagnostic the server offers for a rejected session. The
@@ -158,6 +184,38 @@ export function useGeminiLiveTafsir({
    * precise message with a generic "session ended" — which is what made this undiagnosable.
    */
   const failureRef = useRef<string | null>(null);
+  /**
+   * True while an automatic reconnect is queued.
+   *
+   * The failure paths check this so a terminal error cannot overwrite the recovery message
+   * with "stopped" while a reconnect is still on its way — which is exactly the kind of
+   * contradictory state that trains a child to stop trusting the button.
+   */
+  const reconnectingRef = useRef(false);
+  /** Consecutive auto-reconnect attempts used since the last stable session. */
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When the current session completed its handshake, or `null` if it never did. */
+  const establishedAtRef = useRef<number | null>(null);
+  /**
+   * Set by the reconnect timer immediately before it calls `start`, and consumed by `start`.
+   *
+   * Without it an automatic retry is indistinguishable from a deliberate tap, and `start`
+   * would clear the attempt budget on every retry — so the cap could never be reached and a
+   * flapping endpoint would reconnect forever, minting a fresh token each time.
+   */
+  const autoStartRef = useRef(false);
+  /**
+   * Latest `start`, reached through a ref so the reconnect timer can re-enter it without
+   * making `start` depend on the scheduler that depends on `start`.
+   */
+  const startRef = useRef<(() => void) | null>(null);
+  /**
+   * Starts as `true`: nothing may reconnect before the learner has asked for a session.
+   * Set to `false` by `start`, and back to `true` by `stop` and by unmount, so an explicit
+   * stop always wins over a queued reconnect.
+   */
+  const stoppedByUserRef = useRef(true);
   const mutedRef = useRef(false);
   const segmentRef = useRef(segment);
   const languageRef = useRef(language);
@@ -289,6 +347,61 @@ export function useGeminiLiveTafsir({
   }, [cleanupAudio]);
 
   /* ---------------------------------------------------------------------- */
+  /* Bounded automatic recovery                                             */
+  /* ---------------------------------------------------------------------- */
+
+  const cancelReconnect = useCallback((): void => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    reconnectingRef.current = false;
+  }, []);
+
+  /**
+   * Queues one backed-off reconnect. Returns `false` when the attempt budget is spent or the
+   * learner has stopped, so the caller can report a terminal reason instead of silence.
+   */
+  const scheduleReconnect = useCallback((reason: string): boolean => {
+    if (stoppedByUserRef.current) return false;
+
+    // A session that stayed live long enough to be useful clears the budget; one that dropped
+    // straight after its handshake does not, so a flapping endpoint cannot be retried forever.
+    const establishedAt = establishedAtRef.current;
+    if (establishedAt !== null && Date.now() - establishedAt >= RECONNECT_STABLE_AFTER_MS) {
+      reconnectAttemptsRef.current = 0;
+    }
+    establishedAtRef.current = null;
+
+    if (reconnectAttemptsRef.current >= MAX_AUTO_RECONNECTS) return false;
+
+    reconnectAttemptsRef.current += 1;
+    const attempt = reconnectAttemptsRef.current;
+    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS);
+
+    reconnectingRef.current = true;
+    failureRef.current = null;
+    setStatus('reconnecting');
+    setErrorMessage(
+      `Ameen's voice session dropped (${reason}). Reconnecting — attempt ${attempt} of ${MAX_AUTO_RECONNECTS}…`
+    );
+
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (stoppedByUserRef.current) return;
+      // `start` refuses to run while a session is considered active, so clear that flag: the
+      // socket that prompted this reconnect is already gone, and the flag is the only thing
+      // that would block the retry.
+      activeRef.current = false;
+      autoStartRef.current = true;
+      startRef.current?.();
+    }, delay);
+
+    return true;
+  }, []);
+
+  /* ---------------------------------------------------------------------- */
   /* Outbound audio                                                          */
   /* ---------------------------------------------------------------------- */
 
@@ -403,8 +516,9 @@ export function useGeminiLiveTafsir({
          * start a fresh lesson rather than being left with a session that dies mid-sentence.
          */
         console.warn('Gemini Live will close this session soon:', message.goAway.timeLeft ?? '(no time given)');
+        failureRef.current = null;
         setErrorMessage(
-          'This voice session is reaching its time limit. Tap start to continue the lesson.'
+          'This voice session is reaching its time limit. Ameen will continue automatically in a moment.'
         );
       }
     },
@@ -590,6 +704,11 @@ export function useGeminiLiveTafsir({
   /* ---------------------------------------------------------------------- */
 
   const stop = useCallback((): void => {
+    // Marked first, so a reconnect that is already scheduled cannot outlive this call.
+    stoppedByUserRef.current = true;
+    autoStartRef.current = false;
+    establishedAtRef.current = null;
+    cancelReconnect();
     generationRef.current += 1;
     activeRef.current = false;
     cleanupSession();
@@ -597,9 +716,13 @@ export function useGeminiLiveTafsir({
     setStatus('idle');
     setErrorMessage(null);
     setModel(null);
-  }, [cleanupSession]);
+  }, [cancelReconnect, cleanupSession]);
 
   const start = useCallback((): void => {
+    // Consumed first, so a stale flag can never suppress the budget reset on a later tap.
+    const isAutoStart = autoStartRef.current;
+    autoStartRef.current = false;
+
     if (activeRef.current) return;
 
     if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
@@ -607,6 +730,13 @@ export function useGeminiLiveTafsir({
       setErrorMessage('Live voice lessons need a browser with microphone support.');
       return;
     }
+
+    // A learner-initiated start clears any queued retry and re-arms recovery, so an explicit
+    // tap is always a deliberate fresh beginning rather than a continuation of the budget. An
+    // automatic retry must *not* clear it, or the cap would never be reached.
+    cancelReconnect();
+    stoppedByUserRef.current = false;
+    if (!isAutoStart) reconnectAttemptsRef.current = 0;
 
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -728,8 +858,13 @@ export function useGeminiLiveTafsir({
               console.error(`Gemini Live session closed: ${detail}`);
               activeRef.current = false;
 
-              // An error the socket already reported is more specific than "it closed".
-              if (failureRef.current) return;
+              // An error the socket already reported is more specific than "it closed",
+              // but it is still worth one bounded retry: `onerror` also fires for transient
+              // transport faults, which a fresh session usually survives.
+              if (failureRef.current) {
+                scheduleReconnect(detail);
+                return;
+              }
 
               if (!establishedRef.current) {
                 // The handshake never completed, so this is a connection failure rather than an
@@ -738,10 +873,15 @@ export function useGeminiLiveTafsir({
                 const message = `The voice session could not be started because ${detail}.`;
                 failureRef.current = message;
                 rejectHandshake?.(new Error(detail));
+                if (scheduleReconnect(detail)) return;
                 setErrorMessage(message);
                 setStatus('error');
                 return;
               }
+
+              // The lesson was live and the socket dropped. Recover automatically before
+              // falling back to telling the child to press the button themselves.
+              if (scheduleReconnect(detail)) return;
 
               setStatus('idle');
               setErrorMessage(`The voice session ended because ${detail}. Tap start to reconnect.`);
@@ -793,6 +933,11 @@ export function useGeminiLiveTafsir({
         establishedRef.current = true;
         setModel(ticket.model);
 
+        // Stamp the handshake rather than clearing the retry budget here: the budget is reset
+        // once this session has proved it is stable — see `RECONNECT_STABLE_AFTER_MS`.
+        establishedAtRef.current = Date.now();
+        reconnectingRef.current = false;
+
         if (generation !== generationRef.current) return;
 
         // The handshake is done, so the session is genuinely live from here on.
@@ -827,6 +972,17 @@ export function useGeminiLiveTafsir({
         if (generation !== generationRef.current) return;
         console.error('Live storyteller could not start:', error);
 
+        /*
+         * A queued reconnect owns the messaging at this point. Its explanation ("attempt 2 of
+         * 3") is more useful than a terminal error, and reporting "stopped" here would
+         * contradict a retry that is still about to run.
+         */
+        if (reconnectingRef.current) {
+          activeRef.current = false;
+          cleanupSession();
+          return;
+        }
+
         const detail = error instanceof Error ? error.message.trim() : '';
         setErrorMessage(
           liveModel
@@ -858,7 +1014,24 @@ export function useGeminiLiveTafsir({
         cleanupSession();
       }
     })();
-  }, [attachMicrophone, cleanupSession, handleServerMessage, tellCurrentStory, voiceId]);
+  }, [
+    attachMicrophone,
+    cancelReconnect,
+    cleanupSession,
+    handleServerMessage,
+    scheduleReconnect,
+    tellCurrentStory,
+    voiceId,
+  ]);
+
+  /*
+   * The reconnect timer re-enters `start` through a ref rather than a dependency, which keeps
+   * `start` free of a circular reference to the scheduler that calls it while still always
+   * invoking the current closure.
+   */
+  useEffect(() => {
+    startRef.current = start;
+  }, [start]);
 
   const toggleMute = useCallback((): void => {
     setIsMuted((previous) => {
@@ -868,11 +1041,19 @@ export function useGeminiLiveTafsir({
     });
   }, []);
 
-  // Unmount teardown: release the microphone, the audio graph and the WebSocket.
+  // Unmount teardown: release the microphone, the audio graph and the WebSocket, and cancel
+  // any queued reconnect so it cannot resurrect a session on an unmounted component.
   useEffect(() => {
     return () => {
+      stoppedByUserRef.current = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       generationRef.current += 1;
       activeRef.current = false;
+      autoStartRef.current = false;
+      establishedAtRef.current = null;
       cleanupSession();
     };
   }, [cleanupSession]);

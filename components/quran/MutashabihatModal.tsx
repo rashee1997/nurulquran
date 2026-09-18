@@ -157,7 +157,11 @@ export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({
 
               {/* Arabic with Diff Highlighting */}
               <div className="text-right py-2 leading-loose dir-rtl" dir="rtl">
-                <div className="font-arabic text-xl sm:text-2xl flex flex-wrap gap-1.5 justify-start flex-row-reverse">
+                <div
+                  className="font-arabic text-xl sm:text-2xl flex flex-wrap gap-1.5 justify-start flex-row-reverse"
+                  lang="ar"
+                  dir="rtl"
+                >
                   {diff.tokensA.map((tok, i) => (
                     <span
                       key={i}
@@ -234,7 +238,11 @@ export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({
 
               {/* Arabic with Diff Highlighting */}
               <div className="text-right py-2 leading-loose dir-rtl" dir="rtl">
-                <div className="font-arabic text-xl sm:text-2xl flex flex-wrap gap-1.5 justify-start flex-row-reverse">
+                <div
+                  className="font-arabic text-xl sm:text-2xl flex flex-wrap gap-1.5 justify-start flex-row-reverse"
+                  lang="ar"
+                  dir="rtl"
+                >
                   {diff.tokensB.map((tok, i) => (
                     <span
                       key={i}

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Play, Pause, Bookmark, Sparkles, ArrowRightLeft, Loader2 } from 'lucide-react';
 import { QuranWord, Verse } from '@/lib/quran/types';
 import { QuranWordItem } from './QuranWord';
 import { SrsState } from '@/lib/db';
 import { STATE_LABELS } from '@/lib/learning/srs-engine';
 import { getMutashabihatForVerse, MutashabihEntry } from '@/lib/quran/mutashabihat';
-import { groupSegmentsByWord } from '@/lib/quran/tajweed';
+import { countSegmentWords, groupSegmentsByWord } from '@/lib/quran/tajweed';
 
 interface AyahItemProps {
   verse: Verse;
@@ -52,6 +52,28 @@ export const AyahItem: React.FC<AyahItemProps> = ({
     () => (verse.tajweed ? groupSegmentsByWord(verse.tajweed.segments) : []),
     [verse.tajweed]
   );
+
+  /**
+   * Colour is only applied when the segment indices describe the same word list that is
+   * rendered.
+   *
+   * The segment list and `verse.words` are produced by two different tokenizers over the same
+   * verse, and the reader pairs them by position. If they ever disagree, every colour after
+   * the divergence would be attached to the wrong word and would teach the wrong rule. An
+   * uncoloured verse is honest; a mis-coloured one is not, so the mismatch disables colouring
+   * and is reported rather than rendered.
+   */
+  const tajweedAligned = useMemo(() => {
+    if (!verse.tajweed) return false;
+    return countSegmentWords(verse.tajweed.segments) === verse.words.length;
+  }, [verse.tajweed, verse.words.length]);
+
+  useEffect(() => {
+    if (!verse.tajweed || tajweedAligned) return;
+    console.warn(
+      `Tajweed segments for ${verse.surah}:${verse.ayah} describe a different word count than the rendered verse; colouring is disabled for it.`
+    );
+  }, [verse.tajweed, verse.surah, verse.ayah, tajweedAligned]);
 
   const isInHifz = Boolean(srsState);
 
@@ -161,7 +183,7 @@ export const AyahItem: React.FC<AyahItemProps> = ({
                 word={word}
                 fontSize={fontSize}
                 segments={tajweedByWord[index]}
-                showTajweedColors={showTajweedColors}
+                showTajweedColors={showTajweedColors && tajweedAligned}
                 onClick={onWordClick}
               />
               {index < verse.words.length - 1 ? ' ' : null}

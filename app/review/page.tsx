@@ -363,7 +363,7 @@ export default function SrsReviewPage() {
             </div>
           ) : verseForCurrentCard ? (
             <div className="space-y-4 animate-in fade-in w-full">
-              <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose select-text dir-rtl" dir="rtl">
+              <p className="font-arabic text-3xl sm:text-4xl text-foreground leading-loose select-text dir-rtl" dir="rtl" lang="ar">
                 {verseForCurrentCard.textUthmani}
               </p>
 

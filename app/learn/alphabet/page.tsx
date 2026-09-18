@@ -282,7 +282,9 @@ export default function AlphabetStudioPage() {
                   onClick={() => handleQuizAnswer(opt)}
                   className={`p-4 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1.5 active:scale-98 min-h-[90px] ${btnStyle}`}
                 >
-                  <span className="font-arabic text-4xl">{opt.letter}</span>
+                  <span className="font-arabic text-4xl" lang="ar" dir="rtl">
+                    {opt.letter}
+                  </span>
                   <span className="text-xs font-semibold text-muted-foreground">{opt.nameEn}</span>
                 </button>
               );
@@ -425,7 +427,7 @@ export default function AlphabetStudioPage() {
                       </div>
 
                       {/* Giant Arabic Glyph */}
-                      <p className="font-arabic text-5xl my-1 text-foreground transition-transform group-hover:scale-110">
+                      <p className="font-arabic text-5xl my-1 text-foreground transition-transform group-hover:scale-110" lang="ar" dir="rtl">
                         {displayGlyph}
                       </p>
 
@@ -474,7 +476,7 @@ export default function AlphabetStudioPage() {
 
                 {/* Big Center Display */}
                 <div className="text-center py-4 bg-surface rounded-2xl border border-border">
-                  <p className="font-arabic text-7xl text-foreground select-none my-2">
+                  <p className="font-arabic text-7xl text-foreground select-none my-2" lang="ar" dir="rtl">
                     {getVowelGlyph(selectedLetter.letter, vowelMode)}
                   </p>
                   <p className="text-xs font-semibold text-muted-foreground">
@@ -490,19 +492,27 @@ export default function AlphabetStudioPage() {
                   <div className="grid grid-cols-4 gap-2 text-center">
                     <div className="p-2.5 rounded-xl bg-surface border border-border">
                       <span className="text-[10px] text-muted-foreground block mb-1">Final</span>
-                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.final}</span>
+                      <span className="font-arabic text-2xl text-foreground" lang="ar" dir="rtl">
+                        {selectedLetter.forms.final}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-surface border border-border">
                       <span className="text-[10px] text-muted-foreground block mb-1">Medial</span>
-                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.medial}</span>
+                      <span className="font-arabic text-2xl text-foreground" lang="ar" dir="rtl">
+                        {selectedLetter.forms.medial}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-surface border border-border">
                       <span className="text-[10px] text-muted-foreground block mb-1">Initial</span>
-                      <span className="font-arabic text-2xl text-foreground">{selectedLetter.forms.initial}</span>
+                      <span className="font-arabic text-2xl text-foreground" lang="ar" dir="rtl">
+                        {selectedLetter.forms.initial}
+                      </span>
                     </div>
                     <div className="p-2.5 rounded-xl bg-primary-subtle border border-primary/40">
                       <span className="text-[10px] text-primary block mb-1 font-bold">Isolated</span>
-                      <span className="font-arabic text-2xl text-primary-strong">{selectedLetter.forms.isolated}</span>
+                      <span className="font-arabic text-2xl text-primary-strong" lang="ar" dir="rtl">
+                        {selectedLetter.forms.isolated}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -527,7 +537,7 @@ export default function AlphabetStudioPage() {
                       Sample Vocabulary Word
                     </span>
                     <div className="flex items-center justify-between">
-                      <span className="font-arabic text-3xl text-primary">
+                      <span className="font-arabic text-3xl text-primary" lang="ar" dir="rtl">
                         {selectedLetter.sampleWord.arabic}
                       </span>
                       <div className="text-right">

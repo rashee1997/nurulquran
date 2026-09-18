@@ -153,7 +153,7 @@ export default function ArabicLabPage() {
           <div className="space-y-3 max-w-3xl">
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
               Arabic Lab
-              <span className="font-arabic text-2xl sm:text-3xl font-normal text-hero-muted"> · الْمُخْتَبَرُ الْعَرَبِيّ</span>
+              <span className="font-arabic text-2xl sm:text-3xl font-normal text-hero-muted" lang="ar" dir="rtl"> · الْمُخْتَبَرُ الْعَرَبِيّ</span>
             </h1>
             <p className="text-sm text-hero-muted leading-relaxed">
               Read, write and parse Quranic Arabic, then say the same idea in Modern Standard Arabic.
@@ -310,7 +310,7 @@ export default function ArabicLabPage() {
                                   </span>
                                 )}
                               </div>
-                              <p className="font-arabic text-base text-muted-foreground leading-loose" dir="rtl">
+                              <p className="font-arabic text-base text-muted-foreground leading-loose" dir="rtl" lang="ar">
                                 {level.titleArabic}
                               </p>
                             </div>
@@ -363,7 +363,7 @@ export default function ArabicLabPage() {
                                     </span>
                                     {done && <CheckCircle2 className="w-3.5 h-3.5 text-success-strong" />}
                                   </div>
-                                  <p className="font-arabic text-sm text-muted-foreground" dir="rtl">
+                                  <p className="font-arabic text-sm text-muted-foreground" dir="rtl" lang="ar">
                                     {lesson.titleArabic}
                                   </p>
                                   <p className="text-[10px] text-muted-foreground">
@@ -415,7 +415,7 @@ export default function ArabicLabPage() {
                         : 'border-border bg-card text-foreground hover:border-primary/40'
                     }`}
                   >
-                    <span className="font-arabic text-base" dir="rtl">
+                    <span className="font-arabic text-base" dir="rtl" lang="ar">
                       {entry.lemma}
                     </span>
                     {entry.quranic && (
