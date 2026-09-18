@@ -22,14 +22,14 @@ import {
   Languages,
   Sparkles,
   Bookmark,
-  BarChart3,
-  Search
+  BarChart3
 } from 'lucide-react';
 import { XPBar } from './gamification/XPBar';
 import { StreakBadge } from './gamification/StreakBadge';
 import { AchievementModal } from './gamification/AchievementModal';
 import { TutorPanel } from './ai/TutorPanel';
 import { ThemeToggle } from './ThemeToggle';
+import { CommandPalette } from './system/CommandPalette';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, initializeDatabase } from '@/lib/db';
 import { calculateLevel, getAchievementsList } from '@/lib/learning/xp-engine';
@@ -336,6 +336,9 @@ export const NavigationHeader: React.FC = () => {
                 onClick={() => setIsAchievementOpen(true)}
               />
             </div>
+
+            {/* Global Search / Command Palette */}
+            <CommandPalette />
 
             {/* Theme Toggle Button */}
             <div className="shrink-0">
