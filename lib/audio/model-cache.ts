@@ -128,19 +128,28 @@ export const modelDb = new ModelDatabase();
 /* -------------------------------------------------------------------------- */
 
 /**
- * All ready blobs for the given variant's asset ids (used by the worker init).
+ * Ready blobs for an explicit asset list (used by the worker inits).
  *
  * Fetched by primary key rather than by scanning `state === 'ready'`: a learner with more than one
  * variant cached would otherwise have every *other* variant's blobs deserialised too — another
  * ~130 MB of IndexedDB reads to hand the worker the ~180 MB it actually asked for.
+ *
+ * The voice layer passes just the two assets it runs — one voice and its config — for the same
+ * reason: reading the recitation engine's ~180 MB of blobs to hand the voice worker the 63 MB it
+ * asked for is the waste this fetch pattern exists to avoid.
  */
-export async function getReadyBlobs(variant: ModelVariant): Promise<Map<string, Blob>> {
-  const rows = await modelDb.modelAssets.bulkGet(variant.assets.map((asset) => asset.id));
+export async function getAssetBlobs(assets: readonly ModelAsset[]): Promise<Map<string, Blob>> {
+  const rows = await modelDb.modelAssets.bulkGet(assets.map((asset) => asset.id));
   const map = new Map<string, Blob>();
   for (const row of rows) {
     if (row?.state === 'ready' && row.blob) map.set(row.id, row.blob);
   }
   return map;
+}
+
+/** All ready blobs for the given variant's asset ids (used by the engine worker init). */
+export async function getReadyBlobs(variant: ModelVariant): Promise<Map<string, Blob>> {
+  return getAssetBlobs(variant.assets);
 }
 
 export async function getModelSnapshot(): Promise<ModelDbProgress[]> {

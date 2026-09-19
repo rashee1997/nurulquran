@@ -12,6 +12,7 @@ import {
   PLAYBACK_SAMPLE_RATE,
 } from '@/lib/audio/pcm-audio';
 import { resolveAudioContextConstructor } from '@/lib/audio/audio-context';
+import { previewAudio } from '@/lib/audio/preview-audio';
 import { MODEL_VARIANTS, type ModelVariant } from '@/lib/audio/model-registry';
 import { buildLessonContextPacket, buildStorytellerInstruction } from '@/lib/tafsir/prompts';
 import {
@@ -798,7 +799,7 @@ export function useGeminiLiveTafsir({
 
   /**
    * Runs the storyteller conversation on the on-device engine: local Whisper transcription
-   * per turn, the BYOK chat route for the reply, and browser speech synthesis for playback.
+   * per turn, the BYOK chat route for the reply, and the shared voice controller for playback.
    * Entered when the module's engine choice resolves to a local variant; never touches the
    * Gemini Live socket.
    */
@@ -806,20 +807,29 @@ export function useGeminiLiveTafsir({
     async (generation: number): Promise<void> => {
       const { scoreUtteranceLocally } = await import('@/lib/audio/local-engine-session');
 
+      /**
+       * Storyteller playback, through the shared voice controller.
+       *
+       * This spoke straight to `speechSynthesis`, which on a desktop with no Tamil voice read
+       * the turn as silence — the exact case the on-device engine exists for — and which bypassed
+       * playback arbitration, so a turn could talk over a recitation clip already playing. The
+       * controller prefers the learner's on-device Piper voice, then the platform synthesizer, and
+       * reports back when neither could speak so the turn does not sit on a "speaking" indicator.
+       */
       const speak = (text: string): void => {
-        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-        try {
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = languageRef.current === 'ta' ? 'ta-IN' : 'en-US';
-          const voices = window.speechSynthesis.getVoices();
-          const match = voices.find((voice) => voice.lang.startsWith(utterance.lang.slice(0, 2)));
-          if (match) utterance.voice = match;
-          utterance.onstart = () => setStatus('speaking');
-          utterance.onend = () => setStatus((previous) => (previous === 'speaking' ? 'active' : previous));
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          /* best-effort */
-        }
+        const lang = languageRef.current === 'ta' ? 'ta-IN' : 'en-US';
+        setStatus('speaking');
+        void previewAudio
+          .speak(`storyteller-local:${generation}`, text, lang)
+          .then((spoke) => {
+            setStatus((previous) => (previous === 'speaking' ? 'active' : previous));
+            if (!spoke) {
+              setErrorMessage('This device has no voice for the storyteller’s language.');
+            }
+          })
+          .catch(() => {
+            setStatus((previous) => (previous === 'speaking' ? 'active' : previous));
+          });
       };
 
       /**

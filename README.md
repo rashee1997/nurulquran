@@ -61,7 +61,10 @@ the Gemini API by default, or through a provider the learner configures with the
   'Asim rules (Makharij, Noon/Meem Sakinah, Madd, Qalqalah, Tafkheem/Tarqeeq), with bilingual
   (English/Tamil) feedback and placement certificates.
 - **Live Tajweed coach & voice storyteller** — real-time bidirectional voice sessions over the
-  Gemini Live API with selectable teacher personas and voice previews via Gemini TTS.
+  Gemini Live API with selectable teacher personas and voice previews via Gemini TTS. Every voice
+  surface degrades in tiers: the authentic recording first, then the learner's on-device Piper voice
+  (Tamil and English, ~63 MB per voice, downloaded from Settings), and only then the platform
+  speech synthesizer — which is what makes Tamil coaching work on desktops that ship no Tamil voice.
 - **Tafsir reflection** — lesson-grounded reflection grading: the verse text is re-fetched
   server-side from the verified Quran provider, so the model never recalls scripture from memory.
 - **AI tutor (BYOK)** — streaming chat assistant. Works with the server Gemini default or a
@@ -109,6 +112,7 @@ The app installs as a PWA from the browser's install prompt once served over HTT
 | `bun run verify:pronunciation` | Verify every lesson's Arabic resolves to real recitation clips |
 | `bun run verify:timings` | Verify reciter audio ↔ word-timing pairings against the live APIs |
 | `bun run verify:whisper` | Verify the on-device log-mel front end against Whisper's own filterbank and token ids |
+| `bun run verify:piper` | Verify the on-device voice: vendored phonemizer checksums, and every shipped voice's phoneme table against the ids the phonemizer emits (`PIPER_E2E=1` also synthesizes a phrase) |
 | `bun run clean` | Remove Next.js build output |
 
 ### Environment Variables
@@ -162,6 +166,8 @@ NurulQuran depends on the following external services. Each is keyless except th
 | **Quran.com API v4** | Word-level recitation segments used for synchronized word highlight; text lookup in verification scripts | [Developers](https://quran.com/developers) |
 | **Dexie.js** | Local-first IndexedDB persistence for all learner data | [Docs](https://dexie.org/docs) · [Repository](https://github.com/dexie/Dexie.js/) |
 | **Tanzil** | Hafs Uthmani text dataset referenced by the in-app verification seal | [tanzil.net](https://tanzil.net/) |
+| **Piper voices** (via Hugging Face) | On-device Tamil and English coaching voices (VITS, run with `onnxruntime-web`) | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) · [Tamil voices](https://huggingface.co/Jeyaram-K/piper-tamil-voices) |
+| **piper-wasm** (`@diffusionstudio/piper-wasm`, MIT) | Vendored espeak-ng WebAssembly phonemizer that turns text into the phoneme ids the voices expect — see `public/piper/NOTICE.md` | [npm](https://www.npmjs.com/package/@diffusionstudio/piper-wasm) · [Upstream](https://github.com/diffusion-studio/piper-wasm) |
 
 Quranic text and recitations are provided by third parties; their terms govern redistribution and
 usage. This project is not affiliated with Google, Vercel, AlQuran.Cloud, Islamic Network, or

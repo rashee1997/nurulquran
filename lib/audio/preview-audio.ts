@@ -22,6 +22,8 @@
  *     something that is not the Quran.
  */
 
+import { speakLocalVoice, voiceLanguageFor } from '@/lib/audio/local-voice';
+
 type Listener = () => void;
 
 export type PreviewPlaybackKind = 'audio' | 'speech';
@@ -275,12 +277,26 @@ class PreviewAudioController {
   isActive = (): boolean => this.currentKey !== null;
 
   /**
-   * Speaks text via the platform synthesizer, used when no recorded audio exists.
-   * Resolves `false` when the platform cannot speak the requested language, so callers can
-   * report that instead of leaving the learner with silence.
+   * Speaks text, preferring the learner's on-device voice over the platform synthesizer.
+   *
+   * The on-device Piper voice is the first tier because the platform one is frequently absent
+   * where it matters most: most desktops and Linux installs ship no Tamil voice at all, so Tamil
+   * coaching and storyteller turns produced silence, and a synthesizer with no voice for the
+   * requested language is not a substitute. Only Tamil and English have an on-device voice, and
+   * a language outside that set skips straight to the platform synthesizer.
+   *
+   * Resolves `false` when neither tier could speak, so callers can report that instead of leaving
+   * the learner with silence.
    */
   speak = async (key: string, text: string, lang = 'ar-SA'): Promise<boolean> => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (typeof window === 'undefined') return false;
+
+    const localLanguage = voiceLanguageFor(lang);
+    if (localLanguage && (await speakLocalVoice(localLanguage, text, { key }))) {
+      return true;
+    }
+
+    if (!('speechSynthesis' in window)) {
       return false;
     }
 

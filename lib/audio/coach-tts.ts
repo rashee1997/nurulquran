@@ -7,8 +7,16 @@
  * Mispronounced-word corrections play the authentic recorded clip from the QuranCDN word-by-word
  * CDN (`audio.qurancdn.com/wbw/SSS_AAA_WWW.mp3`, verified `access-control-allow-origin: *`),
  * cached by the existing service worker audio cache. Only Tamil/English *coaching speech*
- * (never Quranic text) goes through `SpeechSynthesis`, which needs zero downloaded megabytes.
+ * (never Quranic text) is spoken, and it goes through `previewAudio`, which prefers the learner's
+ * on-device Piper voice and falls back to the platform synthesizer.
+ *
+ * That routing replaced a direct `speechSynthesis.speak` call. The platform synthesizer has no
+ * Tamil voice on most desktops — so Tamil cues were silent on exactly the audience this app is
+ * built for — and calling it directly also bypassed playback arbitration, letting a cue talk over
+ * a word clip that was still playing.
  */
+
+import { previewAudio } from './preview-audio';
 
 /** Zero-padded helpers for the QuranCDN word-clip naming scheme (001_001_001.mp3). */
 function pad3(value: number): string {
@@ -83,20 +91,14 @@ export async function playReferenceClip(url: string): Promise<void> {
 /**
  * Speaks a coaching cue in Tamil or English.
  *
- * Voices are chosen defensively: Tamil TTS voices are rare on desktop, so the call resolves
- * even when no matching voice exists (the learner still sees the cue text in the UI).
+ * Fire-and-forget by design: the learner already sees the cue text, so a device that cannot speak
+ * it loses the audio without losing the correction. Failures are swallowed here rather than
+ * surfaced, and the controller reports details through `localVoiceStatus` when they need
+ * diagnosing.
  */
 export function speakCoachCue(lang: 'ta' | 'en', text: string): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window) || text.length === 0) return;
-  try {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang === 'ta' ? 'ta-IN' : 'en-US';
-    utterance.rate = 0.95;
-    const voices = window.speechSynthesis.getVoices();
-    const match = voices.find((voice) => voice.lang.startsWith(lang === 'ta' ? 'ta' : 'en'));
-    if (match) utterance.voice = match;
-    window.speechSynthesis.speak(utterance);
-  } catch {
-    // Speech synthesis is best-effort; never let it break the session.
-  }
+  if (typeof window === 'undefined' || text.length === 0) return;
+  void previewAudio
+    .speak(`coach-cue:${lang}`, text, lang === 'ta' ? 'ta-IN' : 'en-US')
+    .catch(() => undefined);
 }

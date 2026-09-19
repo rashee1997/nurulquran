@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Check, Cpu, Loader2 } from 'lucide-react';
+import { Check, Cpu, Loader2, Volume2 } from 'lucide-react';
 import {
   MODEL_VARIANTS,
   variantTotalBytes,
@@ -15,6 +15,7 @@ import {
   type ModelAssetMetaRecord,
   type ModelDbProgress,
 } from '@/lib/audio/model-cache';
+import type { VoiceLanguage } from '@/lib/audio/local-voice';
 
 /**
  * On-device engine variant selector for the Recitation Guide.
@@ -43,6 +44,21 @@ function formatBytes(bytes: number): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
+/**
+ * Sample lines for the voice test.
+ *
+ * Coaching speech, never Quranic text — this app does not synthesize scripture, and a test line is
+ * the last place to start. Each is long enough to be judged as a voice rather than a click.
+ */
+const VOICE_TEST_PHRASES: Record<VoiceLanguage, string> = {
+  en: 'As-salamu alaykum. Your English coaching voice is ready.',
+  ta: 'அஸ்ஸலாமு அலைக்கும். உங்கள் தமிழ் வழிகாட்டி குரல் தயாராக உள்ளது.',
+};
+
+type VoiceTestState =
+  | { language: VoiceLanguage; state: 'speaking' }
+  | { language: VoiceLanguage; state: 'failed'; detail: string | null };
+
 export interface EngineVariantSelectorProps {
   /** The saved preference (undefined = 'balanced'). */
   value: CoachModelVariant | undefined;
@@ -54,6 +70,7 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
   const preferred = value ?? 'balanced';
   const [downloadingId, setDownloadingId] = useState<CoachModelVariant | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [voiceTest, setVoiceTest] = useState<VoiceTestState | null>(null);
 
   const metaRows = useLiveQuery(async () => modelDb.modelAssetMeta.toArray(), []);
 
@@ -93,8 +110,36 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
 
   const checking = metaRows === undefined;
 
+  /**
+   * Speaks a sample line with the selected variant to prove the on-device voice works.
+   *
+   * The registry has always shipped these voices, but nothing used to run them, and a voice that
+   * silently cannot run is indistinguishable from one that works until a learner needs it mid
+   * lesson. The test resolves against the selected variant rather than the module preference, so
+   * "Cached — works offline" becomes something the learner can hear before trusting it.
+   */
+  const testVoice = async (language: VoiceLanguage): Promise<void> => {
+    setVoiceTest({ language, state: 'speaking' });
+    const { localVoiceStatus, speakLocalVoice } = await import('@/lib/audio/local-voice');
+    const spoke = await speakLocalVoice(language, VOICE_TEST_PHRASES[language], {
+      key: `settings-voice-test:${language}`,
+      variantOverride: preferred,
+    });
+    setVoiceTest(spoke ? null : { language, state: 'failed', detail: localVoiceStatus().lastError });
+  };
+
   const handleSelect = async (variantId: CoachModelVariant): Promise<void> => {
     onChange(variantId);
+    if (variantId !== preferred) {
+      /*
+       * The resident voice belongs to the variant being left behind. Dropping it here (rather
+       * than at the next cue) means the switch costs one worker boot instead of holding a 63 MB
+       * session open for a voice the learner no longer uses.
+       */
+      const { releaseLocalVoice } = await import('@/lib/audio/local-voice');
+      releaseLocalVoice();
+      setVoiceTest(null);
+    }
     if (readyMap[variantId]) return;
 
     /*
@@ -186,6 +231,53 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
         storyteller, recitation coach — can override it with its own inline picker, and an inline
         pick always wins. Switching voices only downloads the changed voice file.
       </p>
+
+      {/*
+       * Voice test.
+       *
+       * Tamil is the reason this exists: most desktops ship no Tamil voice, so before this the
+       * first time a learner discovered their coaching voice could not speak was mid-lesson. The
+       * buttons are the same code path a real cue takes, so what is heard here is what they get.
+       */}
+      <div className="rounded-2xl border border-border bg-surface p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <Volume2 className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
+          <span className="text-[11px] font-bold text-foreground">Test the on-device voice</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(['ta', 'en'] as const).map((language) => {
+            const isTesting = voiceTest?.language === language && voiceTest.state === 'speaking';
+            return (
+              <button
+                key={language}
+                type="button"
+                disabled={!readyMap[preferred] || isTesting}
+                onClick={() => void testVoice(language)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isTesting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Volume2 className="w-3 h-3" aria-hidden="true" />
+                )}
+                <span>{language === 'ta' ? 'தமிழ்' : 'English'}</span>
+              </button>
+            );
+          })}
+          {!readyMap[preferred] && (
+            <span className="text-[11px] text-muted-foreground">
+              Download this variant to test its voices.
+            </span>
+          )}
+        </div>
+        {voiceTest?.state === 'failed' && (
+          <p className="text-[11px] text-danger-strong">
+            That voice could not speak on this device. The coaching text is still shown in the
+            lesson, and the platform voice — when one exists — is used instead.
+            {voiceTest.detail ? <span className="block text-muted-foreground">{voiceTest.detail}</span> : null}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

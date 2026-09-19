@@ -11,6 +11,12 @@
  *
  * The budget invariant is enforced per-variant at selection time, so no user choice can exceed
  * the 300 MB ceiling.
+ *
+ * The `tts-*` roles are consumed by `lib/audio/local-voice.ts` + `lib/audio/tts.worker.ts`, which
+ * run a Piper VITS voice through onnxruntime-web. A voice model is inert on its own: it needs its
+ * sibling `.onnx.json` config (espeak voice, sample rate, scales, id table) and the espeak-ng
+ * phonemizer, which is vendored at `public/piper/` rather than listed here — it ships with the
+ * app instead of being downloaded per learner, so it is deliberately outside the download budget.
  */
 
 
@@ -19,6 +25,15 @@ export interface ModelAsset {
   id: string;
   label: string;
   role: 'vad' | 'stt-encoder' | 'stt-decoder' | 'stt-vocab' | 'tts-model' | 'tts-lexicon';
+  /**
+   * Which coaching language a TTS asset speaks — the key the voice layer resolves on.
+   *
+   * It is declared here rather than parsed out of the asset id because the id is a storage key
+   * ("piper-tamil-hemalatha"), not a language tag: two variants ship a Tamil voice under
+   * different ids, and one ships an English voice under an id containing "lessac". Matching on
+   * substrings is how a Tamil cue would end up read by an English voice.
+   */
+  language?: 'ta' | 'en';
   url: string;
   /** Exact byte length verified from the CDN's content-length header. */
   bytes: number;
@@ -138,11 +153,18 @@ const WHISPER_TOKENIZER: ModelAsset = {
   fileName: 'whisper_vocab.json',
 };
 
-/** Tamil voices. Both verified 200 / ACO:*. */
+/**
+ * Tamil voices — 22 050 Hz, espeak voice `ta`.
+ *
+ * Both were run end to end while building the voice layer: `input`,`input_lengths`,`scales` →
+ * `output`, ~1.0–1.4 s of audio per short cue, and every id the shipped phonemizer emits is
+ * present in each voice's own `phoneme_id_map` (see `scripts/verify-piper-tts.ts`).
+ */
 const PIPER_TAMIL_RASA: ModelAsset = {
   id: 'piper-tamil-model',
   label: 'Tamil voice — Rasa (male, medium)',
   role: 'tts-model',
+  language: 'ta',
   url: `${HF}/tinisoft/piper-ta_IN-rasa_male-medium/resolve/main/ta_IN-rasa_male-medium.onnx`,
   bytes: 63_511_037,
   sizeLabel: '63.5 MB',
@@ -153,6 +175,7 @@ const PIPER_TAMIL_HEMALATHA: ModelAsset = {
   id: 'piper-tamil-hemalatha',
   label: 'Tamil voice — HemaLatha (female, medium)',
   role: 'tts-model',
+  language: 'ta',
   url: `${HF}/Jeyaram-K/piper-tamil-voices/resolve/main/ta_IN-HemaLatha-medium/ta_IN-HemaLatha-medium.onnx`,
   bytes: 63_516_051,
   sizeLabel: '63.5 MB',
@@ -160,11 +183,19 @@ const PIPER_TAMIL_HEMALATHA: ModelAsset = {
   fileName: 'ta_IN-HemaLatha-medium.onnx',
 };
 
-/** English voices. int8 build verified by extracting the sherpa-onnx release tarball. */
+/**
+ * English voices — 16 000 Hz, espeak voice `en-us`.
+ *
+ * Both files carry the `low` quality name and a 63 MB length, which reads like a contradiction
+ * (Piper's `low` voices are its cheapest tier): measured from the configs, both really are 16 kHz
+ * `low` exports, just stored unquantised — so the length is real and the earlier "int8" label
+ * here was wrong. It is not a quantised build and nothing should assume one.
+ */
 const PIPER_EN_LESSAC: ModelAsset = {
   id: 'piper-english-model',
-  label: 'English voice — Lessac (int8)',
+  label: 'English voice — Lessac (low)',
   role: 'tts-model',
+  language: 'en',
   url: `${HF}/csukuangfj/vits-piper-en_US-lessac-low/resolve/main/en_US-lessac-low.onnx`,
   bytes: 63_201_425,
   sizeLabel: '63.2 MB',
@@ -175,6 +206,7 @@ const PIPER_EN_AMY: ModelAsset = {
   id: 'piper-english-amy',
   label: 'English voice — Amy (low)',
   role: 'tts-model',
+  language: 'en',
   url: `${HF}/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx`,
   bytes: 63_104_526,
   sizeLabel: '63.1 MB',
@@ -182,11 +214,19 @@ const PIPER_EN_AMY: ModelAsset = {
   fileName: 'en_US-amy-low.onnx',
 };
 
-/** Voice config/token lexicons (tiny text files, verified 200 / ACO:*). */
+/**
+ * Voice configs (tiny text files, verified 200 / ACO:*).
+ *
+ * A voice is not runnable without its config: it carries the espeak voice to phonemize with, the
+ * sample rate to play the result at, the three VITS scale factors, and the `phoneme_id_map` the
+ * emitted ids are checked against. The config must be the one published beside its own `.onnx` —
+ * the two Tamil voices live in different repositories and their tables are not interchangeable.
+ */
 const PIPER_TAMIL_RASA_CONFIG: ModelAsset = {
   id: 'piper-tamil-config',
   label: 'Tamil voice config (Rasa)',
   role: 'tts-lexicon',
+  language: 'ta',
   url: `${HF}/tinisoft/piper-ta_IN-rasa_male-medium/resolve/main/ta_IN-rasa_male-medium.onnx.json`,
   bytes: 7_089,
   sizeLabel: '7 KB',
@@ -197,6 +237,7 @@ const PIPER_TAMIL_HEMALATHA_CONFIG: ModelAsset = {
   id: 'piper-tamil-hemalatha-config',
   label: 'Tamil voice config (HemaLatha)',
   role: 'tts-lexicon',
+  language: 'ta',
   url: `${HF}/Jeyaram-K/piper-tamil-voices/resolve/main/ta_IN-HemaLatha-medium/ta_IN-HemaLatha-medium.onnx.json`,
   bytes: 4_882,
   sizeLabel: '5 KB',
@@ -207,6 +248,7 @@ const PIPER_EN_LESSAC_CONFIG: ModelAsset = {
   id: 'piper-english-config',
   label: 'English voice config (Lessac)',
   role: 'tts-lexicon',
+  language: 'en',
   url: `${HF}/csukuangfj/vits-piper-en_US-lessac-low/resolve/main/en_US-lessac-low.onnx.json`,
   bytes: 4_882,
   sizeLabel: '5 KB',
@@ -217,6 +259,7 @@ const PIPER_EN_AMY_CONFIG: ModelAsset = {
   id: 'piper-english-amy-config',
   label: 'English voice config (Amy)',
   role: 'tts-lexicon',
+  language: 'en',
   url: `${HF}/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx.json`,
   bytes: 4_164,
   sizeLabel: '4 KB',
@@ -287,6 +330,24 @@ export function resolveModuleVariant(
 /** Total planned download size for one variant, for the settings UI and budget guard. */
 export function variantTotalBytes(variant: ModelVariant): number {
   return variant.assets.reduce((sum, asset) => sum + asset.bytes, 0);
+}
+
+/**
+ * The voice model and its config that a variant runs for one coaching language.
+ *
+ * Returns `null` when the variant ships no voice for that language, which callers treat as "this
+ * cue has no on-device voice" rather than falling back to a voice that speaks a different
+ * language — synthesizing Tamil text with an English voice produces confident nonsense no learner
+ * can act on, so the caller escalates to the next tier instead.
+ */
+export function variantVoiceAssets(
+  variant: ModelVariant,
+  language: 'ta' | 'en'
+): { model: ModelAsset; config: ModelAsset } | null {
+  const model = variant.assets.find((asset) => asset.role === 'tts-model' && asset.language === language);
+  const config = variant.assets.find((asset) => asset.role === 'tts-lexicon' && asset.language === language);
+  if (!model || !config) return null;
+  return { model, config };
 }
 
 export function getModelAsset(id: string): ModelAsset | undefined {

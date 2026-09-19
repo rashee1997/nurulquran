@@ -12,6 +12,7 @@
     "verify:timings": "bun scripts/verify-reciter-timings.ts",
     "verify:tafsir": "bun scripts/verify-tafsir-editions.ts",
     "verify:whisper": "bun scripts/verify-whisper-mel.ts",
+    "verify:piper": "bun scripts/verify-piper-tts.ts",
     "clean": "next clean"
   },
   "dependencies": {

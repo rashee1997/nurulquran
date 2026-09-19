@@ -25,7 +25,21 @@
 const SHELL_CACHE = 'nurulquran-shell-v1';
 const SCRIPTURE_CACHE = 'nurulquran-scripture-v1';
 const AUDIO_CACHE = 'nurulquran-audio-v1';
-const CURRENT_CACHES = [SHELL_CACHE, SCRIPTURE_CACHE, AUDIO_CACHE];
+const PIPER_CACHE = 'nurulquran-piper-v1';
+const CURRENT_CACHES = [SHELL_CACHE, SCRIPTURE_CACHE, AUDIO_CACHE, PIPER_CACHE];
+
+/**
+ * The on-device voice's espeak-ng runtime, served from our own `/piper/` directory.
+ *
+ * These are immutable build artifacts of a published package (see `public/piper/NOTICE.md`) and
+ * they are big: the data file alone is ~18 MB, and the voice layer cannot phonemize without it.
+ * Next serves `public/` with revalidation on every request, so without this the phonemizer would
+ * be re-downloaded — and re-parsed — on every visit, which is the difference between the local
+ * voice working offline and quietly never working at all.
+ */
+function isPiperAssetRequest(url) {
+  return url.origin === self.location.origin && url.pathname.startsWith('/piper/');
+}
 
 const SHELL_URLS = ['/', '/dashboard', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
@@ -179,6 +193,10 @@ self.addEventListener('fetch', (event) => {
   }
   if (isAudioRequest(url)) {
     event.respondWith(cacheFirst(request, AUDIO_CACHE));
+    return;
+  }
+  if (isPiperAssetRequest(url)) {
+    event.respondWith(cacheFirst(request, PIPER_CACHE));
     return;
   }
   if (url.origin === self.location.origin && SHELL_URLS.includes(url.pathname)) {
