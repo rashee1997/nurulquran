@@ -5,7 +5,12 @@ import { db } from '@/lib/db';
 import { buildLessonSegment, type LessonVerse } from '@/lib/tafsir/lesson';
 import { prefetchUpcomingAyahs } from '@/lib/tafsir/tafsirCache';
 import { TafsirUnavailableError } from '@/lib/tafsir/tafsirClient';
-import type { TafsirLessonError, TafsirLessonSegment, TafsirLoadState } from '@/lib/tafsir/types';
+import type {
+  TafsirAsbabEntry,
+  TafsirLessonError,
+  TafsirLessonSegment,
+  TafsirLoadState,
+} from '@/lib/tafsir/types';
 
 export interface UseTafsirLessonResult {
   segment: TafsirLessonSegment | null;
@@ -47,6 +52,18 @@ export function useTafsirLesson(verse: LessonVerse): UseTafsirLessonResult {
    */
   const requestIdRef = useRef(0);
 
+  /**
+   * Occasion-of-revelation notes, keyed by verse.
+   *
+   * The sparse asbab edition is resolved *after* the segment is committed (see `deferAsbab`), and
+   * the two can settle in either order: a note served from cache can resolve in a microtask and
+   * land before `setSegment(built)` runs, in which case a plain state patch would be overwritten
+   * by the segment that still carries `asbab: null`. Recording the note here lets the commit
+   * merge it, and lets a late note patch the segment in place — so the note is never lost either
+   * way round.
+   */
+  const asbabRef = useRef<Map<string, TafsirAsbabEntry | null>>(new Map());
+
   const { surah, ayah } = verse;
 
   useEffect(() => {
@@ -60,11 +77,35 @@ export function useTafsirLesson(verse: LessonVerse): UseTafsirLessonResult {
       setState((previous) => (previous === 'idle' ? 'loading' : previous));
       setError(null);
 
+      const verseKey = `${surah}:${ayah}`;
+
       try {
-        const { segment: built, failedEditions: failed } = await buildLessonSegment(verse);
+        const { segment: built, failedEditions: failed } = await buildLessonSegment(verse, {
+          /*
+           * The bilingual commentary resolves the segment; the optional historical note follows.
+           * Awaiting it here is what put a per-ayah CDN request (with its 8 s timeout, two
+           * attempts and three failover tiers) in front of every "next ayah" tap — the skeleton
+           * the learner saw was that request, not the commentary.
+           */
+          deferAsbab: true,
+          onAsbab: (entry) => {
+            if (cancelled || requestId !== requestIdRef.current) return;
+            asbabRef.current.set(verseKey, entry);
+            if (!entry) return;
+            setSegment((previous) =>
+              previous && previous.surah === surah && previous.ayah === ayah
+                ? { ...previous, asbab: entry }
+                : previous
+            );
+          },
+        });
         if (cancelled || requestId !== requestIdRef.current) return;
 
-        setSegment(built);
+        // A note that already arrived is merged into the commit; one that arrives later patches
+        // the segment through `onAsbab`. Both paths are identity-guarded, so no verse's exegesis
+        // is ever rendered under another verse's text.
+        const arrived = asbabRef.current.get(verseKey);
+        setSegment(arrived ? { ...built, asbab: arrived } : built);
         setFailedEditions(failed);
         setState(failed.length > 0 ? 'partial' : 'ready');
 

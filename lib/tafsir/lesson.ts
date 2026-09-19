@@ -74,6 +74,38 @@ function entryFor(
 }
 
 /**
+ * Options for the lesson assembly.
+ *
+ * `deferAsbab` exists because the occasion-of-revelation lookup is the one part of the lesson that
+ * can only be answered per ayah (the edition is sparse), so awaiting it put a CDN round trip on the
+ * critical path of *every* reader interaction: stepping to the next ayah showed a loading skeleton
+ * until that request — 8 s timeout, two attempts, three CDN tiers — settled, even when both the
+ * English and Tamil commentaries were already in memory. When deferred, the two commentaries
+ * resolve the segment immediately and the optional historical note arrives in a second update.
+ */
+export interface LoadLessonOptions {
+  /** Called with the occasion of revelation when a deferred lookup settles. */
+  onAsbab?: (entry: TafsirAsbabEntry | null) => void;
+  /** Resolve the segment without waiting for the sparse asbab edition. Server callers want false. */
+  deferAsbab?: boolean;
+}
+
+/** Best-effort occasion-of-revelation lookup. No recorded occasion is the common case. */
+async function lookupAsbab(verse: LessonVerse): Promise<TafsirAsbabEntry | null> {
+  try {
+    const found = await getAyahTafsir(ASBAB_EDITION, verse.surah, verse.ayah);
+    if (found.text && found.text.trim().length > 0) {
+      return { text: found.text, editionSlug: ASBAB_EDITION.slug, editionName: ASBAB_EDITION.name };
+    }
+    return null;
+  } catch (error) {
+    if (!(error instanceof TafsirUnavailableError)) throw error;
+    console.warn(`Occasion-of-revelation lookup failed for ${verse.surah}:${verse.ayah}.`);
+    return null;
+  }
+}
+
+/**
  * Loads both exegeses (and the optional occasion of revelation) for one ayah.
  *
  * One edition failing must not blank the lesson: the other language, the Arabic verse and
@@ -82,7 +114,8 @@ function entryFor(
  * which the UI shows as a labelled notice rather than an empty box.
  */
 export async function loadLessonExegesis(
-  verse: LessonVerse
+  verse: LessonVerse,
+  options: LoadLessonOptions = {}
 ): Promise<{ exegesis: LessonExegesis; asbab: TafsirAsbabEntry | null; failedEditions: string[] }> {
   const failedEditions: string[] = [];
 
@@ -107,16 +140,21 @@ export async function loadLessonExegesis(
     })(),
   ]);
 
-  // Best-effort: no recorded occasion of revelation is the common case, not a failure.
+  /*
+   * The asbab lookup is fired either way; `deferAsbab` only decides whether it is awaited.
+   *
+   * Both the English and Tamil commentaries above are already resolved (and, for a warm chapter,
+   * in memory) before this point, so awaiting a sparse per-ayah request here would hold the whole
+   * segment behind the slowest and least important of its three sources.
+   */
   let asbab: TafsirAsbabEntry | null = null;
-  try {
-    const found = await getAyahTafsir(ASBAB_EDITION, verse.surah, verse.ayah);
-    if (found.text && found.text.trim().length > 0) {
-      asbab = { text: found.text, editionSlug: ASBAB_EDITION.slug, editionName: ASBAB_EDITION.name };
-    }
-  } catch (error) {
-    if (!(error instanceof TafsirUnavailableError)) throw error;
-    console.warn(`Occasion-of-revelation lookup failed for ${verse.surah}:${verse.ayah}.`);
+  if (options.deferAsbab) {
+    void lookupAsbab(verse).then(
+      (entry) => options.onAsbab?.(entry),
+      () => options.onAsbab?.(null)
+    );
+  } else {
+    asbab = await lookupAsbab(verse);
   }
 
   return {
@@ -130,8 +168,11 @@ export async function loadLessonExegesis(
 }
 
 /** Assembles the complete, prompt-ready lesson segment. */
-export async function buildLessonSegment(verse: LessonVerse): Promise<LoadedLesson> {
-  const { exegesis, asbab, failedEditions } = await loadLessonExegesis(verse);
+export async function buildLessonSegment(
+  verse: LessonVerse,
+  options: LoadLessonOptions = {}
+): Promise<LoadedLesson> {
+  const { exegesis, asbab, failedEditions } = await loadLessonExegesis(verse, options);
 
   return {
     failedEditions,

@@ -10,7 +10,7 @@ import { recordActivity } from '@/lib/learning/activity';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import { StatePanel } from '@/components/system/StatePanel';
 import confetti from 'canvas-confetti';
-import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, ArrowRight, Sparkles, Loader2, Layers, Filter } from 'lucide-react';
+import { Clock, Eye, Volume2, CheckCircle2, RotateCcw, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SrsReviewPage() {

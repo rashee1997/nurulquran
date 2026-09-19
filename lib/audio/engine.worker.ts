@@ -63,6 +63,8 @@ const VAD_EXIT_THRESHOLD = 0.35; // Hysteresis: speech must fall below this to c
 const MIN_UTTERANCE_SAMPLES = 16000 * 0.4; // 400 ms — ignore accidental clicks.
 
 let vad: VadState | null = null;
+/** Samples left over from the previous worker frame, awaiting a full `VAD_CHUNK`. */
+let vadRemainder = new Float32Array(0);
 
 function zeros1(n: number): ort.Tensor {
   return new ort.Tensor('float32', new Float32Array(n), [1, n]);
@@ -158,17 +160,24 @@ async function initStt(encoderBlob: Blob, decoderBlob: Blob): Promise<void> {
   // subset we need); a full vocab.json fetch would duplicate the fixed OpenAI token ids.
   const { WHISPER_VOCAB, WHISPER_SPECIAL } = await loadWhisperVocab();
 
+  /**
+   * Special token ids, read from the shipped vocabulary rather than re-typed here. The literals
+   * that used to sit below duplicated `WHISPER_SPECIAL` and would have drifted silently if the
+   * tokenizer subset were ever regenerated.
+   */
+  const special = (key: string, fallback: number): number => WHISPER_SPECIAL[key] ?? fallback;
+
   stt = {
     encoder,
     decoder,
     vocab: WHISPER_VOCAB,
     idToToken: new Map([...WHISPER_VOCAB.entries()].map(([token, id]) => [id, token])),
-    sotToken: 50257,
-    eotToken: 50256,
-    noSpeechToken: 50361,
-    transcribeToken: 50358,
-    arabicToken: 50220,
-    padToken: 50256,
+    sotToken: special('sot', 50257),
+    eotToken: special('eot', 50256),
+    noSpeechToken: special('no_speech', 50361),
+    transcribeToken: special('transcribe', 50358),
+    arabicToken: special('ar', 50220),
+    padToken: special('eot', 50256),
   };
 }
 
@@ -300,7 +309,6 @@ function buildMelFilterbank(): Float32Array[] {
   const bins = N_FFT / 2 + 1;
   const filters: Float32Array[] = [];
   const hzToMel = (hz: number): number => 2595 * Math.log10(1 + hz / 700);
-  const melToHz = (mel: number): number => 700 * (10 ** (mel / 2595) - 1);
   const minMel = hzToMel(0);
   const maxMel = hzToMel(16000 / 2);
   for (let m = 0; m < N_MELS; m += 1) {
@@ -441,19 +449,42 @@ let utteranceBuffer: Float32Array[] = [];
 let utteranceSamples = 0;
 let inSpeech = false;
 let target: { verseKey: string; words: string[] } | null = null;
-let seqCounter = 0;
 
 function resetUtterance(): void {
   utteranceBuffer = [];
   utteranceSamples = 0;
   inSpeech = false;
+  vadRemainder = new Float32Array(0);
 }
 
 function post(message: EngineWorkerResponse, transfer?: Transferable[]): void {
   ctx.postMessage(message, transfer ?? []);
 }
 
+/**
+ * Accumulates incoming frames and runs the VAD on exactly `VAD_CHUNK` samples at a time.
+ *
+ * The chunk size is not a preference: Silero is a streaming model trained on 512-sample chunks at
+ * 16 kHz, and any other length makes `session.run` reject the input tensors. The capture worklet
+ * posts 128-sample render quanta, so without this accumulation every frame threw inside `vadProb`
+ * (which swallows the error and returns 0), the session was reported "not speaking" throughout,
+ * and the streaming path never finalised an utterance to score.
+ */
 async function processChunk(samples: Float32Array): Promise<void> {
+  const pending = new Float32Array(vadRemainder.length + samples.length);
+  pending.set(vadRemainder, 0);
+  pending.set(samples, vadRemainder.length);
+
+  let offset = 0;
+  while (pending.length - offset >= VAD_CHUNK) {
+    await processVadChunk(pending.subarray(offset, offset + VAD_CHUNK));
+    offset += VAD_CHUNK;
+  }
+  vadRemainder = pending.slice(offset);
+}
+
+/** Runs one complete VAD chunk through the streaming model and folds the result into state. */
+async function processVadChunk(samples: Float32Array): Promise<void> {
   const prob = await vadProb(samples);
   const speaking = prob >= VAD_THRESHOLD;
 
@@ -597,7 +628,6 @@ ctx.onmessage = async (event: MessageEvent<EngineWorkerRequest>) => {
         return;
       }
       case 'audio-frame': {
-        seqCounter = request.seq;
         const samples = new Float32Array(request.buffer);
         // Accept 16 kHz directly; resample simple integer ratios if the context ignored our rate.
         await processChunk(samples);
@@ -618,7 +648,6 @@ ctx.onmessage = async (event: MessageEvent<EngineWorkerRequest>) => {
       case 'reset': {
         resetUtterance();
         target = null;
-        seqCounter = 0;
         return;
       }
       case 'score-once': {

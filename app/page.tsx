@@ -10,11 +10,6 @@ import {
   Clock, 
   Flame, 
   ArrowRight, 
-  Award, 
-  CheckCircle2, 
-  Volume2, 
-  Compass,
-  Play,
   Gamepad2,
   Radar,
   Languages
@@ -200,7 +195,9 @@ export default function DashboardPage() {
               <span className="text-xs font-bold text-secondary-strong bg-secondary-subtle px-2.5 py-1 rounded-lg">
                 Spaced Repetition
               </span>
-              <span className="text-xs text-muted-foreground font-medium">{dueReviewCount} due</span>
+              <span className="text-xs text-muted-foreground font-medium">
+                {dueReviewCount} due · {memorizedCount} memorised
+              </span>
             </div>
             <h3 className="text-base font-bold text-foreground">
               Review Queue

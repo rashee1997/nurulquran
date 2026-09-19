@@ -19,10 +19,19 @@ export function ServiceWorkerBootstrap(): null {
     const onInstalled = () => track('pwa.installed');
     window.addEventListener('appinstalled', onInstalled);
 
-    void checkAndFireReminder();
-    const reminderInterval = setInterval(() => void checkAndFireReminder(), 30 * 60 * 1000);
+    // The reminder check is best-effort and must never surface as an unhandled rejection on the
+    // app's very first effect, which is what an unguarded floating promise would do.
+    const checkReminder = () => void checkAndFireReminder().catch(() => undefined);
+
+    checkReminder();
+    const reminderInterval = setInterval(checkReminder, 30 * 60 * 1000);
 
     return () => {
+      // `{ once: true }` only detaches the listener *after* it fires. If this component unmounts
+      // before `load` — a client-side remount, or the development double-mount — the pending
+      // listener stayed registered for the rest of the session, and every later `load` event
+      // re-registered the service worker.
+      window.removeEventListener('load', register);
       window.removeEventListener('appinstalled', onInstalled);
       clearInterval(reminderInterval);
     };

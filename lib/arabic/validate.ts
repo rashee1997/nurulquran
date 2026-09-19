@@ -13,7 +13,7 @@ import { ARABIC_ALPHABET } from '@/lib/audio/alphabet-audio';
 import { ARABIC_DIALOGS } from './dialogs';
 import { ARABIC_LEXICON } from './lexicon';
 import { ARABIC_LAB_LEVELS } from './curriculum';
-import type { ArabicLabLesson, IrabCase, IrabSign } from './types';
+import type { IrabCase, IrabSign } from './types';
 
 export interface ArabicLabIntegrityIssue {
   code:

@@ -4,6 +4,7 @@ import Dexie, { type Table } from 'dexie';
 import {
   MODEL_VARIANTS,
   MODEL_BUDGET_BYTES,
+  MODEL_TOTAL_BUDGET_BYTES,
   variantTotalBytes,
   type CoachModelVariant,
   type ModelAsset,
@@ -47,14 +48,76 @@ export interface ModelDbProgress {
   error?: string;
 }
 
+/**
+ * The same row, without the binary.
+ *
+ * Readiness, the download snapshot and the stored-byte total only ever needed four scalar fields,
+ * yet they were answered with `modelAssets.where('state').equals('ready').toArray()` — which makes
+ * IndexedDB deserialise **every ready Blob** (up to ~180 MB) just to read `.size` off it. The
+ * coach page polled that every four seconds and the engine-variant card re-ran it for all three
+ * variants on every progress tick, so the check was far more expensive than the download it was
+ * reporting on. The derived fields live in their own blob-free table, which makes all three reads
+ * cheap; the blob table is touched only when a blob is actually needed (the worker init).
+ */
+export interface ModelAssetMetaRecord {
+  id: string;
+  state: ModelAssetState;
+  bytesReceived: number;
+  bytesExpected: number;
+  error?: string;
+  downloadedAt?: string;
+}
+
+function toMeta(record: ModelAssetRecord): ModelAssetMetaRecord {
+  return {
+    id: record.id,
+    state: record.state,
+    bytesReceived: record.bytesReceived,
+    bytesExpected: record.bytesExpected,
+    ...(record.error === undefined ? {} : { error: record.error }),
+    ...(record.downloadedAt === undefined ? {} : { downloadedAt: record.downloadedAt }),
+  };
+}
+
+/** True when a metadata row proves the asset is cached and complete. */
+function isMetaIntact(meta: ModelAssetMetaRecord | undefined, asset: ModelAsset): boolean {
+  return meta?.state === 'ready' && meta.bytesReceived === asset.bytes;
+}
+
+/**
+ * Whether a variant is fully cached, from metadata alone.
+ *
+ * Exported so a UI can answer the same question from a live query over the metadata table instead
+ * of awaiting a per-variant database read.
+ */
+export function variantReadyFromMeta(
+  variant: ModelVariant,
+  metas: readonly ModelAssetMetaRecord[]
+): boolean {
+  const byId = new Map(metas.map((meta) => [meta.id, meta]));
+  return variant.assets.every((asset) => isMetaIntact(byId.get(asset.id), asset));
+}
+
 class ModelDatabase extends Dexie {
   modelAssets!: Table<ModelAssetRecord, string>;
+  modelAssetMeta!: Table<ModelAssetMetaRecord, string>;
 
   constructor() {
     super('NurulQuranModelDB');
     this.version(1).stores({
       modelAssets: 'id, state',
     });
+    // v2 adds the blob-free metadata table. Additive: existing rows are transcribed into it on
+    // upgrade, so a learner who already downloaded a variant keeps it.
+    this.version(2)
+      .stores({
+        modelAssets: 'id, state',
+        modelAssetMeta: 'id, state',
+      })
+      .upgrade(async (transaction) => {
+        const rows = await transaction.table<ModelAssetRecord, string>('modelAssets').toArray();
+        await transaction.table<ModelAssetMetaRecord, string>('modelAssetMeta').bulkPut(rows.map(toMeta));
+      });
   }
 }
 
@@ -64,19 +127,24 @@ export const modelDb = new ModelDatabase();
 /* Read helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
-/** All ready blobs for the given variant's asset ids (used by the worker init). */
+/**
+ * All ready blobs for the given variant's asset ids (used by the worker init).
+ *
+ * Fetched by primary key rather than by scanning `state === 'ready'`: a learner with more than one
+ * variant cached would otherwise have every *other* variant's blobs deserialised too — another
+ * ~130 MB of IndexedDB reads to hand the worker the ~180 MB it actually asked for.
+ */
 export async function getReadyBlobs(variant: ModelVariant): Promise<Map<string, Blob>> {
-  const rows = await modelDb.modelAssets.where('state').equals('ready').toArray();
-  const wanted = new Set(variant.assets.map((asset) => asset.id));
+  const rows = await modelDb.modelAssets.bulkGet(variant.assets.map((asset) => asset.id));
   const map = new Map<string, Blob>();
   for (const row of rows) {
-    if (row.blob && wanted.has(row.id)) map.set(row.id, row.blob);
+    if (row?.state === 'ready' && row.blob) map.set(row.id, row.blob);
   }
   return map;
 }
 
 export async function getModelSnapshot(): Promise<ModelDbProgress[]> {
-  const rows = await modelDb.modelAssets.toArray();
+  const rows = await modelDb.modelAssetMeta.toArray();
   const byId = new Map(rows.map((row) => [row.id, row]));
   // Union of every variant's assets so the panel shows all possible entries.
   const allAssets = new Map<string, ModelAsset>();
@@ -96,18 +164,16 @@ export async function getModelSnapshot(): Promise<ModelDbProgress[]> {
   });
 }
 
+/** Bytes occupied by every cached asset, from metadata alone (no blob is deserialised). */
 export async function totalStoredModelBytes(): Promise<number> {
-  const rows = await modelDb.modelAssets.where('state').equals('ready').toArray();
-  return rows.reduce((sum, row) => sum + (row.blob?.size ?? 0), 0);
+  const rows = await modelDb.modelAssetMeta.where('state').equals('ready').toArray();
+  return rows.reduce((sum, row) => sum + row.bytesReceived, 0);
 }
 
 /** Whether one specific variant is fully cached and byte-verified. */
 export async function isVariantReady(variant: ModelVariant): Promise<boolean> {
-  const rows = await modelDb.modelAssets.where('state').equals('ready').toArray();
-  return variant.assets.every((asset) => {
-    const row = rows.find((candidate) => candidate.id === asset.id);
-    return row !== undefined && row.blob !== undefined && row.blob.size === asset.bytes;
-  });
+  const rows = await modelDb.modelAssetMeta.toArray();
+  return variantReadyFromMeta(variant, rows);
 }
 
 /**
@@ -148,7 +214,12 @@ function emitProgress(progress: ModelDbProgress): void {
 }
 
 async function putAndEmit(record: ModelAssetRecord, label: string): Promise<void> {
-  await modelDb.modelAssets.put(record);
+  // The blob and its blob-free metadata row are written together in one transaction, so the two
+  // can never disagree about whether an asset is cached.
+  await modelDb.transaction('rw', modelDb.modelAssets, modelDb.modelAssetMeta, async () => {
+    await modelDb.modelAssets.put(record);
+    await modelDb.modelAssetMeta.put(toMeta(record));
+  });
   emitProgress({
     id: record.id,
     label,
@@ -234,18 +305,40 @@ export async function ensureVariantDownloaded(
   activeDownload = true;
 
   try {
-    if (variantTotalBytes(variant) > MODEL_BUDGET_BYTES) {
+    /*
+     * Two ceilings, because they answer different questions.
+     *
+     * The per-variant check is the one that was mis-set at 180 MB and aborted every download
+     * before a byte was fetched; it rejects a variant whose own plan is oversized. It does not
+     * bound the disk, since variants coexist and each swaps one voice — so the bytes that this
+     * download would actually *add* are summed against a total ceiling as well. Assets already
+     * cached (the shared VAD/Whisper files, an unchanged voice) count for nothing here, which is
+     * what keeps switching voices cheap.
+     */
+    const planned = variantTotalBytes(variant);
+    if (planned > MODEL_BUDGET_BYTES) {
       throw new Error(
-        `The "${variant.label}" variant needs ${(variantTotalBytes(variant) / 1048576).toFixed(1)} MB, which exceeds the ${(MODEL_BUDGET_BYTES / 1048576).toFixed(0)} MB budget.`
+        `The "${variant.label}" variant needs ${(planned / 1048576).toFixed(1)} MB, which exceeds the ${(MODEL_BUDGET_BYTES / 1048576).toFixed(0)} MB per-variant budget.`
+      );
+    }
+
+    const metas = await modelDb.modelAssetMeta.toArray();
+    const byId = new Map(metas.map((meta) => [meta.id, meta]));
+    const missing = variant.assets.reduce(
+      (sum, asset) => (isMetaIntact(byId.get(asset.id), asset) ? sum : sum + asset.bytes),
+      0
+    );
+
+    const stored = metas.reduce((sum, meta) => (meta.state === 'ready' ? sum + meta.bytesReceived : sum), 0);
+    if (stored + missing > MODEL_TOTAL_BUDGET_BYTES) {
+      throw new Error(
+        `Caching "${variant.label}" would use ${((stored + missing) / 1048576).toFixed(0)} MB of on-device models, over the ${(MODEL_TOTAL_BUDGET_BYTES / 1048576).toFixed(0)} MB total budget. Free space from Settings → Offline first.`
       );
     }
 
     let done = 0;
     for (const asset of variant.assets) {
-      const row = await modelDb.modelAssets.get(asset.id);
-      const intact =
-        row?.state === 'ready' && row.blob !== undefined && row.blob.size === asset.bytes;
-      if (!intact) {
+      if (!isMetaIntact(byId.get(asset.id), asset)) {
         await downloadAsset(asset);
       }
       done += 1;
@@ -276,5 +369,8 @@ export async function ensurePreferredVariantReady(
 
 /** Removes every cached model (settings "Free up space" action). */
 export async function deleteAllModels(): Promise<void> {
-  await modelDb.modelAssets.clear();
+  await modelDb.transaction('rw', modelDb.modelAssets, modelDb.modelAssetMeta, async () => {
+    await modelDb.modelAssets.clear();
+    await modelDb.modelAssetMeta.clear();
+  });
 }

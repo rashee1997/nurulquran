@@ -25,18 +25,58 @@ export function ayahAudioUrl(verseKey: string, reciter = 'Alafasy_128kbps'): str
   return `https://everyayah.com/data/${reciter}/${pad3(surah ?? 0)}${pad3(ayah ?? 0)}.mp3`;
 }
 
-/** Plays an authentic recitation clip; resolves when playback finishes (or fails cleanly). */
-export async function playReferenceClip(url: string): Promise<void> {
+/** The clip currently playing, so a second tap supersedes the first instead of layering on it. */
+let activeClip: HTMLAudioElement | null = null;
+
+/** Releases a clip and detaches its handlers so the element can be collected. */
+function releaseClip(audio: HTMLAudioElement | null): void {
+  if (!audio) return;
+  audio.onended = null;
+  audio.onerror = null;
   try {
-    const audio = new Audio(url);
-    audio.crossOrigin = 'anonymous';
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  } catch {
+    // Already detached or disposed.
+  }
+}
+
+/**
+ * Plays an authentic recitation clip; resolves when playback finishes (or fails cleanly).
+ *
+ * Two corrections over the original:
+ *
+ *  1. **No `crossOrigin`.** The attribute was set to `'anonymous'`, which turns a plain media
+ *     load into a CORS request. It is only needed to read samples through the Web Audio API,
+ *     which this path never does — and these clips come from more than one host, so a host that
+ *     does not answer with `Access-Control-Allow-Origin` made playback fail with a media error
+ *     that the bare `catch` swallowed into silence. Plain playback has no such requirement.
+ *  2. **The element is released, and only one plays at a time.** Every call used to leak its
+ *     element and stack on top of whatever was already playing, so repeated taps on a word
+ *     produced overlapping recitation with no way to stop it.
+ */
+export async function playReferenceClip(url: string): Promise<void> {
+  releaseClip(activeClip);
+  activeClip = null;
+
+  let audio: HTMLAudioElement | null = null;
+  try {
+    audio = new Audio(url);
+    activeClip = audio;
     await audio.play();
-    return new Promise<void>((resolve) => {
-      audio.onended = () => resolve();
-      audio.onerror = () => resolve();
+
+    const element = audio;
+    await new Promise<void>((resolve) => {
+      element.onended = () => resolve();
+      element.onerror = () => resolve();
     });
   } catch {
-    // Offline without a cached clip: fail silently — the UI already shows the word state.
+    // Offline without a cached clip, or the browser refused playback: fail silently — the UI
+    // already shows the word state.
+  } finally {
+    if (activeClip === audio) activeClip = null;
+    releaseClip(audio);
   }
 }
 

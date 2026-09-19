@@ -11,6 +11,21 @@ import { resolveAudioContextConstructor } from './audio-context';
 export const RECORDING_SAMPLE_RATE = 16000; // Gemini Live expects 16kHz Mono PCM
 export const PLAYBACK_SAMPLE_RATE = 24000;  // Gemini Live returns 24kHz Mono PCM
 
+/** How long to wait for the browser to answer an `AudioContext.resume()` before giving up. */
+const RESUME_TIMEOUT_MS = 1_500;
+
+/**
+ * Reads a context's current state.
+ *
+ * In its own function because a caller that has already compared `ctx.state` gets it narrowed to
+ * the *other* states — and the awaited `resume()` is exactly what can move it back to `running`.
+ * TypeScript cannot see across the await, so the read is isolated here where there is no
+ * narrowing to inherit.
+ */
+function contextIsRunning(ctx: AudioContext): boolean {
+  return ctx.state === 'running';
+}
+
 /**
  * Converts standard Web Audio Float32 samples (-1.0 to +1.0) into 16-bit signed PCM integers (-32768 to +32767).
  */
@@ -135,20 +150,38 @@ export class PCMAudioStreamPlayer {
   }
 
   /**
-   * Creates and resumes the playback context ahead of the first audio chunk.
+   * Creates the playback context ahead of the first audio chunk and reports whether it is
+   * actually running.
    *
    * Browsers only permit an AudioContext to start from a user gesture. Building it lazily in
    * `queuePCM16Chunk` means the context is created inside a WebSocket callback, where it stays
    * suspended and the reply is silently inaudible. Call this from the click that starts a
    * session so the context is already running when the first chunk arrives.
+   *
+   * The return value matters for the one path that is *not* a click: an automatic reconnect runs
+   * from a timer, where the browser may refuse to resume a freshly created context. The previous
+   * `void` signature fired `resume()` and never looked at the answer, so a refused resume left a
+   * session that reported itself as playing while producing no sound. Awaiting it (bounded, so a
+   * suspended context cannot stall the session forever) lets the caller say so instead.
    */
-  public prime(): void {
+  public async prime(): Promise<boolean> {
     try {
-      this.ensureContext();
+      const ctx = this.ensureContext();
+      if (contextIsRunning(ctx)) return true;
+
+      await Promise.race([
+        ctx.resume().catch(() => undefined),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, RESUME_TIMEOUT_MS);
+        }),
+      ]);
+
+      return contextIsRunning(ctx);
     } catch (error: unknown) {
       // A playback context that cannot be created must not stop the lesson from starting; the
       // audio path reports its own failure when a chunk actually needs to be played.
       console.warn('Playback audio context could not be prepared:', error);
+      return false;
     }
   }
 

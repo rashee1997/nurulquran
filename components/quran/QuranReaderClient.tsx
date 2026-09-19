@@ -50,6 +50,20 @@ function readDialogAyah(surah: number, versesCount: number): number | null {
 }
 
 /**
+ * Merges this dialog's flag into the existing history state instead of replacing it.
+ *
+ * The App Router keeps its own bookkeeping on `history.state` — the router tree and the segment
+ * identity it uses to decide what to restore on a Back or Forward — so writing a bare
+ * `{ tafsirDialog: true }` (and later `null`) discarded it. Spreading the existing value keeps
+ * Next's own keys intact and only adds the one flag this component reads.
+ */
+function mergeHistoryState(patch: { tafsirDialog: boolean }): Record<string, unknown> {
+  if (typeof window === 'undefined') return { ...patch };
+  const existing: unknown = window.history.state;
+  return typeof existing === 'object' && existing !== null ? { ...existing, ...patch } : { ...patch };
+}
+
+/**
  * Writes the dialog coordinates into the URL.
  *
  * `push` is used when the dialog opens, so Back closes it — the behaviour a full-route link
@@ -64,7 +78,7 @@ function writeDialogUrl(mode: 'push' | 'replace', surah: number, ayah: number): 
   url.searchParams.set(SURAH_PARAM, String(surah));
   url.searchParams.set(AYAH_PARAM, String(ayah));
   const next = `${url.pathname}${url.search}${url.hash}`;
-  const state = { tafsirDialog: true };
+  const state = mergeHistoryState({ tafsirDialog: true });
   if (mode === 'push') window.history.pushState(state, '', next);
   else window.history.replaceState(state, '', next);
 }
@@ -77,7 +91,11 @@ function clearDialogUrl(): void {
   url.searchParams.delete(SURAH_PARAM);
   url.searchParams.delete(AYAH_PARAM);
   const query = url.searchParams.toString();
-  window.history.replaceState(null, '', `${url.pathname}${query ? `?${query}` : ''}${url.hash}`);
+  window.history.replaceState(
+    mergeHistoryState({ tafsirDialog: false }),
+    '',
+    `${url.pathname}${query ? `?${query}` : ''}${url.hash}`
+  );
 }
 
 export const QuranReaderClient: React.FC<{ chapter: Chapter; verses: Verse[] }> = ({
@@ -92,6 +110,32 @@ export const QuranReaderClient: React.FC<{ chapter: Chapter; verses: Verse[] }> 
     async () => (await db.userProfile.get('default_user'))?.aiVoiceId ?? null,
     []
   );
+
+  /*
+   * Mirrors the chapter's verses into the client scripture cache.
+   *
+   * The reader gets its verses from the Server Component, so nothing ever wrote them to the
+   * learner's own `quranCache` — the client-side cache was only ever populated by individual
+   * client-side `getVerse` calls (the coach page's word lookup, for instance). Seeding it here means
+   * a sūrah the learner has opened once is readable from the device, and other client-side readers
+   * of the same cache (which key on `verse:<surah>:<ayah>`) find it too. One `bulkPut` in a single
+   * transaction, so Al-Baqarah's 286 rows cost one round trip rather than 286.
+   */
+  useEffect(() => {
+    const cachedAt = Date.now();
+    void db.quranCache
+      .bulkPut(
+        verses.map((verse) => ({
+          key: `verse:${verse.surah}:${verse.ayah}`,
+          data: verse,
+          cachedAt,
+        }))
+      )
+      .catch((error: unknown) => {
+        // A full or unavailable IndexedDB must not affect reading: this is an optimisation.
+        console.warn('The chapter could not be mirrored into the local scripture cache:', error);
+      });
+  }, [verses]);
 
   const handleOpenAiTutor = useCallback(
     (prompt?: string, verse?: Verse): void => {

@@ -60,22 +60,93 @@ export interface RequestGuardOptions {
 
 export type RequestGuardResult = { ok: true } | { ok: false; response: NextResponse<ApiErrorBody> };
 
+export const LENGTH_REQUIRED =
+  'This endpoint needs a Content-Length so the payload size can be checked before it is read.';
+
+/**
+ * Hosts this request could legitimately have been addressed as.
+ *
+ * `Host` is what a direct client sends and what Next.js sees behind a standard reverse proxy;
+ * `x-forwarded-host` is added by proxies that rewrite it. Both are accepted so a proxied
+ * deployment is not mistaken for a cross-site caller.
+ */
+function expectedHosts(req: NextRequest): string[] {
+  return [req.headers.get('host'), req.headers.get('x-forwarded-host')]
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => Boolean(value));
+}
+
+/**
+ * Rejects a browser request whose `Origin` is a different site.
+ *
+ * `sec-fetch-site` was the only cross-site signal this guard checked, and it is sent by modern
+ * browsers only. Older browsers, some webviews and any hand-written client omit it, so the
+ * check was skipped exactly when it was needed. A present `Origin` that does not match this
+ * host is an unambiguous cross-site browser request and is refused. The check deliberately
+ * only *adds* a rejection: a request with no `Origin` at all (server-to-server, curl, a
+ * same-origin form post in an old browser) is still governed by the declared-size and
+ * rate-limit guards rather than being refused outright.
+ *
+ * A reverse proxy that rewrites the inbound `Host` without setting `x-forwarded-host` would make
+ * a legitimate same-origin request look cross-site here. If the AI routes begin answering 403
+ * after a proxy change, that header is the first thing to check.
+ */
+function isCrossSiteOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get('origin');
+  if (!origin) return false;
+
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host.toLowerCase();
+  } catch {
+    // `Origin: null` (sandboxed iframe, some redirect chains) and malformed values have no
+    // host to compare; they are not evidence of a cross-site browser request.
+    return false;
+  }
+
+  const hosts = expectedHosts(req);
+  if (hosts.length === 0) return false;
+  return !hosts.includes(originHost);
+}
+
 /** Applies transport-level guards: declared payload size and cross-site rejection. */
 export function guardRequest(req: NextRequest, options: RequestGuardOptions = {}): RequestGuardResult {
   const { maxBytes = MAX_AUDIO_REQUEST_BYTES, sameOrigin = true } = options;
 
   if (sameOrigin) {
     const fetchSite = req.headers.get('sec-fetch-site');
-    if (fetchSite === 'cross-site') {
+    if (fetchSite === 'cross-site' || isCrossSiteOrigin(req)) {
       return { ok: false, response: apiError({ status: 403, code: 'forbidden', message: FORBIDDEN_ORIGIN }) };
     }
   }
 
-  const declaredLength = Number.parseInt(req.headers.get('content-length') ?? '', 10);
-  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+  const rawLength = req.headers.get('content-length');
+  const declaredLength = Number.parseInt(rawLength ?? '', 10);
+
+  if (Number.isFinite(declaredLength)) {
+    if (declaredLength > maxBytes) {
+      return {
+        ok: false,
+        response: apiError({ status: 413, code: 'payload_too_large', message: PAYLOAD_TOO_LARGE }),
+      };
+    }
+    return { ok: true };
+  }
+
+  /*
+   * No usable `Content-Length`.
+   *
+   * The size ceiling above was previously the guard's only size defence, so a chunked request
+   * that simply omitted the header bypassed it and the body was handed to `req.json()` — which
+   * buffers the whole payload in memory. These endpoints take a small JSON document (and, for
+   * the audio routes, one already-bounded base64 string); every browser `fetch` with a string
+   * body sets `Content-Length` automatically, so a chunked upload is never a legitimate client
+   * of these routes and is refused rather than streamed into memory unbounded.
+   */
+  if (req.headers.get('transfer-encoding')) {
     return {
       ok: false,
-      response: apiError({ status: 413, code: 'payload_too_large', message: PAYLOAD_TOO_LARGE }),
+      response: apiError({ status: 411, code: 'invalid_request', message: LENGTH_REQUIRED }),
     };
   }
 

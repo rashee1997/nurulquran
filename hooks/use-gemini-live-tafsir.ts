@@ -62,6 +62,15 @@ const HANDSHAKE_TIMEOUT_MS = 15_000;
  * quota in silence while the UI pretended to be busy. Past the cap the learner is given an
  * explicit "tap start", never a dead bar.
  */
+/**
+ * Rendered transcript lines kept in memory.
+ *
+ * The transcript was unbounded: a long lesson appended every spoken line for as long as it ran,
+ * and each append copied the whole array. The oldest lines are dropped once this many are held —
+ * far more than fits on screen, so the visible behaviour is unchanged.
+ */
+const MAX_TRANSCRIPT_LINES = 200;
+
 const MAX_AUTO_RECONNECTS = 3;
 const RECONNECT_BASE_DELAY_MS = 1_200;
 const RECONNECT_MAX_DELAY_MS = 8_000;
@@ -252,29 +261,56 @@ export function useGeminiLiveTafsir({
     mutedRef.current = isMuted;
   }, [isMuted]);
 
+  /** Monotonic source of transcript line ids, so trimming the list cannot cause a collision. */
+  const transcriptSeqRef = useRef(0);
+
   /* ---------------------------------------------------------------------- */
   /* Transcript                                                              */
   /* ---------------------------------------------------------------------- */
 
-  const appendTranscript = useCallback((speaker: 'ameen' | 'student', text: string): void => {
-    if (text.length === 0) return;
-    const chunk = text;
-    setTranscript((previous) => {
+  /**
+   * Keeps the rendered transcript bounded.
+   *
+   * Nothing ever trimmed this array, so a long lesson accumulated every spoken line for the whole
+   * session (each append also copying the array). A line that is dropped while it is still the
+   * open line has its id cleared, so the next chunk starts a fresh line rather than appending to
+   * a line that is no longer in the list.
+   */
+  const capTranscript = useCallback((lines: LiveTranscriptLine[]): LiveTranscriptLine[] => {
+    if (lines.length <= MAX_TRANSCRIPT_LINES) return lines;
+
+    const kept = lines.slice(lines.length - MAX_TRANSCRIPT_LINES);
+    const keptIds = new Set(kept.map((line) => line.id));
+    for (const speaker of ['ameen', 'student'] as const) {
       const openId = openLineRef.current[speaker];
-      if (openId) {
-        const index = previous.findIndex((line) => line.id === openId);
-        if (index !== -1) {
-          const next = [...previous];
-          const openLine = next[index];
-          if (openLine) next[index] = { ...openLine, text: `${openLine.text}${chunk}` };
-          return next;
-        }
-      }
-      const id = `${speaker}-${Date.now()}-${previous.length}`;
-      openLineRef.current[speaker] = id;
-      return [...previous, { id, speaker, text: chunk, at: Date.now() }];
-    });
+      if (openId !== null && !keptIds.has(openId)) openLineRef.current[speaker] = null;
+    }
+    return kept;
   }, []);
+
+  const appendTranscript = useCallback(
+    (speaker: 'ameen' | 'student', text: string): void => {
+      if (text.length === 0) return;
+      const chunk = text;
+      setTranscript((previous) => {
+        const openId = openLineRef.current[speaker];
+        if (openId) {
+          const index = previous.findIndex((line) => line.id === openId);
+          if (index !== -1) {
+            const next = [...previous];
+            const openLine = next[index];
+            if (openLine) next[index] = { ...openLine, text: `${openLine.text}${chunk}` };
+            return next;
+          }
+        }
+        transcriptSeqRef.current += 1;
+        const id = `${speaker}-${transcriptSeqRef.current}`;
+        openLineRef.current[speaker] = id;
+        return capTranscript([...previous, { id, speaker, text: chunk, at: Date.now() }]);
+      });
+    },
+    [capTranscript]
+  );
 
   const clearTranscript = useCallback((): void => {
     openLineRef.current = { ameen: null, student: null };
@@ -350,6 +386,18 @@ export function useGeminiLiveTafsir({
     localVariantRef.current = null;
     localAskRef.current = null;
     cleanupAudio();
+
+    /*
+     * Release the on-device engine if this session booted one.
+     *
+     * `disposeLocalEngine` is a no-op when no session exists and the cloud path never boots one,
+     * so calling it unconditionally is safe. Without it, a finished storyteller left a worker
+     * holding the whole cached model set — roughly 180 MB of ONNX weights — resident for the life
+     * of the page; nothing else in the app ever released it.
+     */
+    void import('@/lib/audio/local-engine-session')
+      .then((module) => module.disposeLocalEngine())
+      .catch(() => undefined);
 
     const session = sessionRef.current;
     sessionRef.current = null;
@@ -621,6 +669,14 @@ export function useGeminiLiveTafsir({
     if (key === lastSegmentKeyRef.current) return;
     lastSegmentKeyRef.current = key;
 
+    /*
+     * Recording the key before the session exists is deliberate, not a dropped injection.
+     *
+     * A change that arrives while the socket is still connecting has no session to send to, and
+     * the opening beat (`tellCurrentStory`, sent immediately after the handshake, and
+     * `answerLocally` on the local path) already delivers the full packet for whatever verse is
+     * current at that moment. Re-sending here as well would inject the same context twice.
+     */
     const session = sessionRef.current;
     if (!session || !segment) return;
 
@@ -953,39 +1009,46 @@ export function useGeminiLiveTafsir({
     let liveModel: string | null = null;
 
     /*
-     * Local-mode gate (async): when the storyteller resolves to an on-device variant, the
-     * Gemini Live socket path is skipped entirely — and an unresolvable local choice (chosen
-     * variant not downloaded) surfaces its error instead of silently connecting to the cloud,
-     * per the no-fallback design. The async probe runs before the ticket fetch below; the
-     * generation check keeps a racing second start() from double-connecting.
+     * Which engine this session runs on, decided **before any network call**.
+     *
+     * This used to be two independent concurrent IIFEs: one probed for an on-device variant and
+     * started the local session, the other immediately minted an ephemeral token and opened the
+     * Gemini Live socket — unconditionally. Selecting the on-device engine therefore still opened
+     * a cloud session, and both paths then called `attachMicrophone`, so the machine ran two
+     * AudioContexts and two microphone tracks (one leaked), fed capture frames to Gemini *and* to
+     * the local turn detector, and burned a single-use token per start. "The Gemini Live socket
+     * path is skipped entirely" was the intent; it is now the behaviour, because the cloud path
+     * is not entered until this probe has resolved.
      */
-    void (async () => {
-      let localModeActive = false;
+    const engineProbe = (async (): Promise<
+      { kind: 'cloud' } | { kind: 'local'; variant: ModelVariant } | { kind: 'local-error'; message: string }
+    > => {
       try {
         const { resolveModuleVariant } = await import('@/lib/audio/model-registry');
         const dbModule = await import('@/lib/db');
         const profile = await dbModule.db.userProfile.get('default_user');
-        const localVariant = resolveModuleVariant('tafsir-storyteller', profile?.moduleEngines, profile?.coachModelVariant);
-        if (localVariant) {
-          const { bootLocalEngine } = await import('@/lib/audio/local-engine-session');
-          try {
-            await bootLocalEngine(localVariant);
-          } catch (error: unknown) {
-            if (generation !== generationRef.current) return;
-            setErrorMessage(error instanceof Error ? error.message : 'The on-device engine could not start.');
-            setStatus('error');
-            activeRef.current = false;
-            return;
-          }
-          if (generation !== generationRef.current) return;
-          localVariantRef.current = localVariant;
-          localModeActive = true;
+        const localVariant = resolveModuleVariant(
+          'tafsir-storyteller',
+          profile?.moduleEngines,
+          profile?.coachModelVariant
+        );
+        if (!localVariant) return { kind: 'cloud' };
+
+        const { bootLocalEngine } = await import('@/lib/audio/local-engine-session');
+        try {
+          await bootLocalEngine(localVariant);
+        } catch (error: unknown) {
+          // No-fallback design: a chosen variant that cannot boot is reported, never silently
+          // downgraded to the cloud engine.
+          return {
+            kind: 'local-error',
+            message: error instanceof Error ? error.message : 'The on-device engine could not start.',
+          };
         }
+        return { kind: 'local', variant: localVariant };
       } catch {
         // Probe failure (e.g. IndexedDB unavailable) falls through to the cloud path.
-      }
-      if (localModeActive && generation === generationRef.current) {
-        void runLocalStorytellerSession(generation);
+        return { kind: 'cloud' };
       }
     })();
 
@@ -997,6 +1060,22 @@ export function useGeminiLiveTafsir({
 
     void (async () => {
       try {
+        const engine = await engineProbe;
+        if (generation !== generationRef.current) return;
+
+        if (engine.kind === 'local-error') {
+          setErrorMessage(engine.message);
+          setStatus('error');
+          activeRef.current = false;
+          return;
+        }
+
+        if (engine.kind === 'local') {
+          localVariantRef.current = engine.variant;
+          await runLocalStorytellerSession(generation);
+          return;
+        }
+
         const ticketResponse = await fetch('/api/tafsir/live-session', { method: 'POST' });
         if (generation !== generationRef.current) return;
 
@@ -1042,8 +1121,14 @@ export function useGeminiLiveTafsir({
          * rather than lazily when the first audio chunk arrives. Browsers only allow audio to
          * begin from a user gesture, so a context built later inside the socket callback stays
          * suspended: the session looks healthy while Ameen is silently inaudible.
+         *
+         * `prime()` now reports whether the context is genuinely running. This path is normally a
+         * click (so it is), but an automatic reconnect reaches it from a timer, where a browser
+         * may refuse to resume — and the answer is only surfaced once the session is live, so it
+         * can never mask a terminal connection error.
          */
-        player.prime();
+        const audioReady = await player.prime();
+        if (generation !== generationRef.current) return;
 
         /**
          * Rejects the pending `connect()` the moment a close arrives mid-handshake, so the
@@ -1178,6 +1263,12 @@ export function useGeminiLiveTafsir({
 
         // The handshake is done, so the session is genuinely live from here on.
         setStatus('active');
+
+        if (!audioReady) {
+          setErrorMessage(
+            "Your browser has not allowed audio to play yet, so Ameen may be silent. Stop and start the story again to unlock his voice."
+          );
+        }
 
         /*
          * Opening beat first, microphone second.

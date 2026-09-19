@@ -22,14 +22,9 @@ import { initializeVerseProgress } from '@/lib/learning/srs-engine';
 interface MutashabihatModalProps {
   entry: MutashabihEntry;
   onClose: () => void;
-  onSelectVerse?: (surah: number, ayah: number) => void;
 }
 
-export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({
-  entry,
-  onClose,
-  onSelectVerse,
-}) => {
+export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({ entry, onClose }) => {
   const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
   const [savedStatus, setSavedStatus] = useState<Record<string, boolean>>({});
 

@@ -7,10 +7,20 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Sparkles, Send, Bot, User, BookOpen, RotateCcw, Languages } from 'lucide-react';
 import { db } from '@/lib/db';
+import { decryptApiKey } from '@/lib/db/crypto';
+import { DEFAULT_GEMINI_TEXT_MODEL } from '@/lib/ai/models';
 import Link from 'next/link';
 import { Modal } from '@/components/system/Modal';
 import { useAiTutor } from './tutor-bridge';
 import { VerseCard, WordAnalysisCard } from './ToolInvocationCards';
+
+/** The provider fields the chat route accepts in its request body. */
+interface TutorProviderConfig {
+  type: string;
+  apiKey?: string;
+  baseUrl?: string;
+  selectedModel?: string;
+}
 
 /**
  * Narrow, provider-agnostic shape of a finished tool invocation part. The AI SDK's
@@ -109,42 +119,87 @@ const CONNECTION_ERROR = 'Could not reach the assistant. Check your connection, 
 
 export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose }) => {
   const [activeProviderName, setActiveProviderName] = useState('Google Gemini (Server Default)');
-  const [providerConfig, setProviderConfig] = useState<{ type: string; apiKey?: string; baseUrl?: string; selectedModel?: string }>({
+  /*
+   * The starting value must name a model this build actually knows.
+   *
+   * It used to be the literal `'gemini-2.5-flash'` — precisely the drift `lib/ai/models.ts`
+   * exists to prevent. The client sends `providerConfig.selectedModel`, and `resolveAIModel`
+   * prefers it over the server default, so until `loadConfig` resolved (and permanently, if no
+   * provider row existed) every request named a stale model id.
+   */
+  const [providerConfig, setProviderConfig] = useState<TutorProviderConfig>({
     type: 'gemini',
-    selectedModel: 'gemini-2.5-flash',
+    selectedModel: DEFAULT_GEMINI_TEXT_MODEL,
   });
   const [language, setLanguage] = useState<LanguageToggle>('both');
   const [draft, setDraft] = useState('');
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const transportHeaders = useMemo(() => ({ 'Content-Type': 'application/json' }), []);
+  /*
+   * Rebuilt whenever the provider changes, so the body always carries the live configuration.
+   * `useChat` reads its transport from a ref on each render, which is why a memo keyed on
+   * `providerConfig` is enough to keep the request honest.
+   */
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: '/api/chat',
+        headers: { 'Content-Type': 'application/json' },
+        body: { providerConfig },
+      }),
+    [providerConfig]
+  );
 
-  const { messages, sendMessage, status, error, setMessages, stop } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/chat',
-      headers: transportHeaders,
-      body: { providerConfig },
-    }),
-  });
+  const { messages, sendMessage, status, error, setMessages, stop } = useChat({ transport });
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
   useEffect(() => {
+    let active = true;
+
     async function loadConfig(): Promise<void> {
-      if (typeof window !== 'undefined') {
+      try {
         const prov = await db.aiProviders.filter((p) => p.isDefault).first();
-        if (prov) {
-          setActiveProviderName(prov.name);
-          setProviderConfig({
-            type: prov.type,
-            baseUrl: prov.baseUrl,
-            selectedModel: prov.selectedModel,
-          });
+        if (!active || !prov) return;
+
+        /*
+         * The stored credential is encrypted at rest, so it must be decrypted before it can be
+         * sent. It previously was not: the panel sent only `{ type, baseUrl, selectedModel }`,
+         * and for every non-Gemini vendor `resolveAIModel` built its client with an empty key. A
+         * learner who configured OpenAI, Groq, Mistral, OpenRouter or Anthropic therefore saw the
+         * study assistant fail against their own provider while the app either fell back to the
+         * shared server key — paying for their answers — or, for Gemini, silently ignored the
+         * configuration entirely.
+         */
+        let apiKey: string | undefined;
+        if (prov.encryptedKey) {
+          try {
+            apiKey = await decryptApiKey(prov.encryptedKey);
+          } catch (error: unknown) {
+            // A key that cannot be decrypted (a restored backup, a cleared key store) is reported
+            // rather than silently downgrading the learner to the server default.
+            console.warn('The stored provider key could not be decrypted:', error);
+          }
         }
+        if (!active) return;
+
+        setActiveProviderName(prov.name);
+        setProviderConfig({
+          type: prov.type,
+          baseUrl: prov.baseUrl,
+          selectedModel: prov.selectedModel,
+          ...(apiKey ? { apiKey } : {}),
+        });
+      } catch (error: unknown) {
+        console.warn('The AI provider configuration could not be loaded:', error);
       }
     }
+
     void loadConfig();
+    return () => {
+      active = false;
+    };
   }, [isOpen]);
 
   // Scroll to bottom as messages stream in.

@@ -8,7 +8,7 @@ import {
   type CoachModuleId,
   type ModuleEngineChoice,
 } from '@/lib/audio/model-registry';
-import { isVariantReady } from '@/lib/audio/model-cache';
+import { modelDb, variantReadyFromMeta } from '@/lib/audio/model-cache';
 import { db } from '@/lib/db';
 import { showToast } from '@/lib/ui/toast';
 
@@ -67,16 +67,28 @@ export function InlineEnginePicker({ moduleId, compact = false }: InlineEnginePi
     };
   }, [moduleId]);
 
-  // Resolve which variants are already cached.
+  /*
+   * Resolve which variants are already cached.
+   *
+   * One read of the blob-free metadata table, compared in memory, rather than three separate
+   * `isVariantReady` calls — each of which used to hydrate every cached Blob (up to ~180 MB) from
+   * IndexedDB just to read a size, three times over, every time the choice changed.
+   */
   useEffect(() => {
     let active = true;
-    void (async () => {
-      const results: Partial<Record<string, boolean>> = {};
-      for (const [id, variant] of Object.entries(MODEL_VARIANTS)) {
-        results[id] = await isVariantReady(variant);
-      }
-      if (active) setReadyMap(results);
-    })();
+    void modelDb.modelAssetMeta
+      .toArray()
+      .then((metas) => {
+        if (!active) return;
+        const results: Partial<Record<string, boolean>> = {};
+        for (const [id, variant] of Object.entries(MODEL_VARIANTS)) {
+          results[id] = variantReadyFromMeta(variant, metas);
+        }
+        setReadyMap(results);
+      })
+      .catch((error: unknown) => {
+        console.warn('Cached engine variants could not be read:', error);
+      });
     return () => {
       active = false;
     };

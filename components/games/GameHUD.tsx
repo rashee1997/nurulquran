@@ -9,7 +9,6 @@ import {
   Volume2, 
   VolumeX, 
   RotateCcw, 
-  Sparkles,
   Trophy
 } from 'lucide-react';
 import { VerificationSeal } from './VerificationSeal';

@@ -74,10 +74,21 @@ export function resolveAIModel(config?: Partial<AIProviderConfig>): LanguageMode
   }
 
   if (providerType === 'anthropic') {
-    // Anthropic exposes an OpenAI-compatible endpoint; without a dedicated SDK we
-    // surface a Gemini fallback rather than silently issuing an invalid request.
-    const google = createGoogleGenerativeAI({ apiKey: serverGeminiApiKey() ?? 'missing-key' });
-    return google(DEFAULT_GEMINI_TEXT_MODEL);
+    /*
+     * Anthropic is served through its OpenAI-compatible surface.
+     *
+     * This branch previously ignored `customKey` entirely and returned a *Gemini* model built
+     * from the server key, so a learner who selected Anthropic in Settings was answered by a
+     * different vendor's model and the app silently paid for it out of the shared server quota.
+     * Anthropic publishes an OpenAI-compatible endpoint (`/v1/chat/completions` under
+     * `https://api.anthropic.com/v1`), so the same `createOpenAI` adapter used for every other
+     * OpenAI-compatible vendor works here, and the learner's own key is actually used.
+     */
+    const anthropic = createOpenAI({
+      apiKey: customKey || process.env.ANTHROPIC_API_KEY || '',
+      baseURL: customBaseUrl || 'https://api.anthropic.com/v1',
+    });
+    return anthropic(modelName || PROVIDER_DEFAULT_MODELS.anthropic);
   }
 
   if (providerType === 'custom') {

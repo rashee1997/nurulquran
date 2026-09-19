@@ -55,7 +55,6 @@ interface AudioBarProps {
   onPrevAyah?: () => void;
   /** Words of the current ayah, for word-synced highlighting. */
   words?: readonly QuranWord[];
-  wordCount?: number;
   /** Reports the 1-based index of the word being recited (null between words / when idle). */
   onActiveWordChange?: (wordIndex: number | null) => void;
   /** Fired once each time an ayah plays through to its end (not on repeats). */

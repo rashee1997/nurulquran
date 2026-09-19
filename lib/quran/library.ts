@@ -30,22 +30,51 @@ export function saveReadingPosition(surah: number, ayah: number): void {
   }, POSITION_WRITE_DELAY_MS);
 }
 
+/**
+ * The last position actually written.
+ *
+ * Scrolling away from an ayah and back re-fires the observer with the position it already saved,
+ * and each save is a profile write plus a ledger row. Comparing against this makes a repeat of the
+ * settled position a no-op, so a learner reading up and down one passage does not generate a write
+ * per settle. It is only updated on success, so a failed write is retried.
+ */
+let lastWrittenPosition: { surah: number; ayah: number } | null = null;
+
 export async function flushReadingPosition(): Promise<void> {
   const position = pendingPosition;
   pendingPosition = null;
   if (!position) return;
+  if (lastWrittenPosition?.surah === position.surah && lastWrittenPosition.ayah === position.ayah) {
+    return;
+  }
   try {
     const existing = await db.userProfile.get('default_user');
     // Never create a partial profile from the reader (same rule as reader preferences).
     if (!existing) return;
     await db.userProfile.update('default_user', { readingPosition: position });
+    lastWrittenPosition = { surah: position.surah, ayah: position.ayah };
     track('reader.position_saved', { surah: position.surah, ayah: position.ayah });
   } catch (error: unknown) {
     console.warn('Reading position could not be saved:', error);
   }
 }
 
-if (typeof window !== 'undefined') {
+/**
+ * Registers the flush-on-leave handler exactly once.
+ *
+ * The listener is registered at module scope, which is already once per page load — but this
+ * module is re-evaluated on every hot update in development, and each evaluation added another
+ * permanent `pagehide` listener. The flag lives on `window` so it survives the re-evaluation that a
+ * module-local one would not.
+ */
+const PAGEHIDE_FLAG = '__nurulquran_position_flush_installed__';
+
+function installPagehideFlush(): void {
+  if (typeof window === 'undefined') return;
+  const scope = window as unknown as Record<string, unknown>;
+  if (scope[PAGEHIDE_FLAG]) return;
+  scope[PAGEHIDE_FLAG] = true;
+
   window.addEventListener('pagehide', () => {
     if (positionTimer) {
       clearTimeout(positionTimer);
@@ -54,6 +83,8 @@ if (typeof window !== 'undefined') {
     void flushReadingPosition();
   });
 }
+
+installPagehideFlush();
 
 export function verseKeyOf(surah: number, ayah: number): string {
   return `${surah}:${ayah}`;

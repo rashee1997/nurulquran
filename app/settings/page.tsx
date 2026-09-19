@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { db, UserProfile, exportDatabaseJson, importDatabaseJson, resetDatabase } from '@/lib/db';
 import { RECITERS, hasMeasuredWordTimings, DEFAULT_RECITER } from '@/lib/quran/reciters';
 import { OfflinePanel } from '@/components/settings/OfflinePanel';
-import { Settings, Download, Upload, RotateCcw, Bot, Check, AlertCircle, Sparkles, Sun, Moon, Monitor, Volume2, Play, Mic, Globe, GraduationCap, Save, Undo2, Type } from 'lucide-react';
+import { Settings, Download, Upload, Check, AlertCircle, Sun, Moon, Monitor, Volume2, Globe, Save, Undo2, Type } from 'lucide-react';
 import {
   DEFAULT_ARABIC_FONT_SIZE,
   MAX_ARABIC_FONT_SIZE,

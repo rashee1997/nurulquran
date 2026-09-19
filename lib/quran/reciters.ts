@@ -1,3 +1,5 @@
+import { getChapterMetadata } from './surahs';
+
 /**
  * The reciters the reader can play, with the upstream identifiers each edition needs.
  *
@@ -113,4 +115,27 @@ export function hasMeasuredWordTimings(reciterId: string): boolean {
 export function reciterAudioUrl(reciterId: string, globalAyahNumber: number): string {
   const bitrate = getReciter(reciterId)?.bitrate ?? FALLBACK_BITRATE;
   return `${AUDIO_CDN}/${bitrate}/${reciterId}/${globalAyahNumber}.mp3`;
+}
+
+/**
+ * Verse counts of every preceding sūrah, so a (surah, ayah) pair maps to a Mushaf position
+ * without re-adding up to 113 chapter lengths on each call. Built once at module load from the
+ * same chapter metadata the rest of the app reads.
+ */
+const AYAHS_BEFORE_SURAH: readonly number[] = (() => {
+  const offsets: number[] = [0];
+  for (let id = 1; id <= 114; id++) {
+    offsets.push((offsets[id - 1] ?? 0) + getChapterMetadata(id).versesCount);
+  }
+  return offsets;
+})();
+
+/**
+ * 1-based Mushaf position (1–6236) of a verse — what `reciterAudioUrl` needs.
+ *
+ * Every caller used to re-derive this with its own `for (let id = 1; id < surah; id++)` loop;
+ * one implementation means an out-of-range sūrah cannot silently address another verse's clip.
+ */
+export function globalAyahNumber(surah: number, ayah: number): number {
+  return (AYAHS_BEFORE_SURAH[surah - 1] ?? 0) + ayah;
 }

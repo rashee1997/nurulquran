@@ -4,17 +4,9 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { 
   Volume2, 
-  VolumeX, 
-  Sparkles, 
   ChevronLeft, 
-  Play, 
-  CheckCircle2, 
-  HelpCircle, 
-  RotateCcw,
   BookOpen,
-  Headphones,
-  Award,
-  Sliders
+  Headphones
 } from 'lucide-react';
 import { ARABIC_ALPHABET, ArabicLetterMeta, playLetterAudio } from '@/lib/audio/alphabet-audio';
 import { previewAudio } from '@/lib/audio/preview-audio';

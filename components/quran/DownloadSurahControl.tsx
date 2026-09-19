@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Download, Trash2, Check, Loader2, WifiOff } from 'lucide-react';
+import { Download, Check, Loader2, WifiOff } from 'lucide-react';
 import { downloadSurah, formatBytes, isSurahDownloaded, removeSurahDownload, surahAudioUrls } from '@/lib/quran/downloads';
 
 interface DownloadSurahControlProps {

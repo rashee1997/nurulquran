@@ -2,8 +2,13 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  /*
+   * Lint runs on deploy. It was ignored, which is how a dead double-tap guard and a set of
+   * unused imports reached `main` while the build stayed green; the same sweep has now been
+   * cleared, so a lint error here is a real error rather than inherited noise.
+   */
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
   typescript: {
     ignoreBuildErrors: false,
@@ -52,7 +57,7 @@ const nextConfig: NextConfig = {
   },
   webpack: (config, {dev}) => {
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
-    // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+    // Do not modify — file watching is disabled to prevent flickering during agent edits.
     if (dev && process.env.DISABLE_HMR === 'true') {
       config.watchOptions = {
         ignored: /.*/,

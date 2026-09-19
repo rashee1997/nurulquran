@@ -1,22 +1,20 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { QuranWord, Verse, Chapter } from '@/lib/quran/types';
+import { QuranWord, Verse, Chapter, TajweedSegment } from '@/lib/quran/types';
 import { wordAudioCandidates } from '@/lib/quran/word-audio';
+import { countSegmentWords, groupSegmentsByWord } from '@/lib/quran/tajweed';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
 import Link from 'next/link';
 import { 
-  Eye, 
   EyeOff, 
   ChevronLeft, 
   ChevronRight, 
   Volume2, 
-  RotateCcw, 
   Layers, 
   BookOpen
 } from 'lucide-react';
-import { db } from '@/lib/db';
-import { initializeVerseProgress } from '@/lib/learning/srs-engine';
+import { TajweedSpan } from './TajweedSpan';
 
 /** One rendered word of a mushaf line, kept paired with its verse for recitation. */
 interface MushafToken {
@@ -94,6 +92,27 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
   }, [verses]);
 
   const activePageData = pages[currentPage - 1] || pages[0];
+
+  /**
+   * Tajweed segments per verse, or `null` where colouring must not be applied.
+   *
+   * `groupSegmentsByWord` is indexed **positionally within `Verse.words`**, while
+   * `QuranWord.wordIndex` is 1-based over that same list, so the lookup subtracts one rather
+   * than assuming they agree. Colouring is refused when the segments describe a different
+   * word count than the verse renders — the mushaf has no room for a wrongly coloured word.
+   */
+  const tajweedByVerse = useMemo(() => {
+    const map = new Map<number, TajweedSegment[][] | null>();
+    for (const verse of verses) {
+      if (!verse.tajweed) {
+        map.set(verse.ayah, null);
+        continue;
+      }
+      const aligned = countSegmentWords(verse.tajweed.segments) === verse.words.length;
+      map.set(verse.ayah, aligned ? groupSegmentsByWord(verse.tajweed.segments) : null);
+    }
+    return map;
+  }, [verses]);
 
   const toggleLineMask = (lineIdx: number) => {
     setUnmaskedLines((prev) => ({
@@ -271,7 +290,11 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
                       className="leading-loose flex flex-wrap items-center justify-center gap-x-2"
                       style={{ fontSize: `${fontSize}px` }}
                     >
-                      {line.tokens.map((token, tIdx) => (
+                      {line.tokens.map((token, tIdx) => {
+                        const segments = showTajweedColors
+                          ? tajweedByVerse.get(token.verse.ayah)?.[token.word.wordIndex - 1]
+                          : undefined;
+                        return (
                         <span
                           key={tIdx}
                           className="hover:text-primary transition-colors cursor-pointer"
@@ -281,14 +304,19 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
                           }}
                           title={token.word.transliteration || undefined}
                         >
-                          {token.word.arabic}
+                          {segments && segments.length > 0
+                            ? segments.map((segment, index) => (
+                                <TajweedSpan key={`${tIdx}-seg-${index}`} segment={segment} enabled />
+                              ))
+                            : token.word.arabic}
                           {token.isAyahEnd && (
                             <span className="text-primary text-xs font-sans mx-1.5 select-none inline-block align-middle font-bold px-1.5 py-0.5 rounded-full bg-primary-subtle">
                               ۝{token.verse.ayah}
                             </span>
                           )}
                         </span>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

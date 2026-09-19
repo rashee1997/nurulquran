@@ -4,6 +4,14 @@ import React, { useCallback, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
+/**
+ * How many modals are currently open, and the body overflow to restore once none are.
+ *
+ * Module scope, because the lock belongs to the document rather than to any one dialog.
+ */
+let openModalCount = 0;
+let savedBodyOverflow = '';
+
 interface ModalProps {
   open: boolean;
   onClose: () => void;
@@ -44,6 +52,8 @@ export const Modal: React.FC<ModalProps> = ({
   /** Element to restore focus to when the dialog closes. */
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  /** Set only when this dialog renders its own heading, which is then its accessible name. */
+  const labelledBy = title !== undefined && !hideHeader ? titleId : undefined;
 
   const getFocusable = useCallback((root: HTMLElement): HTMLElement[] => {
     const nodes = root.querySelectorAll<HTMLElement>(
@@ -64,8 +74,20 @@ export const Modal: React.FC<ModalProps> = ({
       (close ?? panel).focus();
     });
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    /*
+     * Scroll lock is reference-counted across every open modal.
+     *
+     * Each modal used to save and restore `body.style.overflow` independently. With two dialogs
+     * open at once — the command palette opening a confirm sheet, the reader's Tafseer sheet over
+     * a drawer — unwinding them out of order restored the wrong value, and closing the outer one
+     * first left the page permanently unscrollable. The count makes the lock release exactly when
+     * the last dialog goes away.
+     */
+    if (openModalCount === 0) {
+      savedBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+    openModalCount += 1;
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
@@ -97,7 +119,13 @@ export const Modal: React.FC<ModalProps> = ({
     return () => {
       cancelAnimationFrame(frame);
       document.removeEventListener('keydown', handleKeyDown, true);
-      document.body.style.overflow = previousOverflow;
+
+      openModalCount = Math.max(0, openModalCount - 1);
+      if (openModalCount === 0) {
+        document.body.style.overflow = savedBodyOverflow;
+        savedBodyOverflow = '';
+      }
+
       restoreFocusRef.current?.focus?.();
     };
   }, [open, onClose, getFocusable]);
@@ -126,14 +154,15 @@ export const Modal: React.FC<ModalProps> = ({
             : 'items-center justify-center p-4'
       }`}
       onClick={onClose}
-      role="presentation"
     >
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={label}
-        aria-labelledby={title !== undefined && !hideHeader ? titleId : undefined}
+        // Never both: `aria-labelledby` wins and an accompanying `aria-label` is invalid, so the
+        // name is supplied by exactly one of them.
+        aria-label={labelledBy ? undefined : label}
+        aria-labelledby={labelledBy}
         tabIndex={-1}
         className={`flex flex-col overflow-hidden bg-card border border-border shadow-2xl outline-hidden ${position}`}
         onClick={(event) => event.stopPropagation()}

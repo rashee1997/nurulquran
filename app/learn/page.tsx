@@ -9,7 +9,6 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
-  Sparkles,
   ArrowRight,
   Lock,
   Unlock,
@@ -17,7 +16,6 @@ import {
   Zap,
   Volume2,
   GraduationCap,
-  Layers,
 } from 'lucide-react';
 
 export default function CurriculumMapPage() {

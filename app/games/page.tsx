@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   Play
 } from 'lucide-react';
-import { db, UserProfile, initializeDatabase } from '@/lib/db';
+import { UserProfile, initializeDatabase } from '@/lib/db';
 import { GameSessionResult } from '@/lib/db/schemas/streak-schema';
 import { getGameSessions } from '@/lib/games/game-service';
 

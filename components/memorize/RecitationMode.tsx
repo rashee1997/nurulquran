@@ -8,8 +8,7 @@ import { db } from '@/lib/db';
 import { diffRecitation, qualityFromAccuracy, type RecitationDiff } from '@/lib/learning/recitation-diff';
 import { track } from '@/lib/telemetry/events';
 import { pcm16Base64ToWavDataUrl } from '@/lib/audio/wav';
-import { reciterAudioUrl } from '@/lib/quran/reciters';
-import { getChapterMetadata } from '@/lib/quran/surahs';
+import { globalAyahNumber, reciterAudioUrl } from '@/lib/quran/reciters';
 import type { ModeStageProps } from './types';
 
 /**
@@ -128,11 +127,9 @@ export const RecitationMode: React.FC<ModeStageProps> = ({ verse, isRevealed, se
       track('recite.replay_played', { verseKey });
     }
     if (qariUrl === null) {
-      let offset = 0;
-      for (let id = 1; id < verse.surah; id++) offset += getChapterMetadata(id).versesCount;
       const profile = await db.userProfile.get('default_user');
       const reciterId = profile?.reciterId ?? 'ar.alafasy';
-      setQariUrl(reciterAudioUrl(reciterId, offset + verse.ayah));
+      setQariUrl(reciterAudioUrl(reciterId, globalAyahNumber(verse.surah, verse.ayah)));
     }
   }, [live.lastRecordingBase64, qariUrl, verse.ayah, verse.surah, verseKey]);
 

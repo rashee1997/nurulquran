@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { SURAHS } from '@/lib/quran/surahs';
-import { Search, BookOpen, Volume2, ArrowRight } from 'lucide-react';
+import { Search, BookOpen } from 'lucide-react';
 
 export default function QuranIndexPage() {
   const [searchQuery, setSearchQuery] = useState('');

@@ -117,21 +117,30 @@ export function useReaderPreferences(): ReaderPreferences {
    * the update would match no rows and the preference would vanish with no error. It is not
    * created here either, because a partially populated profile written by the reader would be
    * worse than a preference that has not been saved yet.
+   *
+   * `announce` decides whether a *successful* write is toasted. It defaults to `false` because a
+   * toggle is its own confirmation: the previous version showed "Reader preferences saved on this
+   * device." on every checkbox flip, so switching translations, Tajweed colouring and mistake
+   * highlights produced a queue of three success notices. The font-size slider is the one control
+   * with no visible saved state, so it still announces. Failures always toast.
    */
-  const persist = useCallback(async (patch: Partial<UserProfile>): Promise<void> => {
-    try {
-      const existing = await db.userProfile.get('default_user');
-      if (!existing) {
-        showToast('Preferences could not be saved — your profile is missing on this device.', 'error');
-        return;
+  const persist = useCallback(
+    async (patch: Partial<UserProfile>, announce = false): Promise<void> => {
+      try {
+        const existing = await db.userProfile.get('default_user');
+        if (!existing) {
+          showToast('Preferences could not be saved — your profile is missing on this device.', 'error');
+          return;
+        }
+        await db.userProfile.update('default_user', patch);
+        if (announce) showToast('Reader preferences saved on this device.');
+      } catch (error: unknown) {
+        console.warn('Reader preference could not be saved:', error);
+        showToast('Reader preferences could not be saved.', 'error');
       }
-      await db.userProfile.update('default_user', patch);
-      showToast('Reader preferences saved on this device.');
-    } catch (error: unknown) {
-      console.warn('Reader preference could not be saved:', error);
-      showToast('Reader preferences could not be saved.', 'error');
-    }
-  }, []);
+    },
+    []
+  );
 
   const setFontSize = useCallback(
     (size: number): void => {
@@ -145,7 +154,7 @@ export function useReaderPreferences(): ReaderPreferences {
         fontWriteTimerRef.current = null;
         const pending = pendingFontSizeRef.current;
         pendingFontSizeRef.current = null;
-        if (pending !== null) void persist({ arabicFontSize: pending });
+        if (pending !== null) void persist({ arabicFontSize: pending }, true);
       }, FONT_SIZE_WRITE_DELAY_MS);
     },
     [persist]
@@ -161,7 +170,7 @@ export function useReaderPreferences(): ReaderPreferences {
       }
       const pending = pendingFontSizeRef.current;
       pendingFontSizeRef.current = null;
-      if (pending !== null) void persist({ arabicFontSize: pending });
+      if (pending !== null) void persist({ arabicFontSize: pending }, true);
     },
     [persist]
   );

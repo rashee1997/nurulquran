@@ -7,7 +7,7 @@ import { quranProvider, QuranWordNotFoundError } from '@/lib/quran/alquran-cloud
 import { getChapterMetadata } from '@/lib/quran/surahs';
 import { TAJWEED_META } from '@/lib/quran/tajweed';
 import type { TajweedRule } from '@/lib/quran/types';
-import { aiProviderVendorSchema, chatRequestSchema, parseWithSchema } from '@/lib/api/schemas';
+import { chatRequestSchema, parseWithSchema } from '@/lib/api/schemas';
 import { apiError, guardRequest, NOT_CONFIGURED, RATE_LIMITED } from '@/lib/api/http';
 import { byokAwareRateLimit } from '@/lib/api/rate-limit';
 import { UnsafeProviderUrlError } from '@/lib/api/url-guard';
@@ -18,6 +18,19 @@ export const maxDuration = 45;
 
 const RATE_LIMIT = { limit: 40, windowMs: 60_000 };
 const MAX_REQUEST_BYTES = 256_000;
+
+/**
+ * The tafsir tool's edition keys and its model-facing edition list, both derived from the
+ * edition registry.
+ *
+ * They were hand-written here before, so adding an edition to `TAFSIR_TOOL_EDITIONS` left the
+ * tool schema — and therefore the model — still describing the old set, and the assistant could
+ * only ever be asked for the three editions that happened to be spelled out.
+ */
+const TAFSIR_TOOL_EDITION_KEYS = Object.keys(TAFSIR_TOOL_EDITIONS) as [string, ...string[]];
+const TAFSIR_TOOL_EDITION_LIST = Object.entries(TAFSIR_TOOL_EDITIONS)
+  .map(([key, edition]) => `${key} (${edition.name})`)
+  .join(', ');
 
 /** Deterministic ordering helper so quiz options are stable and unbiased. */
 function seededOrder(seed: string, length: number): number[] {
@@ -43,6 +56,39 @@ function shuffleWithSeed<T>(items: readonly T[], seed: string): T[] {
   return order.map((index) => items[index]).filter((item) => item !== undefined);
 }
 
+/**
+ * Signals that a turn is about scripture and must be answered from retrieved text.
+ *
+ * Arabic script, a verse reference (`2:255`), or an explicitly Quranic subject. Everything else
+ * — a greeting, "what can you help me with", a question about how to use the app — is a turn the
+ * assistant can answer directly.
+ */
+const GROUNDING_PATTERN =
+  /[\u0600-\u06FF]|\b\d{1,3}\s*:\s*\d{1,3}\b|\b(surah|sura|ayah|ayat|verse|tafsir|tafseer|tajweed|quran|qur'an|juz|makhraj|hifz|recit\w*|memoris\w*|memoriz\w*)\b/i;
+
+/**
+ * Whether the latest learner turn requires a tool call before the model may answer.
+ *
+ * The first step used to force `toolChoice: 'required'` unconditionally, so "hello" cost a
+ * scripture retrieval: the model had to run `getVerse` on Al-Fatihah 1:1 before it was allowed
+ * to greet anyone. The zero-hallucination policy is unchanged — anything that could involve
+ * Quranic text, a translation or a commentary still cannot be answered without a tool result.
+ * When the turn carries no text at all (an attachment-only or part-based turn we cannot read)
+ * grounding is required, so an unreadable payload can never take the ungrounded path.
+ */
+function requiresGrounding(messages: readonly UIMessage[]): boolean {
+  const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+  if (!lastUser) return true;
+
+  const text = lastUser.parts
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join(' ')
+    .trim();
+  if (text.length === 0) return true;
+
+  return GROUNDING_PATTERN.test(text);
+}
+
 export async function POST(req: NextRequest): Promise<Response> {
   const guard = guardRequest(req, { maxBytes: MAX_REQUEST_BYTES });
   if (!guard.ok) return guard.response;
@@ -59,18 +105,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     return apiError({ status: 400, code: 'invalid_request', message: parsed.message });
   }
 
-  const headerKey = req.headers.get('x-byok-key') ?? undefined;
-  const headerBaseUrl = req.headers.get('x-byok-baseurl') ?? undefined;
-  const headerProviderRaw = req.headers.get('x-byok-provider');
-  const headerModel = req.headers.get('x-byok-model') ?? undefined;
-
-  const headerProvider = headerProviderRaw
-    ? aiProviderVendorSchema.safeParse(headerProviderRaw)
-    : null;
-
+  /*
+   * Provider configuration comes from the request body only.
+   *
+   * Four `x-byok-*` headers (`key`, `baseurl`, `provider`, `model`) used to be read here as an
+   * alternative channel. Nothing in the app ever sent them — `TutorPanel` and the provider
+   * probe both put the same fields in the JSON body — so they were dead code that only widened
+   * the surface of an unauthenticated route: any client could point the server at an arbitrary
+   * OpenAI-compatible host and have it forwarded with a caller-supplied credential. The body
+   * channel is the one the app actually uses and the one `providerConfigSchema` validates.
+   */
   const providerConfig = parsed.data.providerConfig;
-  const vendor = providerConfig?.type ?? headerProvider?.data ?? 'gemini';
-  const byokKey = providerConfig?.apiKey ?? headerKey;
+  const vendor = providerConfig?.type ?? 'gemini';
+  const byokKey = providerConfig?.apiKey;
 
   // A caller supplying their own provider key spends their own quota, not the shared
   // server key, so it gets its own bucket with more headroom instead of sharing the
@@ -87,9 +134,9 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const config: Partial<AIProviderConfig> = {
     type: vendor,
-    apiKey: providerConfig?.apiKey ?? headerKey,
-    baseUrl: providerConfig?.baseUrl ?? headerBaseUrl,
-    selectedModel: providerConfig?.selectedModel ?? headerModel ?? PROVIDER_DEFAULT_MODELS[vendor],
+    apiKey: providerConfig?.apiKey,
+    baseUrl: providerConfig?.baseUrl,
+    selectedModel: providerConfig?.selectedModel ?? PROVIDER_DEFAULT_MODELS[vendor],
   };
 
   // A server-side Gemini call needs a server key unless the learner supplied their own.
@@ -258,12 +305,11 @@ Be warm but measured, and remind students of patience and consistency.`;
     }),
 
     getAyahTafsir: tool({
-      description:
-        'Fetch authoritative tafseer (exegesis) for one ayah from a named scholarly edition. Always cite the edition the tool reports. Editions: en-mukhtasar (English, abridged), ta-mokhtasar (Tamil), en-ibn-kathir (English, classical full).',
+      description: `Fetch authoritative tafseer (exegesis) for one ayah from a named scholarly edition. Always cite the edition the tool reports. Editions: ${TAFSIR_TOOL_EDITION_LIST}.`,
       inputSchema: z.object({
         surah: z.number().int().min(1).max(114),
         ayah: z.number().int().min(1),
-        edition: z.enum(['en-mukhtasar', 'ta-mokhtasar', 'en-ibn-kathir']).describe('Tafseer edition to consult'),
+        edition: z.enum(TAFSIR_TOOL_EDITION_KEYS).describe('Tafseer edition to consult'),
       }),
       execute: async ({ surah, ayah, edition }) => {
         try {
@@ -428,6 +474,8 @@ Be warm but measured, and remind students of patience and consistency.`;
     }),
   };
 
+  const groundingRequired = requiresGrounding(uiMessages);
+
   try {
     const model = resolveAIModel(config);
 
@@ -437,9 +485,12 @@ Be warm but measured, and remind students of patience and consistency.`;
       messages: await convertToModelMessages(uiMessages),
       stopWhen: stepCountIs(5),
       tools,
-      // Force a deterministic tool call on the first step so the answer is always
-      // grounded in retrieved scripture rather than model memory.
-      prepareStep: ({ stepNumber }) => (stepNumber === 0 ? { toolChoice: 'required' as const } : {}),
+      // Force a deterministic tool call on the first step whenever the turn is about
+      // scripture, so such an answer is always grounded in retrieved text rather than model
+      // memory. A turn with no Quranic subject is answered directly instead of paying for a
+      // retrieval it cannot use.
+      prepareStep: ({ stepNumber }) =>
+        stepNumber === 0 && groundingRequired ? { toolChoice: 'required' as const } : {},
     });
 
     // UI message stream: the client's useChat receives tool invocations as parts, so

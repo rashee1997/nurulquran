@@ -32,7 +32,6 @@ import {
   PenLine,
   Play,
   Settings,
-  Sparkles,
   Target,
   Trophy,
 } from 'lucide-react';

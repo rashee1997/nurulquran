@@ -41,6 +41,19 @@ export interface ModelAsset {
  */
 export const MODEL_BUDGET_BYTES = 220 * 1024 * 1024;
 
+/**
+ * Ceiling on what *all* cached variants may occupy together.
+ *
+ * `MODEL_BUDGET_BYTES` is a per-variant ceiling — it is what stops an oversized single download,
+ * and it is the guard that was wrongly set to 180 MB and aborted every download. It cannot bound
+ * the total, because variants may coexist on disk and share the VAD/Whisper assets while each
+ * swapping one voice: all three variants together are ~316 MB (2.2 VAD + 10.1 encoder + 50.0
+ * decoder + Rasa 63.5 + HemaLatha 63.5 + Lessac 63.2 + Amy 63.1 + four small JSON configs). This
+ * ceiling therefore has to sit above that sum while still being a real bound; 400 MiB leaves
+ * ~90 MB of headroom and refuses a fourth variant's worth of storage.
+ */
+export const MODEL_TOTAL_BUDGET_BYTES = 400 * 1024 * 1024;
+
 const HF = 'https://huggingface.co';
 
 /** Verified 2026-09-18: 200, 2,243,022 bytes, ACO:*. Shared by every variant. */

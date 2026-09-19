@@ -88,7 +88,6 @@ export function classifyFailure(text: string): FailoverReason | null {
 
 export class SpeechOrchestrator {
   private events: OrchestratorEvents;
-  private target: OrchestratorTarget | null = null;
   private voiceId: string;
 
   private session: Session | null = null;
@@ -122,7 +121,6 @@ export class SpeechOrchestrator {
 
   async start(target: OrchestratorTarget): Promise<void> {
     if (this.status === 'gemini-live' || this.status === 'local-engine' || this.status === 'connecting' || this.status === 'failover-pending') return;
-    this.target = target;
 
     // ONE capture session for the whole orchestrator lifetime; engines never restart it.
     const context = getCaptureContext() ?? (await startCapture());
@@ -147,7 +145,6 @@ export class SpeechOrchestrator {
   }
 
   setTarget(target: OrchestratorTarget): void {
-    this.target = target;
     this.worker?.postMessage({ type: 'set-target', verseKey: target.verseKey, words: target.words });
     if (this.status === 'gemini-live' && this.session) {
       this.session.sendClientContent({
@@ -233,7 +230,10 @@ export class SpeechOrchestrator {
 
       const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
       this.player = new PCMAudioStreamPlayer(24000);
-      this.player.prime();
+      // Not awaited: the orchestrator's start is already gesture-initiated, so the context resumes
+      // immediately, and `prime()` never rejects — it resolves `false` when the browser refuses.
+      // The chunks that follow are scheduled from `currentTime`, so they play as soon as it runs.
+      void this.player.prime();
 
       let heartbeatAt = Date.now();
       this.heartbeatTimer = setInterval(() => {

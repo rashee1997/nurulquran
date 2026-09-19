@@ -117,8 +117,17 @@ export const SURAHS: Chapter[] = [
   { id: 114, nameArabic: 'الناس', nameSimple: 'An-Nas', nameEnglish: 'Mankind', revelationPlace: 'makkah', versesCount: 6, bismillahPre: true },
 ];
 
+/**
+ * Chapters keyed by id.
+ *
+ * `getChapterMetadata` runs inside reading and playback loops (word audio URLs, download
+ * ranges, Mushaf navigation), where a linear scan of the 114-entry catalog is repeated work.
+ * The map is built once at module load from the same array everything else reads.
+ */
+const SURAH_BY_ID = new Map(SURAHS.map((chapter) => [chapter.id, chapter]));
+
 export function getChapterMetadata(id: number): Chapter {
-  const found = SURAHS.find(s => s.id === id);
+  const found = SURAH_BY_ID.get(id);
   if (!found) {
     throw new Error(`Surah ${id} not found in metadata catalog.`);
   }
@@ -134,5 +143,5 @@ export function getChapterMetadata(id: number): Chapter {
  * keeping the ornament the reader renders and the word indices it plays from one source.
  */
 export function hasSeparateBasmala(surah: number): boolean {
-  return SURAHS.find(chapter => chapter.id === surah)?.bismillahPre ?? false;
+  return SURAH_BY_ID.get(surah)?.bismillahPre ?? false;
 }

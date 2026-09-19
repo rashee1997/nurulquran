@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { Loader2, HardDriveDownload } from 'lucide-react';
 import {
-  areAllModelsReady,
   ensurePreferredVariantReady,
-  getModelSnapshot,
+  modelDb,
   subscribeModelProgress,
+  variantReadyFromMeta,
   type ModelDbProgress,
 } from '@/lib/audio/model-cache';
 import {
@@ -28,13 +29,31 @@ import { db } from '@/lib/db';
  * panel reports real byte progress, and only when everything is cached does the live recitation
  * canvas activate. The verse target defaults to Al-Fatihah 1:1 and persists the learner's last
  * position through the existing profile table.
+ *
+ * Readiness is a **live query**, not a poll.
+ *
+ * This used to run `setInterval(… , 4000)` calling `areAllModelsReady`, which — before the
+ * metadata table existed — read `modelAssets.where('state').equals('ready').toArray()` and
+ * therefore deserialised every cached blob (~180 MB) every four seconds, forever, on a page the
+ * learner may leave open. A live query over the blob-free metadata table is exact, immediate, and
+ * costs nothing while nothing changes. It also reacts to a download started elsewhere (the
+ * Settings engine picker), which is what the polling loop was there to approximate.
  */
 
 const DEFAULT_TARGET = { surah: 1, ayah: 1 };
 
-/** Minimal Uthmani word source: the verified offline corpus already stores verse words. */
+/**
+ * Word source for the coach: the verse the reader already cached, then the CDN.
+ *
+ * The cache key was `ayah:<surah>:<ayah>`, which **nothing in the app ever writes** — the Quran
+ * provider's canonical key is `verse:<surah>:<ayah>` — so this lookup always missed and the page
+ * fell through to an unvalidated `api.alquran.cloud` fetch even for a verse already on disk. The
+ * canonical key is read first, with the old shape kept as a fallback for anything already stored
+ * under it.
+ */
 async function loadVerseWords(surah: number, ayah: number): Promise<string[]> {
-  const cached = await db.quranCache.get(`ayah:${surah}:${ayah}`);
+  const cached =
+    (await db.quranCache.get(`verse:${surah}:${ayah}`)) ?? (await db.quranCache.get(`ayah:${surah}:${ayah}`));
   const data = cached?.data as { textUthmani?: string; words?: Array<{ arabic: string }> } | undefined;
   if (data?.words && data.words.length > 0) {
     return data.words.map((word) => word.arabic);
@@ -62,84 +81,75 @@ async function loadVerseWords(surah: number, ayah: number): Promise<string[]> {
 }
 
 export default function RecitationCoachPage() {
-  const [modelsReady, setModelsReady] = useState<boolean | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [progressLabel, setProgressLabel] = useState('');
-  const [surah, setSurah] = useState(DEFAULT_TARGET.surah);
-  const [ayah, setAyah] = useState(DEFAULT_TARGET.ayah);
-  /** The learner's saved engine choice (Settings → AI); `undefined` = 'balanced'. */
-  const [preferredVariant, setPreferredVariant] = useState<CoachModelVariant>('balanced');
+  const [target, setTarget] = useState(DEFAULT_TARGET);
+  const [verseWords, setVerseWords] = useState<string[]>([]);
+
+  const profile = useLiveQuery(() => db.userProfile.get('default_user'), []);
+  const metaRows = useLiveQuery(() => modelDb.modelAssetMeta.toArray(), []);
+
+  /*
+   * The recitation coach honours its own inline pick first (moduleEngines), then the Settings
+   * default — the same resolution every voice module uses. A 'cloud' inline pick still requires
+   * the local engine here (the canvas is the on-device coach), so it is treated as Default for
+   * readiness purposes.
+   */
+  const preferredVariant: CoachModelVariant =
+    resolveModuleVariant('recitation-coach', profile?.moduleEngines, profile?.coachModelVariant)?.id ??
+    'balanced';
+
+  const variant = MODEL_VARIANTS[preferredVariant];
+  const modelsReady = metaRows === undefined ? null : variantReadyFromMeta(variant, metaRows);
+
+  // Seed the target from the learner's saved reading position once, when the profile arrives.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    const position = profile?.readingPosition;
+    if (seededRef.current || !position) return;
+    seededRef.current = true;
+    setTarget({ surah: position.surah, ayah: position.ayah });
+  }, [profile]);
 
   useEffect(() => {
     let active = true;
-    void (async () => {
-      const profile = await db.userProfile.get('default_user');
-      if (!active) return;
-      /*
-       * The recitation coach honours its own inline pick first (moduleEngines), then the
-       * Settings default — the same resolution every voice module uses. A 'cloud' inline pick
-       * still requires the local engine here (the canvas is the on-device coach), so it is
-       * treated as Default for readiness purposes.
-       */
-      const resolved = resolveModuleVariant('recitation-coach', profile?.moduleEngines, profile?.coachModelVariant);
-      const variant: CoachModelVariant = resolved?.id ?? 'balanced';
-      setPreferredVariant(variant);
-      const ready = await areAllModelsReady(variant);
-      if (!active) return;
-      setModelsReady(ready);
-      if (profile?.readingPosition && active) {
-        setSurah(profile.readingPosition.surah);
-        setAyah(profile.readingPosition.ayah);
-      }
-    })();
-
-    // Re-verify after any downloads triggered elsewhere in the session.
-    const interval = setInterval(() => {
-      void areAllModelsReady(preferredVariant).then((ready) => {
-        if (active) setModelsReady(ready);
-      });
-    }, 4000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [preferredVariant]);
-
-  const words = useMemo(() => [] as string[], []);
-  const [verseWords, setVerseWords] = useState<string[]>(words);
-
-  useEffect(() => {
-    let active = true;
-    void loadVerseWords(surah, ayah).then((loaded) => {
+    void loadVerseWords(target.surah, target.ayah).then((loaded) => {
       if (active) setVerseWords(loaded);
     });
     return () => {
       active = false;
     };
-  }, [surah, ayah, words]);
+  }, [target.surah, target.ayah]);
 
   /** Downloads exactly the resolved variant — no fallback; failures surface inline. */
   const handleDownload = async (): Promise<void> => {
     setDownloading(true);
+    let unsubscribe: (() => void) | null = null;
     try {
-      const unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => publishTick(progress));
-      const { variant } = await ensurePreferredVariantReady(preferredVariant, (done, total) => {
+      unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => publishTick(progress));
+      const { variant: ready } = await ensurePreferredVariantReady(preferredVariant, (done, total) => {
         setProgressLabel(`Model ${done} of ${total}`);
       });
-      unsubscribe();
-      setModelsReady(true);
-      const size = (variantTotalBytes(variant) / 1048576).toFixed(0);
-      showToast(`${variant.label} cached (${size} MB). The coach works offline.`, 'success');
+      const size = (variantTotalBytes(ready) / 1048576).toFixed(0);
+      showToast(`${ready.label} cached (${size} MB). The coach works offline.`, 'success');
     } catch (error: unknown) {
       showToast(error instanceof Error ? error.message : 'Model download failed.', 'error');
     } finally {
+      /*
+       * Released in `finally` on purpose.
+       *
+       * A failed download is precisely the case this UI exists to report, and it was the one path
+       * that skipped `unsubscribe()` — so every retry leaked another listener into the module-level
+       * progress set, and each later tick called into a dead closure. Readiness no longer needs
+       * setting here either: the live metadata query above is the source of truth.
+       */
+      unsubscribe?.();
       setDownloading(false);
       setProgressLabel('');
     }
   };
 
-  const verseKey = `${surah}:${ayah}`;
+  const verseKey = `${target.surah}:${target.ayah}`;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -157,7 +167,7 @@ export default function RecitationCoachPage() {
           <InlineEnginePicker moduleId="recitation-coach" />
           <p className="flex items-center gap-2 text-sm font-bold text-info-strong">
             <HardDriveDownload className="w-4 h-4" aria-hidden="true" />
-            One-time setup: {(variantTotalBytes(MODEL_VARIANTS[preferredVariant]) / 1048576).toFixed(0)} MB of models for the {MODEL_VARIANTS[preferredVariant].label} engine, cached on this device.
+            One-time setup: {(variantTotalBytes(variant) / 1048576).toFixed(0)} MB of models for the {variant.label} engine, cached on this device.
           </p>
           <p className="text-xs text-info-strong/80">
             After this, recitation feedback works entirely offline and never leaves your device.

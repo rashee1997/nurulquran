@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Play, Trash2, Music, AlertCircle } from 'lucide-react';
 import { db, RecitationSessionRecord } from '@/lib/db';
@@ -9,8 +9,7 @@ import { StatePanel } from '@/components/system/StatePanel';
 import { showToast } from '@/lib/ui/toast';
 import { track } from '@/lib/telemetry/events';
 import { pcm16Base64ToWavDataUrl } from '@/lib/audio/wav';
-import { reciterAudioUrl } from '@/lib/quran/reciters';
-import { getChapterMetadata } from '@/lib/quran/surahs';
+import { globalAyahNumber, reciterAudioUrl } from '@/lib/quran/reciters';
 import { SURAHS } from '@/lib/quran/surahs';
 
 interface ReplayDrawerProps {
@@ -39,18 +38,15 @@ export const ReplayDrawer: React.FC<ReplayDrawerProps> = ({ isOpen, onClose }) =
   );
   const [openClipKey, setOpenClipKey] = useState<string | null>(null);
   const [clips, setClips] = useState<Record<string, PreparedClip>>({});
-  const [qariUrls, setQariUrls] = useState<Record<number, string>>({});
-
-  const qariUrlFor = useMemo(() => {
-    return (surah: number, ayah: number, reciterId: string): string => {
-      const cacheKey = surah * 1000 + ayah;
-      const cached = qariUrls[cacheKey];
-      if (cached) return cached;
-      let offset = 0;
-      for (let id = 1; id < surah; id++) offset += getChapterMetadata(id).versesCount;
-      return reciterAudioUrl(reciterId, offset + ayah);
-    };
-  }, [qariUrls]);
+  /**
+   * Qari reference URL for a saved attempt's verse.
+   *
+   * A memoised `qariUrls` lookup table used to sit here, but nothing ever populated it, so the
+   * cache never hit and the state was pure overhead. The shared helper does the coordinate
+   * conversion with a precomputed table instead.
+   */
+  const qariUrlFor = (surah: number, ayah: number, reciterId: string): string =>
+    reciterAudioUrl(reciterId, globalAyahNumber(surah, ayah));
 
   /** Wraps a saved attempt and prepares its Qari pair; memoised per session. */
   const prepareClip = async (session: RecitationSessionRecord, reciterId: string): Promise<void> => {

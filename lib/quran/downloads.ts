@@ -1,16 +1,14 @@
 import { db } from '@/lib/db';
 import { getChapterMetadata } from '@/lib/quran/surahs';
 import { quranProvider } from '@/lib/quran/alquran-cloud';
-import { reciterAudioUrl } from '@/lib/quran/reciters';
+import { globalAyahNumber, reciterAudioUrl } from '@/lib/quran/reciters';
 import { cacheUrlsViaServiceWorker, evictUrlsViaServiceWorker, type DownloadProgressHandlers } from '@/lib/pwa/register';
 import { track } from '@/lib/telemetry/events';
 
 /** Global ayah numbers (1–6236) for a whole surah, used to build reciter audio URLs. */
 function globalAyahRange(surahId: number): number[] {
   const chapter = getChapterMetadata(surahId);
-  let offset = 0;
-  for (let id = 1; id < surahId; id++) offset += getChapterMetadata(id).versesCount;
-  return Array.from({ length: chapter.versesCount }, (_, i) => offset + 1 + i);
+  return Array.from({ length: chapter.versesCount }, (_, i) => globalAyahNumber(surahId, i + 1));
 }
 
 /**

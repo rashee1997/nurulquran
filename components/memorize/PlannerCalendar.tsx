@@ -82,10 +82,15 @@ export const PlannerCalendar: React.FC<PlannerCalendarProps> = ({ pace }) => {
     const isToday = key === todayKey;
     const isPastOrToday = parseDayKey(key).getTime() <= parseDayKey(todayKey).getTime();
     const done = counts[key] ?? 0;
-    if (!isPastOrToday) return 'bg-surface-muted text-muted-foreground/60 border-transparent';
-    if (done >= pace && pace > 0) return 'bg-primary-subtle text-primary-strong border-primary/50 font-bold';
-    if (done > 0) return 'bg-warning-subtle text-warning-strong border-warning/50';
-    return 'bg-surface text-muted-foreground border-border';
+    // Today is marked with a ring rather than a fill so it stays visible whatever that day's
+    // completion state is — and only while the month containing it is on screen, which is the
+    // same condition `aria-current="date"` uses below.
+    const todayRing =
+      isToday && isCurrentMonth ? ' ring-2 ring-primary ring-offset-1 ring-offset-card' : '';
+    if (!isPastOrToday) return `bg-surface-muted text-muted-foreground/60 border-transparent${todayRing}`;
+    if (done >= pace && pace > 0) return `bg-primary-subtle text-primary-strong border-primary/50 font-bold${todayRing}`;
+    if (done > 0) return `bg-warning-subtle text-warning-strong border-warning/50${todayRing}`;
+    return `bg-surface text-muted-foreground border-border${todayRing}`;
   };
 
   const dayStatusLabel = (key: string): string => {

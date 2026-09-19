@@ -75,6 +75,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playIntent, setPlayIntent] = useState<PlaybackIntent>({ token: 0, playing: false });
   const [savingAyahs, setSavingAyahs] = useState<ReadonlySet<number>>(new Set());
+  /** In-flight memorisation writes, checked synchronously by `handleMemorizeToggle`. */
+  const savingAyahsRef = useRef<Set<number>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
 
   const currentVerse = verses[currentAudioIndex] ?? verses[0] ?? null;
@@ -261,18 +263,18 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   );
 
   const handleMemorizeToggle = useCallback(async (verse: Verse): Promise<void> => {
-    // A per-ayah lock: two fast taps used to both read “not memorised” and write
-    // conflicting rows, and the button gave no feedback while the write was pending.
-    let alreadySaving = false;
-    setSavingAyahs((previous) => {
-      if (previous.has(verse.ayah)) {
-        alreadySaving = true;
-        return previous;
-      }
-      const next = new Set(previous);
-      next.add(verse.ayah);
-      return next;
-    });
+    /*
+     * A per-ayah lock, held in a ref rather than in `savingAyahs`.
+     *
+     * The guard has to be decided synchronously, before the first `await`. A `setState` updater
+     * runs later — and is invoked twice under StrictMode in development — so the previous version
+     * computed an `alreadySaving` flag inside the updater and then never read it. The lock was
+     * therefore never enforced: two fast taps both proceeded to read the row and wrote conflicting
+     * values. `savingAyahs` is kept purely for the pending-state UI.
+     */
+    if (savingAyahsRef.current.has(verse.ayah)) return;
+    savingAyahsRef.current.add(verse.ayah);
+    setSavingAyahs((previous) => new Set(previous).add(verse.ayah));
 
     const key = `${verse.surah}:${verse.ayah}`;
     try {
@@ -287,6 +289,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
     } catch (error) {
       console.error(`Could not update memorisation state for ${key}:`, error);
     } finally {
+      savingAyahsRef.current.delete(verse.ayah);
       setSavingAyahs((previous) => {
         const next = new Set(previous);
         next.delete(verse.ayah);
@@ -650,7 +653,6 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           currentAyahNumber={currentVerse.ayah}
           globalAyahNumber={currentVerse.globalNumber}
           fallbackAudioUrl={currentVerse.audioUrl}
-          wordCount={currentVerse.words.length}
           words={currentVerse.words}
           onActiveWordChange={setActiveWordIndex}
           onAyahCompleted={() => track('audio.completed', { surah: chapter.id, ayah: currentVerse.ayah })}

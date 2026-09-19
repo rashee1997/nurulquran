@@ -27,6 +27,20 @@ const MEMORY_LIMIT = 24;
 const memory = new Map<string, CachedChapter>();
 
 /**
+ * Sparse-edition ayah cache.
+ *
+ * The chapter files do not cover sparse editions — whole sūrahs 404 and others carry only the
+ * verses that have an entry — so `getAyahTafsir` issued one request per ayah and **never stored
+ * the result**. Reading the occasion-of-revelation panel therefore cost a fresh round trip every
+ * time it was opened, and `prefetchUpcomingAyahs`, which fetches the next two ayahs on every
+ * navigation, was pure waste: the answer it paid for was discarded. A negative result is cached
+ * too, because "this verse has no recorded occasion" is upstream data worth remembering.
+ */
+const AYAH_MEMORY_LIMIT = 64;
+const ayahMemory = new Map<string, string | null>();
+const ayahInflight = new Map<string, Promise<{ text: string | null; provenance: 'network' | 'cache' }>>();
+
+/**
  * In-flight de-duplication.
  *
  * Two effects that both mount on load — the reader and the neighbour prefetch — would
@@ -51,7 +65,7 @@ export interface TafsirNetworkStats {
 }
 
 export function getTafsirNetworkStats(): TafsirNetworkStats {
-  return { ...counters, memoryEntries: memory.size };
+  return { ...counters, memoryEntries: memory.size + ayahMemory.size };
 }
 
 export function resetTafsirNetworkStats(): void {
@@ -75,11 +89,24 @@ function chapterKey(slug: string, surah: number): string {
 }
 
 function rememberInMemory(key: string, chapter: CachedChapter): void {
-  if (memory.size >= MEMORY_LIMIT) {
+  if (!memory.has(key) && memory.size >= MEMORY_LIMIT) {
     const oldest = memory.keys().next();
     if (!oldest.done) memory.delete(oldest.value);
   }
   // Re-insert so the most recently used entry is not the first evicted.
+  memory.delete(key);
+  memory.set(key, chapter);
+}
+
+/**
+ * Moves an already-cached entry to the most-recent end of the map.
+ *
+ * Without this, insertion order was FIFO rather than LRU: a chapter the learner reads constantly
+ * kept its original position and was evicted before a chapter touched once and never reopened,
+ * which is the opposite of what the bound is for. Re-inserting on read is what makes the eviction
+ * order actually mean "least recently used".
+ */
+function touchInMemory(key: string, chapter: CachedChapter): void {
   memory.delete(key);
   memory.set(key, chapter);
 }
@@ -198,6 +225,7 @@ export async function getChapterTafsir(
   const inMemory = memory.get(key);
   if (inMemory) {
     counters.cacheHits += 1;
+    touchInMemory(key, inMemory);
     return inMemory;
   }
 
@@ -239,12 +267,77 @@ export async function getChapterTafsir(
   }
 }
 
+function ayahKey(slug: string, surah: number, ayah: number): string {
+  return `tafsirAyah:${slug}:${surah}:${ayah}`;
+}
+
+/**
+ * Shape + identity check for a cached ayah row.
+ *
+ * Same rule as the chapter cache: the row must name the edition and verse it was stored under,
+ * and a `null` text is legitimate cached data (upstream has no entry) rather than a miss.
+ */
+function isCachedAyahFor(
+  payload: unknown,
+  slug: string,
+  surah: number,
+  ayah: number
+): payload is { text: string | null } {
+  if (typeof payload !== 'object' || payload === null) return false;
+  const candidate = payload as { slug?: unknown; surah?: unknown; ayah?: unknown; text?: unknown };
+  if (candidate.slug !== slug || candidate.surah !== surah || candidate.ayah !== ayah) return false;
+  return candidate.text === null || typeof candidate.text === 'string';
+}
+
+function rememberAyahInMemory(key: string, text: string | null): void {
+  if (!ayahMemory.has(key) && ayahMemory.size >= AYAH_MEMORY_LIMIT) {
+    const oldest = ayahMemory.keys().next();
+    if (!oldest.done) ayahMemory.delete(oldest.value);
+  }
+  ayahMemory.delete(key);
+  ayahMemory.set(key, text);
+}
+
+async function readAyahFromDisk(
+  slug: string,
+  surah: number,
+  ayah: number
+): Promise<string | null | undefined> {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const row = await db.tafsirCache.get(ayahKey(slug, surah, ayah));
+    if (!row) return undefined;
+    if (!isCachedAyahFor(row.data, slug, surah, ayah)) {
+      await db.tafsirCache.delete(ayahKey(slug, surah, ayah));
+      return undefined;
+    }
+    return row.data.text;
+  } catch (error) {
+    console.warn('Sparse tafseer cache lookup failed:', error);
+    return undefined;
+  }
+}
+
+async function writeAyahToDisk(slug: string, surah: number, ayah: number, text: string | null): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    await db.tafsirCache.put({
+      key: ayahKey(slug, surah, ayah),
+      data: { slug, surah, ayah, text },
+      cachedAt: Date.now(),
+    });
+  } catch (error) {
+    console.warn('Sparse tafseer cache store failed:', error);
+  }
+}
+
 /**
  * Reads one ayah from an edition.
  *
- * For a sparse edition this degrades to a single per-ayah request, which is the only case
- * where one verse costs one request. A `null` entry means upstream has no commentary for
- * that verse — distinct from a failure, which throws.
+ * For a sparse edition this is a per-ayah read, cache-first, deduplicated in flight, and with a
+ * negative result cached as well — which is what makes both the occasion-of-revelation panel and
+ * the neighbour prefetch cheap on every visit after the first. A `null` text means upstream has no
+ * commentary for that verse, distinct from a failure, which throws.
  */
 export async function getAyahTafsir(
   edition: TafsirEditionDefinition,
@@ -252,11 +345,39 @@ export async function getAyahTafsir(
   ayah: number
 ): Promise<{ text: string | null; provenance: 'network' | 'cache' }> {
   if (edition.sparse) {
-    // Sparse editions cannot be cached as a chapter: the upstream chapter file is absent
-    // entirely for many sūrahs, so "cached absence" would look identical to "not fetched".
-    counters.network += 1;
-    const record = await fetchTafsirAyah(edition, surah, ayah);
-    return { text: record?.text ?? null, provenance: 'network' };
+    const key = ayahKey(edition.slug, surah, ayah);
+
+    if (ayahMemory.has(key)) {
+      counters.cacheHits += 1;
+      return { text: ayahMemory.get(key) ?? null, provenance: 'cache' };
+    }
+
+    const existing = ayahInflight.get(key);
+    if (existing) return existing;
+
+    const pending = (async (): Promise<{ text: string | null; provenance: 'network' | 'cache' }> => {
+      const fromDisk = await readAyahFromDisk(edition.slug, surah, ayah);
+      if (fromDisk !== undefined) {
+        counters.cacheHits += 1;
+        rememberAyahInMemory(key, fromDisk);
+        return { text: fromDisk, provenance: 'cache' };
+      }
+
+      counters.cacheMisses += 1;
+      counters.network += 1;
+      const record = await fetchTafsirAyah(edition, surah, ayah);
+      const text = record?.text ?? null;
+      rememberAyahInMemory(key, text);
+      await writeAyahToDisk(edition.slug, surah, ayah, text);
+      return { text, provenance: 'network' };
+    })();
+
+    ayahInflight.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      ayahInflight.delete(key);
+    }
   }
 
   const chapter = await getChapterTafsir(edition, surah);
@@ -299,10 +420,12 @@ export async function prefetchUpcomingAyahs(surah: number, ayah: number, versesC
   );
 }
 
-/** Drops every cached chapter, in memory and on disk. */
+/** Drops every cached chapter and ayah, in memory and on disk. */
 export async function clearTafsirCache(): Promise<void> {
   memory.clear();
   inflight.clear();
+  ayahMemory.clear();
+  ayahInflight.clear();
   if (typeof window === 'undefined') return;
   try {
     await db.tafsirCache.clear();

@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Loader2, Download, Cloud, CloudOff, Cpu } from 'lucide-react';
-import { modelDb, subscribeModelProgress, type ModelDbProgress } from '@/lib/audio/model-cache';
+import { modelDb, type ModelDbProgress } from '@/lib/audio/model-cache';
 import { MODEL_VARIANTS, type CoachModelVariant } from '@/lib/audio/model-registry';
 
 /**
@@ -63,8 +63,16 @@ export const ModelDownloadPanel: React.FC<{ preferredVariant?: CoachModelVariant
 }) => {
   useSyncExternalStore(subscribeTicks, getTicks, getTicks);
 
+  /*
+   * Metadata, not the blob table.
+   *
+   * Reading `modelAssets.toArray()` here deserialised every cached Blob — up to ~180 MB — on
+   * every change, purely to render a progress figure. `useLiveQuery` re-runs on each of the ~50
+   * progress writes per asset, so the blob table was being hydrated hundreds of times during one
+   * download. The blob-free metadata table answers the same questions with four scalars per asset.
+   */
   const rows = useLiveQuery(async () => {
-    const records = await modelDb.modelAssets.toArray();
+    const records = await modelDb.modelAssetMeta.toArray();
     return new Map(records.map((row) => [row.id, row]));
   }, []);
 
@@ -76,7 +84,7 @@ export const ModelDownloadPanel: React.FC<{ preferredVariant?: CoachModelVariant
     const tick = liveTicks[asset.id];
     const record = rows?.get(asset.id);
     if (tick?.state === 'downloading' || tick?.state === 'partial') return sum + (tick.bytesReceived || 0);
-    if (record?.state === 'ready' && record.blob) return sum + record.blob.size;
+    if (record?.state === 'ready') return sum + record.bytesReceived;
     return sum;
   }, 0);
 

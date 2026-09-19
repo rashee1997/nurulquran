@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link';
 import { db, UserProfile } from '@/lib/db';
 import {
-  Sparkles,
   Mic,
   Square,
   CheckCircle2,

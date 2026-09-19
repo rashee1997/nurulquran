@@ -6,7 +6,7 @@ import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-eng
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
-import { Sparkles, CheckCircle2, ArrowRight, Play, RefreshCw, Volume2, Loader2 } from 'lucide-react';
+import { Sparkles, CheckCircle2, ArrowRight, RefreshCw, Volume2, Loader2 } from 'lucide-react';
 
 interface FloatingWordNode {
   id: string;
@@ -194,7 +194,6 @@ export const AyahAssemblyCanvas: React.FC = () => {
 
       // 3. Update & Draw Floating Word Nodes
       const nodes = nodesRef.current;
-      const time = Date.now() * 0.002;
 
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];

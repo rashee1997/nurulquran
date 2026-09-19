@@ -102,6 +102,16 @@ export interface DownloadProgressHandlers {
   onComplete?: () => void;
 }
 
+/**
+ * Upper bound on a cache-warming run.
+ *
+ * The reply is the only thing that resolves the promise below, and a service worker can be
+ * reclaimed by the browser mid-run — after which no `download-complete` ever arrives. Without a
+ * bound the caller awaited forever and its `message` listener stayed subscribed, so a learner whose
+ * download was interrupted by a browser restart saw a progress bar that never finished.
+ */
+const DOWNLOAD_REPLY_TIMEOUT_MS = 5 * 60_000;
+
 /** Posts a cache-warming request to the active service worker and reports progress. */
 export async function cacheUrlsViaServiceWorker(
   cacheName: 'audio' | 'scripture',
@@ -119,18 +129,30 @@ export async function cacheUrlsViaServiceWorker(
 
   const requestId = nextRequestId();
   await new Promise<void>((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    /** Settles exactly once, releasing both the timer and the listener on every path. */
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+      handlers.onComplete?.();
+      resolve();
+    };
+
     const onMessage = (event: MessageEvent): void => {
       const data = event.data as { type?: string; requestId?: string; done?: number; total?: number } | undefined;
       if (!data || data.requestId !== requestId) return;
       if (data.type === 'download-progress' && typeof data.done === 'number' && typeof data.total === 'number') {
         handlers.onProgress?.(data.done, data.total);
       }
-      if (data.type === 'download-complete') {
-        navigator.serviceWorker.removeEventListener('message', onMessage);
-        handlers.onComplete?.();
-        resolve();
-      }
+      if (data.type === 'download-complete') finish();
     };
+
+    timer = setTimeout(finish, DOWNLOAD_REPLY_TIMEOUT_MS);
     navigator.serviceWorker.addEventListener('message', onMessage);
     controller.postMessage({ type: 'cache-urls', cacheName, urls, requestId });
   });

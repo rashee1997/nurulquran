@@ -10,7 +10,6 @@ import {
   Compass, 
   Clock, 
   Settings, 
-  Flame, 
   Award,
   Menu,
   X,

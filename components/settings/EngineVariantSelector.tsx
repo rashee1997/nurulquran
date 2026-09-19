@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Check, Cpu, Loader2 } from 'lucide-react';
-import { db } from '@/lib/db';
 import {
   MODEL_VARIANTS,
   variantTotalBytes,
@@ -11,8 +10,9 @@ import {
 } from '@/lib/audio/model-registry';
 import {
   modelDb,
-  isVariantReady,
   subscribeModelProgress,
+  variantReadyFromMeta,
+  type ModelAssetMetaRecord,
   type ModelDbProgress,
 } from '@/lib/audio/model-cache';
 
@@ -26,6 +26,15 @@ import {
  * modules; individual modules can override it inline via InlineEnginePicker, which wins over
  * this preference. No automatic fallback: the chosen variant downloads as-is and failures are
  * surfaced instead of silently switching voices.
+ *
+ * Readiness comes from the blob-free metadata table and is derived in a `useMemo`.
+ *
+ * It used to be an async effect keyed on `[preferred, rows]`, where `rows` was a live query over
+ * the *blob* table — the very table a download writes to ~50 times per asset. Every progress tick
+ * therefore changed `rows`, re-ran the effect, and issued three fresh per-variant database reads
+ * that each deserialised every cached blob. A single 180 MB download produced hundreds of
+ * full-table blob hydrations. A live query over the metadata table plus a pure comparison removes
+ * the read entirely, and with it the feedback loop.
  */
 
 const MB = 1024 * 1024;
@@ -43,53 +52,46 @@ export interface EngineVariantSelectorProps {
 
 export function EngineVariantSelector({ value, onChange }: EngineVariantSelectorProps) {
   const preferred = value ?? 'balanced';
-  const [checking, setChecking] = useState(true);
-  const [readyMap, setReadyMap] = useState<Partial<Record<CoachModelVariant, boolean>>>({});
   const [downloadingId, setDownloadingId] = useState<CoachModelVariant | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const [activeVariant, setActiveVariant] = useState<CoachModelVariant | null>(null);
 
-  const rows = useLiveQuery(async () => modelDb.modelAssets.toArray(), []);
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      setChecking(true);
-      const results: Partial<Record<CoachModelVariant, boolean>> = {};
-      let resolved: CoachModelVariant | null = null;
-      // Walk the preferred chain first: the active variant is the first cached one.
-      for (const variant of Object.values(MODEL_VARIANTS)) {
-        results[variant.id] = await isVariantReady(variant);
+  const metaRows = useLiveQuery(async () => modelDb.modelAssetMeta.toArray(), []);
+
+  const { readyMap, activeVariant } = useMemo(() => {
+    const ready: Partial<Record<CoachModelVariant, boolean>> = {};
+    const variants = Object.values(MODEL_VARIANTS);
+    for (const variant of variants) {
+      ready[variant.id] = variantReadyFromMeta(variant, metaRows ?? []);
+    }
+
+    /*
+     * Informational only, and deliberately read as *"the first cached variant in preference
+     * order"* rather than as a fallback chain: nothing is ever substituted for the learner's
+     * choice on the download path (`ensureVariantDownloaded` downloads exactly what was picked).
+     * This just names which cached engine the module would actually run today.
+     */
+    let active: CoachModelVariant | null = null;
+    const order: CoachModelVariant[] = [preferred, ...variants.map((variant) => variant.id)];
+    for (const candidate of order) {
+      if (ready[candidate]) {
+        active = candidate;
+        break;
       }
-      if (!active) return;
-      setReadyMap(results);
-      const chainOrder: CoachModelVariant[] = [preferred, ...Object.values(MODEL_VARIANTS).map((v) => v.id)];
-      for (const candidate of chainOrder) {
-        if (results[candidate]) {
-          resolved = candidate;
-          break;
-        }
-      }
-      setActiveVariant(resolved);
-      setChecking(false);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [preferred, rows]);
+    }
+
+    return { readyMap: ready, activeVariant: active };
+  }, [metaRows, preferred]);
 
   // While a download streams (from here or the coach page), flip the card's status text from
   // "~X MB to download" to a live spinner the moment bytes start moving.
   useEffect(() => {
     const unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => {
-      const streaming = progress.state === 'downloading';
-      if (streaming && downloadingId === null) {
-        setStreaming(true);
-      } else if (!streaming) {
-        setStreaming(false);
-      }
+      setStreaming(progress.state === 'downloading');
     });
     return unsubscribe;
-  }, [downloadingId]);
+  }, []);
+
+  const checking = metaRows === undefined;
 
   const handleSelect = async (variantId: CoachModelVariant): Promise<void> => {
     onChange(variantId);
@@ -98,20 +100,17 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
     /*
      * Downloading here, in Settings, is deliberate: the previous behaviour only *polled*
      * readiness and relied on the learner later visiting /quran/coach to start the transfer,
-     * so this card showed "Preparing…" forever when they didn't. The fallback chain is walked
-     * automatically (shared assets are skipped, so only the changed voice downloads), and the
-     * toast names whichever variant actually became ready.
+     * so this card showed "Preparing…" forever when they didn't. Shared assets are skipped, so
+     * only the changed voice downloads, and a failure leaves the card showing the size so the
+     * coach page can offer the retry flow with full progress reporting.
      */
     setDownloadingId(variantId);
     try {
       const { ensurePreferredVariantReady } = await import('@/lib/audio/model-cache');
-      const { variant } = await ensurePreferredVariantReady(variantId);
-      if (variant) {
-        setReadyMap((previous) => ({ ...previous, [variant.id]: true }));
-      }
+      await ensurePreferredVariantReady(variantId);
     } catch {
-      // Readiness stays false; the card keeps showing the download size and the coach page
-      // offers the retry flow with full progress reporting.
+      // Readiness stays false; the live metadata query is the single source of truth either way,
+      // so there is no local state to roll back.
     } finally {
       setDownloadingId(null);
     }
@@ -170,7 +169,9 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
                   `${formatBytes(variantTotalBytes(variant))} to download`
                 )}
               </span>
-              {isActive && !isReady && (
+              {/* `isActive` already implies ready — the variant was selected *because* it is
+                  cached — so the old `isActive && !isReady` guard could never be true. */}
+              {isActive && (
                 <span className="text-[10px] font-semibold text-success-strong">
                   Currently cached and active
                 </span>
@@ -191,4 +192,4 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
 
 // Live progress ticks are surfaced through the shared download progress store so the "Preparing…"
 // state reflects real stream progress when a download starts elsewhere (the coach page).
-export type { ModelDbProgress };
+export type { ModelDbProgress, ModelAssetMetaRecord };

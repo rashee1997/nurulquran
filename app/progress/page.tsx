@@ -35,7 +35,7 @@ import {
   type GoalProgress,
 } from '@/lib/learning/goals';
 import { enableReminder, disableReminder, notificationPermission, notificationsSupported } from '@/lib/learning/reminders';
-import { HifzGoalCadence, HifzGoalKind, HifzGoalRecord } from '@/lib/db';
+import { HifzGoalCadence, HifzGoalKind } from '@/lib/db';
 import { SURAHS } from '@/lib/quran/surahs';
 
 const HEATMAP_DAYS = 91; // 13 weeks

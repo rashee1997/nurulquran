@@ -23,8 +23,7 @@
  * when any check fails.
  */
 
-import { RECITERS, reciterAudioUrl } from '@/lib/quran/reciters';
-import { getChapterMetadata } from '@/lib/quran/surahs';
+import { globalAyahNumber, RECITERS, reciterAudioUrl } from '@/lib/quran/reciters';
 import {
   alignSegmentsToWords,
   parseSegments,
@@ -222,14 +221,6 @@ function durationMs(bytes: number, bitrateKbps: number | null): number | null {
   return (bytes * 8 * 1000) / (bitrateKbps * 1000);
 }
 
-function globalAyahNumber(surah: number, ayah: number): number {
-  let offset = 0;
-  for (let chapter = 1; chapter < surah; chapter += 1) {
-    offset += getChapterMetadata(chapter).versesCount;
-  }
-  return offset + ayah;
-}
-
 async function checkReciter(reciterId: string, name: string, recitationId: number): Promise<void> {
   let ayahsChecked = 0;
   let gapFilled = 0;
@@ -277,7 +268,7 @@ async function checkReciter(reciterId: string, name: string, recitationId: numbe
 
     // Byte-compare the first few clips of the chapter against the file the player loads.
     for (const file of files.slice(0, AUDIO_SAMPLE_PER_SURAH)) {
-      const [surahText, ayahText] = file.verse_key.split(':');
+      const [, ayahText] = file.verse_key.split(':');
       const ayah = Number.parseInt(ayahText ?? '', 10);
       if (!Number.isInteger(ayah) || ayah < 1) continue;
 

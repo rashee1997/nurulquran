@@ -5,17 +5,13 @@ import Link from 'next/link';
 import { 
   Flame, 
   Trophy, 
-  Shield, 
   Gamepad2, 
   Clock, 
   Brain, 
   CheckCircle2, 
   ArrowRight, 
-  Sparkles, 
-  Play, 
   Calendar, 
-  TrendingUp,
-  RotateCcw
+  TrendingUp
 } from 'lucide-react';
 import { db, UserProfile, initializeDatabase } from '@/lib/db';
 import { GameSessionResult } from '@/lib/db/schemas/streak-schema';
