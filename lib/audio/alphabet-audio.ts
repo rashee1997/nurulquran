@@ -5,6 +5,7 @@
  */
 
 import { previewAudio } from './preview-audio';
+import { resolveAudioContextConstructor } from './audio-context';
 
 export interface ArabicLetterMeta {
   id: string;
@@ -611,10 +612,12 @@ let toneSuspendTimer: ReturnType<typeof setTimeout> | null = null;
 function getToneContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
 
-  const AudioCtx =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioCtx) return null;
+  let AudioCtx: typeof AudioContext;
+  try {
+    AudioCtx = resolveAudioContextConstructor();
+  } catch {
+    return null;
+  }
 
   if (!toneContext || toneContext.state === 'closed') {
     toneContext = new AudioCtx();

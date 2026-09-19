@@ -9,7 +9,12 @@ import {
   variantTotalBytes,
   type CoachModelVariant,
 } from '@/lib/audio/model-registry';
-import { modelDb, isVariantReady, type ModelDbProgress } from '@/lib/audio/model-cache';
+import {
+  modelDb,
+  isVariantReady,
+  subscribeModelProgress,
+  type ModelDbProgress,
+} from '@/lib/audio/model-cache';
 
 /**
  * On-device engine variant selector for the Recitation Guide.
@@ -17,8 +22,10 @@ import { modelDb, isVariantReady, type ModelDbProgress } from '@/lib/audio/model
  * Writes straight to the profile on click (matching the OfflinePanel pattern rather than the
  * main settings form's draft model, because a variant change triggers a model download that the
  * learner needs feedback on immediately). Readiness is resolved live per variant so the learner
- * sees "Ready" vs "~63.2 MB to download" before they choose, and a fallback badge shows which
- * variant the coach will actually use when the preferred one is not cached.
+ * sees "Cached" vs the download size before they choose. This is the *default* for all voice
+ * modules; individual modules can override it inline via InlineEnginePicker, which wins over
+ * this preference. No automatic fallback: the chosen variant downloads as-is and failures are
+ * surfaced instead of silently switching voices.
  */
 
 const MB = 1024 * 1024;
@@ -39,6 +46,7 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
   const [checking, setChecking] = useState(true);
   const [readyMap, setReadyMap] = useState<Partial<Record<CoachModelVariant, boolean>>>({});
   const [downloadingId, setDownloadingId] = useState<CoachModelVariant | null>(null);
+  const [streaming, setStreaming] = useState(false);
   const [activeVariant, setActiveVariant] = useState<CoachModelVariant | null>(null);
 
   const rows = useLiveQuery(async () => modelDb.modelAssets.toArray(), []);
@@ -69,20 +77,43 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
     };
   }, [preferred, rows]);
 
+  // While a download streams (from here or the coach page), flip the card's status text from
+  // "~X MB to download" to a live spinner the moment bytes start moving.
+  useEffect(() => {
+    const unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => {
+      const streaming = progress.state === 'downloading';
+      if (streaming && downloadingId === null) {
+        setStreaming(true);
+      } else if (!streaming) {
+        setStreaming(false);
+      }
+    });
+    return unsubscribe;
+  }, [downloadingId]);
+
   const handleSelect = async (variantId: CoachModelVariant): Promise<void> => {
     onChange(variantId);
-    if (!readyMap[variantId]) {
-      // The choice is saved; the coach page's download flow handles the transfer. Re-checking
-      // here is enough for the panel to reflect the state once blobs land.
-      setDownloadingId(variantId);
-      const poll = setInterval(async () => {
-        const ready = await isVariantReady(MODEL_VARIANTS[variantId]);
-        if (ready) {
-          setReadyMap((previous) => ({ ...previous, [variantId]: true }));
-          setDownloadingId(null);
-          clearInterval(poll);
-        }
-      }, 3000);
+    if (readyMap[variantId]) return;
+
+    /*
+     * Downloading here, in Settings, is deliberate: the previous behaviour only *polled*
+     * readiness and relied on the learner later visiting /quran/coach to start the transfer,
+     * so this card showed "Preparing…" forever when they didn't. The fallback chain is walked
+     * automatically (shared assets are skipped, so only the changed voice downloads), and the
+     * toast names whichever variant actually became ready.
+     */
+    setDownloadingId(variantId);
+    try {
+      const { ensurePreferredVariantReady } = await import('@/lib/audio/model-cache');
+      const { variant } = await ensurePreferredVariantReady(variantId);
+      if (variant) {
+        setReadyMap((previous) => ({ ...previous, [variant.id]: true }));
+      }
+    } catch {
+      // Readiness stays false; the card keeps showing the download size and the coach page
+      // offers the retry flow with full progress reporting.
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -129,7 +160,7 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
               </div>
               <span className="text-[10px] text-muted-foreground leading-snug">{variant.descriptionEn}</span>
               <span className="text-[10px] font-semibold text-info-strong">
-                {isDownloading ? (
+                {isDownloading || (streaming && isSelected && !isReady) ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" /> Preparing…
                   </span>
@@ -141,7 +172,7 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
               </span>
               {isActive && !isReady && (
                 <span className="text-[10px] font-semibold text-success-strong">
-                  Fallback active: using this engine now
+                  Currently cached and active
                 </span>
               )}
             </button>
@@ -150,8 +181,9 @@ export function EngineVariantSelector({ value, onChange }: EngineVariantSelector
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        If your chosen engine&apos;s download fails, the coach automatically falls back to the next
-        variant — feedback never stops. Switching voices only downloads the changed voice file.
+        This is the default engine for every voice module. Each module — Recitation Guide, voice
+        storyteller, recitation coach — can override it with its own inline picker, and an inline
+        pick always wins. Switching voices only downloads the changed voice file.
       </p>
     </div>
   );

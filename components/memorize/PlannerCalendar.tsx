@@ -54,8 +54,10 @@ export const PlannerCalendar: React.FC<PlannerCalendarProps> = ({ pace }) => {
 
   useEffect(() => {
     let active = true;
-    const from = dayKeys.find((k): k is string => k !== null)!;
-    const to = dayKeys.filter((k): k is string => k !== null).slice(-1)[0]!;
+    const from = dayKeys.find((k): k is string => k !== null);
+    const to = dayKeys.filter((k): k is string => k !== null).slice(-1)[0];
+    if (!from || !to) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- starts the loading flag before the async IndexedDB read for the newly visible month resolves; the flag belongs to this fetch, not to derived state
     setLoading(true);
     void dailyCounts(from, to)
       .then((result) => {

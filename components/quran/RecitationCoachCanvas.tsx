@@ -50,6 +50,7 @@ export function RecitationCoachCanvas({ words, verseKey }: CoachCanvasProps) {
 
   // Reset colors whenever the target verse changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets local UI state when the drilled verse changes; the same effect keeps the parallel mirror ref in sync so the audio callback never reads stale colors
     setWordStates(words.map(() => 'neutral'));
     wordStatesRef.current = words.map(() => 'neutral');
   }, [words, verseKey]);

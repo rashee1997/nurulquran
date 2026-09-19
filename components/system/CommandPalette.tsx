@@ -190,9 +190,13 @@ export const CommandPalette: React.FC = () => {
   }, [query]);
 
   const actions: ActionMatch[] = useMemo(() => {
+    /*
+     * Action closures intentionally do NOT call `close()` themselves: it touches DOM refs,
+     * which would taint this memo (and every render-time read of `results`) as ref access.
+     * Dismissal is owned by `goTo`, which runs outside render.
+     */
     const runAction = (actionId: string, run: () => void): void => {
       track('palette.action', { id: actionId });
-      close();
       run();
     };
     return [
@@ -229,7 +233,7 @@ export const CommandPalette: React.FC = () => {
         run: () => runAction('toggle-theme', toggleTheme),
       },
     ];
-  }, [router, toggleTheme, close]);
+  }, [router, toggleTheme]);
 
   const results: PaletteResult[] = useMemo(() => {
     const trimmed = query.trim();

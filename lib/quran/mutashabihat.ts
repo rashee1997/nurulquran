@@ -283,6 +283,7 @@ export async function buildComputedMutashabihatIndex(
   const corpus: CorpusEntry[] = [];
   for (let i = 0; i < SURAHS.length; i++) {
     const meta = SURAHS[i];
+    if (!meta) continue;
     const verses = await quranProvider.getChapterVerses(meta.id);
     for (const v of verses) {
       const words = normalizedWords(v.textUthmani);
@@ -320,12 +321,14 @@ export async function buildComputedMutashabihatIndex(
       for (let b = a + 1; b < bucket.length; b++) {
         const i = bucket[a];
         const j = bucket[b];
+        if (i === undefined || j === undefined) continue;
         const pairKey = i < j ? `${i}:${j}` : `${j}:${i}`;
         if (seenPairs.has(pairKey)) continue;
         seenPairs.add(pairKey);
 
         const va = corpus[i];
         const vb = corpus[j];
+        if (!va || !vb) continue;
         if (va.surah === vb.surah && va.ayah === vb.ayah) continue;
 
         const similarity = jaccard(va.words, vb.words);

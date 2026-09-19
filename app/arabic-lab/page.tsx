@@ -74,7 +74,11 @@ export default function ArabicLabPage() {
           totalXp >= level.requiredXp &&
           level.lessons.some((lesson) => !loadedProgress.completedLessonIds.includes(lesson.id))
       );
-      setSelectedLevelId((firstOpenLevel ?? ARABIC_LAB_LEVELS[0]).id);
+      const fallbackLevel = ARABIC_LAB_LEVELS[0];
+      const resolvedLevel = firstOpenLevel ?? fallbackLevel;
+      if (resolvedLevel) {
+        setSelectedLevelId(resolvedLevel.id);
+      }
       setIsLoading(false);
     }
 

@@ -113,9 +113,11 @@ export default function HifzPlannerPage() {
       } else {
         const first = added[0];
         const last = added[added.length - 1];
-        setAllocationNote(
-          `Added ${added.length} ayahs: ${surahName(first.surah)} ${first.surah}:${first.ayah} → ${surahName(last.surah)} ${last.surah}:${last.ayah}.`
-        );
+        if (first && last) {
+          setAllocationNote(
+            `Added ${added.length} ayahs: ${surahName(first.surah)} ${first.surah}:${first.ayah} → ${surahName(last.surah)} ${last.surah}:${last.ayah}.`
+          );
+        }
       }
       await refreshPlan();
     } catch (error) {
@@ -399,7 +401,9 @@ export default function HifzPlannerPage() {
         ) : (
           <div className="flex flex-wrap gap-2">
             {weakSpots.map(([verseKey, count]) => {
-              const [surah, ayah] = verseKey.split(':').map(Number);
+              const [surahRaw, ayahRaw] = verseKey.split(':').map(Number);
+              const surah = surahRaw ?? 0;
+              const ayah = ayahRaw ?? 0;
               const intensity = count >= 6 ? 'bg-danger-subtle text-danger-strong border-danger/40' : count >= 3 ? 'bg-warning-subtle text-warning-strong border-warning/40' : 'bg-surface text-foreground border-border';
               return (
                 <Link

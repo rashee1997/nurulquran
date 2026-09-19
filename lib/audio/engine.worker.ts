@@ -19,10 +19,20 @@ import type {
   EngineWordScore,
 } from '@/lib/audio/capture-engine';
 
-const ctx = self as unknown as {
+/*
+ * Worker-scope boundary, quarantined here.
+ *
+ * `DedicatedWorkerGlobalScope` lives in the `WebWorker` lib, which cannot be enabled for this
+ * file without conflicting with the DOM types its imports need — so `self` is narrowed once,
+ * explicitly, to exactly the two members the worker uses. Nothing else relies on the cast:
+ * every message crossing the boundary is typed by `EngineWorkerRequest`/
+ * `EngineWorkerResponse` in capture-engine.ts.
+ */
+interface WorkerContext {
   postMessage: (message: EngineWorkerResponse, transfer?: Transferable[]) => void;
   onmessage: ((event: MessageEvent<EngineWorkerRequest>) => void) | null;
-};
+}
+const ctx = self as WorkerContext;
 
 /* -------------------------------------------------------------------------- */
 /* ORT environment                                                             */
@@ -90,10 +100,11 @@ async function vadProb(samples: Float32Array): Promise<number> {
   };
   try {
     const results = await vad.session.run(feeds);
+    if (!results.hn || !results.cn || !results.output) return 0;
     vad.h = results.hn;
     vad.c = results.cn;
-    const prob = results.output.data[0] as number;
-    return prob;
+    const prob = results.output.data[0];
+    return typeof prob === 'number' ? prob : 0;
   } catch {
     return 0;
   }
@@ -195,7 +206,8 @@ async function transcribeUtterance(pcm: Float32Array): Promise<string[]> {
     if (name === 'mel') encoderFeeds[name] = melInput;
   }
   const encoderOut = await stt.encoder.run(encoderFeeds);
-  const encoded = encoderOut[Object.keys(encoderOut)[0]];
+  const encoded = encoderOut[Object.keys(encoderOut)[0] ?? ''];
+  if (!encoded) throw new Error('Whisper encoder produced no output tensor.');
 
   // Greedy decode from SOT with forced Arabic/transcribe task tokens.
   const tokens: number[] = [
@@ -226,17 +238,20 @@ async function transcribeUtterance(pcm: Float32Array): Promise<string[]> {
     }
 
     const out = await stt.decoder.run(feeds);
-    const logitsName = stt.decoder.outputNames.find((n) => n.includes('logits')) ?? stt.decoder.outputNames[0];
-    const logits = out[logitsName] as ort.Tensor;
+    const logitsName = stt.decoder.outputNames.find((n) => n.includes('logits')) ?? stt.decoder.outputNames[0] ?? '';
+    const logits = out[logitsName];
+    if (!logits) throw new Error('Whisper decoder produced no logits tensor.');
 
-    const [batch, seq, vocabSize] = logits.dims as number[];
-    const data = logits.data as Float32Array;
+    const [batch, seq, vocabSize] = logits.dims;
+    if (seq === undefined || vocabSize === undefined) throw new Error('Unexpected logits rank.');
+    if (!(logits.data instanceof Float32Array)) throw new Error('Logits data is not Float32Array.');
+    const data = logits.data;
     // Argmax over the last position's vocab row.
     let best = 0;
     let bestScore = -Infinity;
     const rowOffset = (seq - 1) * vocabSize;
     for (let v = 0; v < vocabSize; v += 1) {
-      const score = data[rowOffset + v];
+      const score = data[rowOffset + v] ?? -Infinity;
       if (score > bestScore) {
         bestScore = score;
         best = v;
@@ -257,6 +272,7 @@ async function transcribeUtterance(pcm: Float32Array): Promise<string[]> {
     for (const name of stt.decoder.outputNames) {
       if (name.startsWith('present')) {
         const tensor = out[name];
+        if (!tensor) continue;
         if (kvIdx % 2 === 0) pastKeys.push(tensor);
         else pastValues.push(tensor);
         kvIdx += 1;
@@ -329,21 +345,22 @@ function floatToLogMel(pcm: Float32Array): Float32Array {
     im.fill(0);
     const offset = f * HOP;
     for (let i = 0; i < N_FFT; i += 1) {
-      const sample = offset + i < pcm.length ? pcm[offset + i] : 0;
-      const windowed = sample * window[i];
+      const sample = offset + i < pcm.length ? (pcm[offset + i] ?? 0) : 0;
+      const windowed = sample * (window[i] ?? 0);
       // Naive DFT (N=400): O(N^2) per frame is acceptable inside a worker for one utterance.
       for (let b = 0; b <= N_FFT / 2; b += 1) {
         const angle = (-2 * Math.PI * b * i) / N_FFT;
-        re[b] += windowed * Math.cos(angle);
-        im[b] += windowed * Math.sin(angle);
+        re[b] = (re[b] ?? 0) + windowed * Math.cos(angle);
+        im[b] = (im[b] ?? 0) + windowed * Math.sin(angle);
       }
     }
     for (let m = 0; m < N_MELS; m += 1) {
       const filter = filters[m];
+      if (!filter) continue;
       let energy = 1e-10;
       for (let b = 0; b <= N_FFT / 2; b += 1) {
-        const power = re[b] * re[b] + im[b] * im[b];
-        energy += filter[b] * power;
+        const power = (re[b] ?? 0) * (re[b] ?? 0) + (im[b] ?? 0) * (im[b] ?? 0);
+        energy += (filter[b] ?? 0) * power;
       }
       out[m * N_MEL_FRAMES + f] = Math.log(energy);
     }
@@ -351,10 +368,11 @@ function floatToLogMel(pcm: Float32Array): Float32Array {
 
   let max = -Infinity;
   for (let i = 0; i < out.length; i += 1) {
-    if (out[i] > max) max = out[i];
+    const value = out[i] ?? -Infinity;
+    if (value > max) max = value;
   }
   for (let i = 0; i < out.length; i += 1) {
-    out[i] = Math.max(out[i] - max, -8);
+    out[i] = Math.max((out[i] ?? 0) - max, -8);
   }
   return out;
 }
@@ -396,21 +414,23 @@ function scoreWord(expected: string, heard: string | undefined, margin: number):
 
 /** Normalised Levenshtein — substituting one Arabic letter costs 1. */
 function levenshtein(a: string, b: string): number {
-  const dp = new Array(a.length + 1).fill(0).map((_, i) => i);
+  const dp: number[] = new Array(a.length + 1).fill(0).map((_, i) => i);
   for (let j = 1; j <= b.length; j += 1) {
-    let prev = dp[0];
+    const firstPrev = dp[0];
+    if (firstPrev === undefined) return 0;
+    let prev = firstPrev;
     dp[0] = j;
     for (let i = 1; i <= a.length; i += 1) {
-      const temp = dp[i];
+      const temp = dp[i] ?? 0;
       dp[i] = Math.min(
-        dp[i] + 1,
-        dp[i - 1] + 1,
+        (dp[i] ?? 0) + 1,
+        (dp[i - 1] ?? 0) + 1,
         prev + (a[i - 1] === b[j - 1] ? 0 : 1)
       );
       prev = temp;
     }
   }
-  return dp[a.length];
+  return dp[a.length] ?? 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -467,8 +487,16 @@ async function finalizeUtterance(): Promise<void> {
   }
 
   if (!target || !stt) return;
-  const verseKey = target.verseKey;
-  const expectedWords = target.words;
+  await scoreAndReport(target.verseKey, target.words, merged);
+}
+
+/**
+ * Runs STT + GOP alignment over one complete utterance and posts the result. Shared by the
+ * streaming VAD path (`finalizeUtterance`) and the one-shot `score-once` request used by the
+ * inline local mode in the tajweed coach and tafsir storyteller.
+ */
+async function scoreAndReport(verseKey: string, expectedWords: string[], merged: Float32Array): Promise<{ scores: EngineWordScore[]; transcript: string }> {
+  if (!stt) return { scores: [], transcript: '' };
 
   try {
     const decoded = await transcribeUtterance(merged);
@@ -483,16 +511,17 @@ async function finalizeUtterance(): Promise<void> {
     let tokenCursor = 0;
     for (let w = 0; w < expectedWords.length; w += 1) {
       const expected = expectedWords[w];
+      if (expected === undefined) continue;
       const expectedNorm = stripDiacritics(expected);
       let heard: string | undefined;
       let margin = 0;
 
       for (let t = tokenCursor; t < decoded.length; t += 1) {
-        const candidate = stripDiacritics(decoded[t]);
+        const candidate = stripDiacritics(decoded[t] ?? '');
         if (candidate.length === 0) continue;
         const distance = levenshtein(candidate, expectedNorm);
         if (candidate === expectedNorm || distance <= Math.ceil(expectedNorm.length / 2)) {
-          heard = decoded[t];
+          heard = decoded[t] ?? '';
           // Substitution distance maps onto the log-ratio: exact = 0, one letter off ≈ −2.5.
           margin = distance === 0 ? 0 : -(1.5 + distance);
           tokenCursor = t + 1;
@@ -515,7 +544,7 @@ async function finalizeUtterance(): Promise<void> {
     // Coaching cue: the languages mirror the app's FeedbackLanguage preference.
     const flagged = scores.filter((score) => score.verdict === 'mispronounced');
     if (flagged.length === 1) {
-      const word = flagged[0].word;
+      const word = flagged[0]?.word ?? '';
       post({ type: 'coach-cue', lang: 'en', text: `Watch the word ${word} — repeat it slowly.` });
       post({ type: 'coach-cue', lang: 'ta', text: `${word} — இந்தச் சொல்லை மெதுவாக மீண்டும் சொல்லுங்கள்.` });
     } else if (flagged.length > 1) {
@@ -530,9 +559,12 @@ async function finalizeUtterance(): Promise<void> {
         text: `${flagged.length} சொற்கள் மீண்டும் பயிற்சி செய்ய வேண்டும். ஒவ்வொன்றையும் தனித்தனியாக சொல்லுங்கள்.`,
       });
     }
+
+    return { scores, transcript: decoded.join(' ') };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Local inference failed.';
     post({ type: 'engine-error', fatal: false, message });
+    return { scores: [], transcript: '' };
   }
 }
 
@@ -587,6 +619,13 @@ ctx.onmessage = async (event: MessageEvent<EngineWorkerRequest>) => {
         resetUtterance();
         target = null;
         seqCounter = 0;
+        return;
+      }
+      case 'score-once': {
+        // One-shot: no VAD gating, the caller already knows this buffer is one recitation.
+        const samples = new Float32Array(request.buffer);
+        const { scores, transcript } = await scoreAndReport(request.verseKey, request.words, samples);
+        post({ type: 'score-once-result', requestId: request.requestId, scores, transcript });
         return;
       }
     }

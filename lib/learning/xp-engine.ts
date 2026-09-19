@@ -120,7 +120,12 @@ export function calculateLevel(totalXp: number): LevelInfo {
   const xpNeededForNext = Math.max(1, nextThreshold - prevThreshold);
   const progressPercent = Math.min(100, Math.round((currentLevelXp / xpNeededForNext) * 100));
 
-  const titleMeta = LEVEL_TITLES[Math.min(level - 1, LEVEL_TITLES.length - 1)];
+  const titleMeta =
+    LEVEL_TITLES[Math.min(level - 1, LEVEL_TITLES.length - 1)] ??
+    LEVEL_TITLES[LEVEL_TITLES.length - 1];
+  if (!titleMeta) {
+    throw new Error('LEVEL_TITLES table must not be empty.');
+  }
 
   return {
     level,

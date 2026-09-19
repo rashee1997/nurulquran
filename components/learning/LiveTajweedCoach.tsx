@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useLiveTajweed, TajweedLiveFeedback } from '@/hooks/use-live-tajweed';
+import { InlineEnginePicker } from '@/components/learning/InlineEnginePicker';
 import { db } from '@/lib/db';
 import {
   FEEDBACK_LANGUAGE_OPTIONS,
@@ -218,6 +219,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
       const active = document.activeElement;
 
       if (event.shiftKey && active === first) {
@@ -409,6 +411,7 @@ export const LiveTajweedCoach: React.FC<LiveTajweedCoachProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <InlineEnginePicker moduleId="tajweed-coach" compact />
             <LanguageSwitcher value={language} onChange={handleLanguageChange} />
             {latencyMs !== null && (
               <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">

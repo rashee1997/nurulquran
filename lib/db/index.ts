@@ -45,10 +45,17 @@ export interface UserProfile {
   aiFeedbackLanguage?: 'both' | 'en' | 'ta';
   aiSpeechRate?: number;
   /**
-   * Which local-engine model variant the recitation coach prefers, with automatic fallback
-   * down the variant chain when the preferred one cannot be satisfied. Undefined = 'balanced'.
+   * Which local-engine model variant the recitation coach prefers. No fallback chains — the
+   * chosen variant is downloaded exactly as-is, and a failed download surfaces an error.
+   * Undefined = 'balanced'. Inline per-module choices (moduleEngines) override this.
    */
   coachModelVariant?: 'balanced' | 'tamil-hemalatha' | 'english-amy';
+  /**
+   * Per-module engine overrides. An inline pick in a voice module (tajweed coach, tafsir
+   * storyteller, recitation coach) wins over `coachModelVariant`; 'cloud' forces the Gemini
+   * path for that module. Modules absent from this record use the Settings default.
+   */
+  moduleEngines?: Partial<Record<'tajweed-coach' | 'tafsir-storyteller' | 'recitation-coach', 'cloud' | 'default' | 'balanced' | 'tamil-hemalatha' | 'english-amy'>>;
   /** Last ayah the reader was scrolled to, so the dashboard can resume it. */
   readingPosition?: ReadingPosition;
   /** Chosen memorisation pace in ayahs per day (Hifz planner). */
@@ -455,6 +462,12 @@ const userProfileRowSchema = z.object({
   aiFeedbackLanguage: feedbackLanguageSchema.optional(),
   aiSpeechRate: z.number().min(0.5).max(2).optional(),
   coachModelVariant: z.enum(['balanced', 'tamil-hemalatha', 'english-amy']).optional(),
+  moduleEngines: z
+    .record(
+      z.enum(['tajweed-coach', 'tafsir-storyteller', 'recitation-coach']),
+      z.enum(['cloud', 'default', 'balanced', 'tamil-hemalatha', 'english-amy'])
+    )
+    .optional(),
   readingPosition: z
     .object({ surah: surahNumberSchema, ayah: ayahNumberSchema, updatedAt: z.string().min(1) })
     .optional(),

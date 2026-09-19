@@ -8,6 +8,7 @@ import {
   arrayBufferToBase64,
   computeRmsVolume,
 } from '@/lib/audio/pcm-audio';
+import { resolveAudioContextConstructor } from '@/lib/audio/audio-context';
 import { db, UserProfile } from '@/lib/db';
 import { FeedbackLanguage, normalizeFeedbackLanguage } from '@/lib/i18n/language';
 import { isAccuracyRating, type AccuracyRating } from '@/lib/ai/verdict';
@@ -50,6 +51,8 @@ export interface TajweedLiveFeedback {
   latencyMs?: number;
   /** Verbatim words heard; present only when `requestTranscript` was set. */
   transcript?: string;
+  /** Which engine produced this feedback — cloud (Gemini) or the on-device engine. */
+  engine?: 'cloud' | 'local';
 }
 
 export type LiveCoachStatus = 'idle' | 'listening' | 'analyzing' | 'feedback' | 'error';
@@ -290,8 +293,75 @@ export function useLiveTajweed({
       setErrorMessage(null);
       const startedAt = performance.now();
 
+      const downsampled = downsampleBuffer(recordedFloat32, inputSampleRate, RECORDING_SAMPLE_RATE);
+
+      /*
+       * Local mode: the module's inline engine pick (or the Settings default when set to
+       * Default) resolves to a local variant — score on-device, no network. 'cloud' or a missing
+       * variant falls through to the Gemini HTTP path below.
+       */
       try {
-        const downsampled = downsampleBuffer(recordedFloat32, inputSampleRate, RECORDING_SAMPLE_RATE);
+        const { resolveModuleVariant } = await import('@/lib/audio/model-registry');
+        const dbModule = await import('@/lib/db');
+        const profile = await dbModule.db.userProfile.get('default_user');
+        const variant = resolveModuleVariant(
+          'tajweed-coach',
+          profile?.moduleEngines,
+          profile?.coachModelVariant
+        );
+        if (variant) {
+          const { scoreUtteranceLocally } = await import('@/lib/audio/local-engine-session');
+          const words = promptArabic.split(/\s+/).filter((word) => word.length > 0);
+          const { scores } = await scoreUtteranceLocally(variant, `local:${requestId}`, words, downsampled);
+          if (requestId !== requestIdRef.current) return;
+
+          const flagged = scores.filter((score) => score.verdict === 'mispronounced');
+          const correct = scores.filter((score) => score.verdict === 'correct').length;
+          const total = scores.length || 1;
+          const accuracy = Math.round((correct / total) * 100);
+          const flaggedWords = flagged.map((score) => score.word).join('، ');
+
+          const result: TajweedLiveFeedback = {
+            coachResponseEn:
+              flagged.length === 0
+                ? `On-device check: all ${scores.length} words matched the target recitation well. Keep going.`
+                : `On-device check: ${accuracy}% matched. Focus on: ${flaggedWords}. Listen to the qari clip and repeat those words slowly.`,
+            coachResponseTa:
+              language !== 'en'
+                ? flagged.length === 0
+                  ? `சாதனத்தில் சரிபார்க்கப்பட்டது: ${scores.length} சொற்களும் நன்றாக பொருந்தின. தொடர்ந்து செய்யுங்கள்.`
+                  : `சாதனத்தில் சரிபார்க்கப்பட்டது: ${accuracy}% பொருந்தியது. இந்தச் சொற்களில் கவனம்: ${flaggedWords}.`
+                : undefined,
+            makhrajTip:
+              flagged.length > 0
+                ? 'Play the reference audio for the flagged words and imitate the qari letter by letter.'
+                : undefined,
+            tajweedRuleName: targetRule,
+            accuracyRating: accuracy >= 90 ? 'Excellent' : accuracy >= 70 ? 'Good' : 'Needs Practice',
+            detectedErrors: flagged.map((score) => score.word),
+            latencyMs: Math.round(performance.now() - startedAt),
+            engine: 'local',
+          };
+
+          setLatencyMs(result.latencyMs ?? null);
+          setLatestFeedback(result);
+          setStatus('feedback');
+          onFeedbackRef.current?.(result);
+          return;
+        }
+      } catch (error: unknown) {
+        if (requestId !== requestIdRef.current) return;
+        console.error('Local engine scoring failed:', error);
+        setErrorMessage(
+          error instanceof Error
+            ? `On-device engine: ${error.message}`
+            : 'The on-device engine could not score this recitation.'
+        );
+        setStatus('error');
+        return;
+      }
+
+      try {
         const int16Pcm = convertFloat32ToInt16PCM(downsampled);
         const base64Audio = arrayBufferToBase64(
           new Uint8Array(int16Pcm.buffer, int16Pcm.byteOffset, int16Pcm.byteLength)
@@ -349,6 +419,7 @@ export function useLiveTajweed({
           ...feedback,
           tajweedRuleName: feedback.tajweedRuleName ?? targetRule,
           latencyMs: roundTripLatency,
+          engine: 'cloud',
         };
 
         setLatencyMs(roundTripLatency);
@@ -453,9 +524,7 @@ export function useLiveTajweed({
       mediaStreamRef.current = stream;
       setMicPermissionState('granted');
 
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioContextClass = resolveAudioContextConstructor();
       const audioCtx = new AudioContextClass();
       audioContextRef.current = audioCtx;
 

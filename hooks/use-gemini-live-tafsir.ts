@@ -11,6 +11,8 @@ import {
   RECORDING_SAMPLE_RATE,
   PLAYBACK_SAMPLE_RATE,
 } from '@/lib/audio/pcm-audio';
+import { resolveAudioContextConstructor } from '@/lib/audio/audio-context';
+import { MODEL_VARIANTS, type ModelVariant } from '@/lib/audio/model-registry';
 import { buildLessonContextPacket, buildStorytellerInstruction } from '@/lib/tafsir/prompts';
 import {
   liveSessionTicketSchema,
@@ -171,6 +173,14 @@ export function useGeminiLiveTafsir({
   const sinkRef = useRef<GainNode | null>(null);
   const rawChunksRef = useRef<Float32Array[]>([]);
   const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * Frame sink override for local mode: when set, capture frames go to the local turn detector
+   * instead of the Gemini chunk buffer. Null in cloud mode.
+   */
+  const localFrameSinkRef = useRef<((frame: Float32Array) => void) | null>(null);
+  const localTurnBufferRef = useRef<Float32Array[]>([]);
+  /** The resolved on-device variant while a local session runs; null in cloud mode. */
+  const localVariantRef = useRef<ModelVariant | null>(null);
 
   /** Bumped by `stop` and by unmount so a pending start cannot attach to a dead session. */
   const generationRef = useRef(0);
@@ -250,7 +260,8 @@ export function useGeminiLiveTafsir({
         const index = previous.findIndex((line) => line.id === openId);
         if (index !== -1) {
           const next = [...previous];
-          next[index] = { ...next[index], text: `${next[index].text}${chunk}` };
+          const openLine = next[index];
+          if (openLine) next[index] = { ...openLine, text: `${openLine.text}${chunk}` };
           return next;
         }
       }
@@ -329,6 +340,9 @@ export function useGeminiLiveTafsir({
   }, []);
 
   const cleanupSession = useCallback((): void => {
+    localFrameSinkRef.current = null;
+    localTurnBufferRef.current = [];
+    localVariantRef.current = null;
     cleanupAudio();
 
     const session = sessionRef.current;
@@ -625,9 +639,7 @@ export function useGeminiLiveTafsir({
 
       streamRef.current = stream;
 
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioContextClass = resolveAudioContextConstructor();
       const context = new AudioContextClass();
       inputContextRef.current = context;
 
@@ -636,6 +648,12 @@ export function useGeminiLiveTafsir({
 
       const onFrame = (frame: Float32Array): void => {
         if (!activeRef.current) return;
+        // Local mode routes frames to the on-device turn detector instead of the Gemini buffer.
+        const localSink = localFrameSinkRef.current;
+        if (localSink) {
+          localSink(frame);
+          return;
+        }
         rawChunksRef.current.push(frame);
       };
 
@@ -703,6 +721,167 @@ export function useGeminiLiveTafsir({
   /* Session start / stop                                                    */
   /* ---------------------------------------------------------------------- */
 
+  /* ---------------------------------------------------------------------- */
+  /* Local (on-device) storyteller session                                    */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Runs the storyteller conversation on the on-device engine: local Whisper transcription
+   * per turn, the BYOK chat route for the reply, and browser speech synthesis for playback.
+   * Entered when the module's engine choice resolves to a local variant; never touches the
+   * Gemini Live socket.
+   */
+  const runLocalStorytellerSession = useCallback(
+    async (generation: number): Promise<void> => {
+      const { scoreUtteranceLocally } = await import('@/lib/audio/local-engine-session');
+
+      const speak = (text: string): void => {
+        if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+        try {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = languageRef.current === 'ta' ? 'ta-IN' : 'en-US';
+          const voices = window.speechSynthesis.getVoices();
+          const match = voices.find((voice) => voice.lang.startsWith(utterance.lang.slice(0, 2)));
+          if (match) utterance.voice = match;
+          utterance.onstart = () => setStatus('speaking');
+          utterance.onend = () => setStatus((previous) => (previous === 'speaking' ? 'active' : previous));
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          /* best-effort */
+        }
+      };
+
+      const answerLocally = async (question: string): Promise<void> => {
+        const current = segmentRef.current;
+        const packet = current
+          ? buildStorytellerInstruction(current, languageRef.current)
+          : 'You are Ustadh Ameen. The lesson is still loading — greet the child warmly and say the ayah is being prepared. Do not recite any Quranic text.';
+        appendTranscript('student', question);
+        setStatus('connecting'); // reuse as "thinking"
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [
+                { role: 'system', content: packet },
+                { role: 'user', content: question },
+              ],
+            }),
+          });
+          if (!response.ok || !response.body) throw new Error(`chat ${response.status}`);
+
+          // The chat route streams the UI message protocol (SSE `text-delta` chunks).
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let reply = '';
+          let buffer = '';
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let boundary = buffer.indexOf('\n\n');
+            while (boundary !== -1) {
+              const event = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              const line = event.trim();
+              if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+                try {
+                  const chunk = JSON.parse(line.slice(6)) as { type?: string; delta?: string };
+                  if (chunk.type === 'text-delta' && typeof chunk.delta === 'string') reply += chunk.delta;
+                } catch {
+                  /* skip malformed chunk */
+                }
+              }
+              boundary = buffer.indexOf('\n\n');
+            }
+          }
+          if (reply.trim().length === 0) {
+            reply = 'I could not reach my study guide just now — please ask me again.';
+          }
+          appendTranscript('ameen', reply);
+          setStatus('active');
+          speak(reply);
+        } catch (error: unknown) {
+          console.warn('Local storyteller turn failed:', error);
+          setErrorMessage('The on-device storyteller could not answer. Please retry.');
+          setStatus('error');
+        }
+      };
+
+      // Opening beat, matching the cloud session's `tellCurrentStory` behaviour.
+      void answerLocally(
+        segmentRef.current ? 'Assalamu alaykum! Please tell me the story of this ayah.' : 'Assalamu alaykum!'
+      );
+
+      // Turn-based conversation: speech start (RMS ≥ 38) followed by ≥1.6 s of silence is one
+      // question; the same hysteresis gates the tajweed coach uses.
+      let speechStartedAt: number | null = null;
+      let silenceStartedAt: number | null = null;
+      localTurnBufferRef.current = [];
+
+      const turnProcessor = (frame: Float32Array): void => {
+        if (!activeRef.current || generation !== generationRef.current) return;
+        localTurnBufferRef.current.push(frame);
+        const level = computeRmsVolume(frame);
+        micLevelRef.current = level;
+
+        const now = performance.now();
+        if (level >= 38 && speechStartedAt === null) {
+          speechStartedAt = now;
+          silenceStartedAt = null;
+        } else if (speechStartedAt !== null && level < 22) {
+          if (silenceStartedAt === null) silenceStartedAt = now;
+          if (now - silenceStartedAt >= 1600 && now - speechStartedAt >= 400) {
+            const chunks = localTurnBufferRef.current;
+            localTurnBufferRef.current = [];
+            speechStartedAt = null;
+            silenceStartedAt = null;
+            const inputRate = inputContextRef.current?.sampleRate ?? 48000;
+            const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            if (total < inputRate * 0.3) return;
+            const merged = new Float32Array(total);
+            let offset = 0;
+            for (const chunk of chunks) {
+              merged.set(chunk, offset);
+              offset += chunk.length;
+            }
+            void (async () => {
+              try {
+                const downsampled = downsampleBuffer(merged, inputRate, RECORDING_SAMPLE_RATE);
+                const { transcript } = await scoreUtteranceLocally(
+                  localVariantRef.current ?? MODEL_VARIANTS.balanced,
+                  'storyteller-turn',
+                  [],
+                  downsampled
+                );
+                const trimmed = transcript.trim();
+                if (trimmed.length > 0) void answerLocally(trimmed);
+              } catch (error: unknown) {
+                console.warn('Local storyteller transcription failed:', error);
+              }
+            })();
+          }
+        } else if (level >= 38) {
+          silenceStartedAt = null;
+        }
+      };
+
+      localFrameSinkRef.current = turnProcessor;
+      try {
+        const attached = await attachMicrophone(generation);
+        if (!attached) return;
+      } catch (error: unknown) {
+        console.warn('Microphone could not be started for the local storyteller:', error);
+        localFrameSinkRef.current = null;
+        setErrorMessage('The microphone could not be started for the on-device storyteller.');
+        setStatus('error');
+        activeRef.current = false;
+      }
+    },
+    [appendTranscript, attachMicrophone]
+  );
+
   const stop = useCallback((): void => {
     // Marked first, so a reconnect that is already scheduled cannot outlive this call.
     stoppedByUserRef.current = true;
@@ -752,6 +931,43 @@ export function useGeminiLiveTafsir({
      * is what tells an operator that `GEMINI_LIVE_MODEL` points at a non-Live model.
      */
     let liveModel: string | null = null;
+
+    /*
+     * Local-mode gate (async): when the storyteller resolves to an on-device variant, the
+     * Gemini Live socket path is skipped entirely — and an unresolvable local choice (chosen
+     * variant not downloaded) surfaces its error instead of silently connecting to the cloud,
+     * per the no-fallback design. The async probe runs before the ticket fetch below; the
+     * generation check keeps a racing second start() from double-connecting.
+     */
+    void (async () => {
+      let localModeActive = false;
+      try {
+        const { resolveModuleVariant } = await import('@/lib/audio/model-registry');
+        const dbModule = await import('@/lib/db');
+        const profile = await dbModule.db.userProfile.get('default_user');
+        const localVariant = resolveModuleVariant('tafsir-storyteller', profile?.moduleEngines, profile?.coachModelVariant);
+        if (localVariant) {
+          const { bootLocalEngine } = await import('@/lib/audio/local-engine-session');
+          try {
+            await bootLocalEngine(localVariant);
+          } catch (error: unknown) {
+            if (generation !== generationRef.current) return;
+            setErrorMessage(error instanceof Error ? error.message : 'The on-device engine could not start.');
+            setStatus('error');
+            activeRef.current = false;
+            return;
+          }
+          if (generation !== generationRef.current) return;
+          localVariantRef.current = localVariant;
+          localModeActive = true;
+        }
+      } catch {
+        // Probe failure (e.g. IndexedDB unavailable) falls through to the cloud path.
+      }
+      if (localModeActive && generation === generationRef.current) {
+        void runLocalStorytellerSession(generation);
+      }
+    })();
 
     /**
      * The in-flight `connect()`, tracked outside the `try` so a handshake that times out can
@@ -1019,6 +1235,7 @@ export function useGeminiLiveTafsir({
     cancelReconnect,
     cleanupSession,
     handleServerMessage,
+    runLocalStorytellerSession,
     scheduleReconnect,
     tellCurrentStory,
     voiceId,

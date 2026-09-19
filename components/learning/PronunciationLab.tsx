@@ -239,6 +239,7 @@ export const PronunciationLab: React.FC<PronunciationLabProps> = ({ phrases, cla
         }
 
         const item = items[index];
+        if (!item) break;
         setActiveIndex(index);
         const played = await playItem(`lab:${runId}:${item.key}`, item, { rate });
         if (runRef.current !== runId) return;

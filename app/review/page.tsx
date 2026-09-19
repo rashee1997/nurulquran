@@ -436,7 +436,7 @@ export default function SrsReviewPage() {
         {/* Ayah target banner */}
         <div className="text-center pb-4 border-b border-border">
           <span className="text-xs font-bold px-3 py-1 rounded-full bg-surface border border-border text-foreground">
-            Surah {currentItem.surah} • Ayah {currentItem.ayah}
+            Surah {currentItem?.surah} • Ayah {currentItem?.ayah}
           </span>
           <p className="text-xs text-muted-foreground mt-2">
             Recite this Ayah mentally or aloud, then tap Reveal to verify.
@@ -519,7 +519,7 @@ export default function SrsReviewPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {(() => {
                 // Interval preview per grade, computed from the same FSRS path grading uses.
-                const p = previewGrades(currentItem);
+                const p = previewGrades(currentItem ?? { surah: 0, ayah: 0 } as VerseProgress);
                 const label = (days: number): string => (days < 1 ? '<1 day' : `${days}d`);
                 return (
                   <>

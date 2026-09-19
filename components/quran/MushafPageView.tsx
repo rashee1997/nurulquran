@@ -233,7 +233,7 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
 
         {/* 15 Lines Grid */}
         <div className="space-y-1.5 pt-2">
-          {activePageData.lines.map((line, lIdx) => {
+          {(activePageData?.lines ?? []).map((line, lIdx) => {
             const masked = isLineMasked(lIdx);
             return (
               <div

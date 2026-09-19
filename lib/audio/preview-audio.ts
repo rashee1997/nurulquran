@@ -373,7 +373,7 @@ class PreviewAudioController {
   /** Prefers an exact locale match, then any voice for the same base language. */
   private pickVoice(voices: readonly SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null {
     const wanted = lang.toLowerCase();
-    const base = wanted.split('-')[0];
+    const base = wanted.split('-')[0] ?? wanted;
 
     return (
       voices.find((voice) => voice.lang.toLowerCase() === wanted) ??

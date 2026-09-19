@@ -71,7 +71,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   const [savingAyahs, setSavingAyahs] = useState<ReadonlySet<number>>(new Set());
   const [showSettings, setShowSettings] = useState(false);
 
-  const currentVerse = verses[currentAudioIndex] || verses[0];
+  const currentVerse = verses[currentAudioIndex] ?? verses[0] ?? null;
 
   /**
    * Memorisation state is read straight from IndexedDB. Previously the reader only
@@ -84,7 +84,7 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   );
 
   const readerProfile = useLiveQuery(() => db.userProfile.get('default_user'), [], undefined);
-  const activeReciterId = readerProfile?.reciterId || RECITERS[0].id;
+  const activeReciterId = readerProfile?.reciterId || RECITERS[0]?.id || 'ar.alafasy';
 
   const bookmarkRows = useLiveQuery(
     () => db.bookmarks.where('surah').equals(chapter.id).toArray(),
@@ -98,15 +98,21 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
    * than the window are filtered in memory (a small set per surah).
    */
   const mistakeRows = useLiveQuery(
-    () => db.recitationMistakes.where('surah').equals(chapter.id).toArray(),
+    () =>
+      db.recitationMistakes
+        .where('surah')
+        .equals(chapter.id)
+        // The 60-day window is applied in the query, not in a render-time memo: `Date.now()`
+        // during render is an impure read, while the Dexie subscription re-runs whenever the
+        // table changes, which is exactly when a fresh cutoff is meaningful.
+        .and((row) => new Date(row.at).getTime() >= Date.now() - 60 * 86_400_000)
+        .toArray(),
     [chapter.id]
   );
   const mistakeWordsByAyah = useMemo(() => {
     const map = new Map<number, Set<number>>();
     if (!mistakeRows) return map;
-    const cutoff = Date.now() - 60 * 86_400_000;
     for (const row of mistakeRows) {
-      if (new Date(row.at).getTime() < cutoff) continue;
       const set = map.get(row.ayah) ?? new Set<number>();
       set.add(row.wordIndex);
       map.set(row.ayah, set);
@@ -577,7 +583,7 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           {verses.map((verse) => {
             const key = `${verse.surah}:${verse.ayah}`;
             const progress = progressMap[key];
-            const isCurrentAyah = currentVerse.ayah === verse.ayah;
+            const isCurrentAyah = currentVerse?.ayah === verse.ayah;
 
             return (
               <div key={key} data-ayah={verse.ayah}>
@@ -627,21 +633,23 @@ Explain the root words, linguistic context, and practical spiritual reflections.
         />
       )}
 
-      <AudioBar
-        surahNumber={chapter.id}
-        totalVerses={chapter.versesCount}
-        currentAyahNumber={currentVerse.ayah}
-        globalAyahNumber={currentVerse.globalNumber}
-        fallbackAudioUrl={currentVerse.audioUrl}
-        wordCount={currentVerse.words.length}
-        words={currentVerse.words}
-        onActiveWordChange={setActiveWordIndex}
-        onAyahCompleted={() => track('audio.completed', { surah: chapter.id, ayah: currentVerse.ayah })}
-        playIntent={playIntent}
-        onPlayingChange={setIsPlaying}
-        onNextAyah={() => handleStep(1)}
-        onPrevAyah={() => handleStep(-1)}
-      />
+      {currentVerse && (
+        <AudioBar
+          surahNumber={chapter.id}
+          totalVerses={chapter.versesCount}
+          currentAyahNumber={currentVerse.ayah}
+          globalAyahNumber={currentVerse.globalNumber}
+          fallbackAudioUrl={currentVerse.audioUrl}
+          wordCount={currentVerse.words.length}
+          words={currentVerse.words}
+          onActiveWordChange={setActiveWordIndex}
+          onAyahCompleted={() => track('audio.completed', { surah: chapter.id, ayah: currentVerse.ayah })}
+          playIntent={playIntent}
+          onPlayingChange={setIsPlaying}
+          onNextAyah={() => handleStep(1)}
+          onPrevAyah={() => handleStep(-1)}
+        />
+      )}
     </div>
   );
 };

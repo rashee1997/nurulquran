@@ -101,8 +101,10 @@ function drawInk(
   for (const stroke of strokes) {
     if (stroke.length === 0) continue;
     if (stroke.length === 1) {
+      const single = stroke[0];
+      if (!single) continue;
       ctx.beginPath();
-      ctx.arc(stroke[0].x, stroke[0].y, INK_WIDTH / 2, 0, Math.PI * 2);
+      ctx.arc(single.x, single.y, INK_WIDTH / 2, 0, Math.PI * 2);
       ctx.fill();
       continue;
     }
@@ -148,7 +150,7 @@ function collectCells(
     const rowOffset = y * canvas.width;
     const rowCell = Math.floor(y / CELL) * columns;
     for (let x = 0; x < canvas.width; x += SAMPLE_STEP) {
-      if (data[(rowOffset + x) * 4 + 3] >= alphaThreshold) {
+      if ((data[(rowOffset + x) * 4 + 3] ?? 0) >= alphaThreshold) {
         cells.add(rowCell + Math.floor(x / CELL));
       }
     }

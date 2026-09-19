@@ -158,44 +158,48 @@ export const NavigationHeader: React.FC = () => {
 
   // Determine current active navigation item
   const getActiveItem = (): NavItem => {
+    const firstItem = ALL_NAV_ITEMS[0];
+    if (!firstItem) {
+      throw new Error('Navigation items table must not be empty.');
+    }
     if (pathname === '/' || pathname.startsWith('/dashboard')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/dashboard') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/dashboard') ?? firstItem;
     }
     // Match specific paths first
     if (pathname.startsWith('/memorize/planner')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/memorize/planner') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/memorize/planner') ?? firstItem;
     }
     if (pathname.startsWith('/memorize')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/memorize') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/memorize') ?? firstItem;
     }
     if (pathname.startsWith('/games')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/games') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/games') ?? firstItem;
     }
     if (pathname.startsWith('/quran')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/quran') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/quran') ?? firstItem;
     }
     if (pathname.startsWith('/arabic-lab')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/arabic-lab') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/arabic-lab') ?? firstItem;
     }
     if (pathname.startsWith('/lessons/tafsir')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/lessons/tafsir') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/lessons/tafsir') ?? firstItem;
     }
     if (pathname.startsWith('/learn')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/learn') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/learn') ?? firstItem;
     }
     if (pathname.startsWith('/review')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/review') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/review') ?? firstItem;
     }
     if (pathname.startsWith('/settings')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/settings') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/settings') ?? firstItem;
     }
     if (pathname.startsWith('/library')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/library') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/library') ?? firstItem;
     }
     if (pathname.startsWith('/progress')) {
-      return ALL_NAV_ITEMS.find((i) => i.href === '/progress') || ALL_NAV_ITEMS[0];
+      return ALL_NAV_ITEMS.find((i) => i.href === '/progress') ?? firstItem;
     }
-    return ALL_NAV_ITEMS[0];
+    return firstItem;
   };
 
   const activeItem = getActiveItem();

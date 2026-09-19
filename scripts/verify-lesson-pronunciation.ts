@@ -98,8 +98,8 @@ async function inspect(
       failures.push({ path, message: `Only ${items.length} of ${resolution.words.length} looked-up words have a clip.` });
       return;
     }
-    const first = items[0].sources[0];
-    const last = items[items.length - 1].sources[0];
+    const first = items[0]?.sources[0] ?? '';
+    const last = items[items.length - 1]?.sources[0] ?? '';
     const [firstOk, lastOk] = await Promise.all([clipExists(first), clipExists(last)]);
     if (!firstOk || !lastOk) {
       failures.push({

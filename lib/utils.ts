@@ -18,7 +18,9 @@ export function shuffle<T>(items: readonly T[]): T[] {
   for (let i = result.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
     const current = result[i]
-    result[i] = result[j]
+    const target = result[j]
+    if (current === undefined || target === undefined) continue
+    result[i] = target
     result[j] = current
   }
   return result

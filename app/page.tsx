@@ -55,9 +55,9 @@ export default function DashboardPage() {
   /** First lesson not yet completed, in curriculum order; the last one if all are done. */
   const nextLesson = useMemo(() => {
     const all = CURRICULUM_LEVELS.flatMap((level) => level.lessons);
-    return all.find((lesson) => !completedLessonIds.has(lesson.id)) ?? all[all.length - 1];
+    return all.find((lesson) => !completedLessonIds.has(lesson.id)) ?? all[all.length - 1] ?? null;
   }, [completedLessonIds]);
-  const nextLessonLevel = CURRICULUM_LEVELS.find((level) => level.lessons.some((l) => l.id === nextLesson.id))?.level ?? 1;
+  const nextLessonLevel = CURRICULUM_LEVELS.find((level) => level.lessons.some((l) => l.id === nextLesson?.id))?.level ?? 1;
 
   const readingPosition = profile?.readingPosition ?? null;
   const readingSurah = readingPosition ? SURAHS.find((s) => s.id === readingPosition.surah) : null;
@@ -171,16 +171,16 @@ export default function DashboardPage() {
               <span className="text-xs text-muted-foreground font-medium">Level {nextLessonLevel}</span>
             </div>
             <h3 className="text-base font-bold text-foreground">
-              {nextLesson.title}
+              {nextLesson?.title}
             </h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {nextLesson.description}
+              {nextLesson?.description}
             </p>
           </div>
 
           <div className="pt-2">
             <Link
-              href={`/learn/${nextLesson.id}`}
+              href={`/learn/${nextLesson?.id ?? ''}`}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-98"
             >
               <span>

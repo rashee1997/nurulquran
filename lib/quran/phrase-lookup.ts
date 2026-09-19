@@ -139,7 +139,9 @@ async function verseWords(verseKey: string): Promise<PhraseWord[]> {
   if (words.length > MAX_VERSE_WORDS) return [];
   // Positions must ascend; a verse whose numbering skips or repeats cannot be addressed by index.
   for (let index = 1; index < words.length; index += 1) {
-    if (words[index].position <= words[index - 1].position) return [];
+    const current = words[index];
+    const previous = words[index - 1];
+    if (!current || !previous || current.position <= previous.position) return [];
   }
   return words;
 }
@@ -153,7 +155,8 @@ function findRun(verse: readonly PhraseWord[], phrase: readonly string[]): numbe
   for (let start = 0; start <= last; start += 1) {
     let matched = true;
     for (let offset = 0; offset < target.length; offset += 1) {
-      if (target[offset].length === 0 || haystack[start + offset] !== target[offset]) {
+      const targetWord = target[offset];
+      if (targetWord === undefined || targetWord.length === 0 || haystack[start + offset] !== targetWord) {
         matched = false;
         break;
       }
@@ -246,11 +249,14 @@ export async function lookupQuranPhrase(arabic: string): Promise<PhraseLookup> {
     if (start === -1) continue;
 
     const matched = verse.slice(start, start + words.length);
-    const endWord = matched[matched.length - 1].position;
+    const firstMatched = matched[0];
+    const lastMatched = matched[matched.length - 1];
+    if (!firstMatched || !lastMatched) continue;
+    const endWord = lastMatched.position;
     const span: RecitationSpan = {
       surah: parsed.surah,
       ayah: parsed.ayah,
-      startWord: matched[0].position,
+      startWord: firstMatched.position,
       endWord,
     };
     const result: PhraseLookup = {

@@ -36,7 +36,8 @@ export const MutashabihatRadarCanvas: React.FC = () => {
   // e.g., "Which verse contains the distinctive token: [token]?"
   const [questionTargetIndex, setQuestionTargetIndex] = useState<0 | 1>(0);
 
-  const currentEntry: MutashabihEntry = pairs[currentIndex] || pairs[0];
+  const currentEntry: MutashabihEntry =
+    pairs[currentIndex] ?? pairs[0] ?? MUTASHABIHAT_DATASET[0] as MutashabihEntry;
 
   const particlesRef = useRef<CanvasParticle[]>([]);
   const ripplesRef = useRef<RippleWave[]>([]);

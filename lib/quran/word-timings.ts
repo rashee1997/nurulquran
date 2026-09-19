@@ -2,6 +2,7 @@ import type { QuranWord } from './types';
 import { stripTashkeel } from './arabic-text';
 import { getReciter } from './reciters';
 import { db } from '../db';
+import { z } from 'zod';
 
 /**
  * Word-level timing for ayah recitations.
@@ -108,11 +109,6 @@ async function resolveTimings(reciterId: string, surah: number): Promise<TimingS
 }
 
 /** One entry of the Quran.com `by_chapter` response, narrowed to the fields used here. */
-interface QuranComAudioFile {
-  verse_key?: unknown;
-  segments?: unknown;
-}
-
 /**
  * A number the API may have serialised as a JSON string.
  *
@@ -143,15 +139,32 @@ async function fetchQuranComTimings(recitationId: number, surah: number): Promis
   );
   if (typeof payload !== 'object' || payload === null) return null;
 
-  const files = (payload as { audio_files?: unknown }).audio_files;
-  if (!Array.isArray(files)) return null;
+  /*
+   * The timing boundary, validated rather than cast.
+   *
+   * `audio_files` entries arrive with the segments possibly JSON-stringified (Sudais does
+   * this for every ayah), so `segments` is typed as unknown and the existing
+   * string-tolerant `parseSegments` stays the single parser. Anything that does not match
+   * the envelope shape yields null — the caller falls back to the length estimate instead
+   * of highlighting the wrong word.
+   */
+  const parsedEnvelope = z
+    .object({
+      audio_files: z.array(
+        z.object({
+          verse_key: z.string().optional(),
+          segments: z.unknown().optional(),
+        })
+      ).optional(),
+    })
+    .safeParse(payload);
+  if (!parsedEnvelope.success || !parsedEnvelope.data.audio_files) return null;
 
   const source: TimingSource = {};
-  for (const file of files as QuranComAudioFile[]) {
-    const verseKey = file?.verse_key;
-    if (typeof verseKey !== 'string') continue;
-    const words = parseSegments(file?.segments);
-    if (words.length > 0) source[verseKey] = words;
+  for (const file of parsedEnvelope.data.audio_files) {
+    if (!file.verse_key) continue;
+    const words = parseSegments(file.segments);
+    if (words.length > 0) source[file.verse_key] = words;
   }
 
   return Object.keys(source).length > 0 ? source : null;
@@ -262,7 +275,9 @@ export function alignSegmentsToWords(
 
   const known = [...byIndex.values()].sort((a, b) => a[0] - b[0]);
   for (let index = 1; index < known.length; index += 1) {
-    if (known[index][1] < known[index - 1][2]) return null;
+    const current = known[index];
+    const previous = known[index - 1];
+    if (!current || !previous || current[1] < previous[2]) return null;
   }
 
   const averageSpan =
@@ -273,7 +288,7 @@ export function alignSegmentsToWords(
 
   for (const [wordIndex, start, end] of known) {
     if (wordIndex > cursor) {
-      const gapStart = aligned.length > 0 ? aligned[aligned.length - 1][2] : 0;
+      const gapStart = aligned.length > 0 ? (aligned[aligned.length - 1]?.[2] ?? 0) : 0;
       aligned.push(...distribute(cursor, wordIndex - 1, gapStart, Math.max(gapStart, start)));
     }
     aligned.push([wordIndex, start, end]);
@@ -281,7 +296,8 @@ export function alignSegmentsToWords(
   }
 
   if (cursor <= wordCount) {
-    const tailStart = known[known.length - 1][2];
+    const lastKnown = known[known.length - 1];
+    const tailStart = lastKnown?.[2] ?? 0;
     aligned.push(...distribute(cursor, wordCount, tailStart, tailStart + averageSpan * (wordCount - cursor + 1)));
   }
 
@@ -323,7 +339,7 @@ export function estimateSegments(words: readonly QuranWord[], durationMs: number
 
   let cursor = lead;
   return words.map((word, index) => {
-    const span = (weights[index] / total) * usable;
+    const span = ((weights[index] ?? 0) / total) * usable;
     const start = cursor;
     cursor += span;
     return [word.wordIndex, Math.round(start), Math.round(cursor)];

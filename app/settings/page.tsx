@@ -446,7 +446,7 @@ export default function SettingsPage() {
               1. Qari voice
             </h4>
             <span className="text-[11px] text-muted-foreground">
-              Select a voice • Samples speak {activeLanguageOption.short}
+              Select a voice • Samples speak {activeLanguageOption?.short ?? ''}
             </span>
           </div>
 

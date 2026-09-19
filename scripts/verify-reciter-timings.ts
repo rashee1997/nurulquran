@@ -306,7 +306,8 @@ async function checkReciter(reciterId: string, name: string, recitationId: numbe
       const alignedBitrate = bitrateOf(file.url) ?? cdnBitrate;
       const cdnDurationMs = durationMs(cdnBytes, cdnBitrate);
       const alignedDurationMs = durationMs(alignedBytes, alignedBitrate);
-      const lastSegmentEnd = file.segments[file.segments.length - 1][2];
+      const lastSegment = file.segments[file.segments.length - 1];
+      const lastSegmentEnd = lastSegment?.[2] ?? 0;
 
       const durationAgrees =
         cdnDurationMs !== null &&

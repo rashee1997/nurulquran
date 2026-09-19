@@ -91,7 +91,7 @@ export async function getRandomGameVerses(count: number): Promise<GameVerse[]> {
     const verses = await getSurahGameVerses(surahId);
     if (verses.length === 0) continue;
     const verse = verses[Math.floor(Math.random() * verses.length)];
-    if (verse.words.length >= 2) picked.push(verse);
+    if (verse && verse.words.length >= 2) picked.push(verse);
   }
   return picked;
 }

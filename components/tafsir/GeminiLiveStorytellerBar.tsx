@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { VoiceActivityWaveform } from './VoiceActivityWaveform';
+import { InlineEnginePicker } from '@/components/learning/InlineEnginePicker';
 import type { UseGeminiLiveTafsirResult } from '@/hooks/use-gemini-live-tafsir';
 import type { LiveStorytellerStatus, TafsirLanguage } from '@/lib/tafsir/types';
 
@@ -137,6 +138,7 @@ export const GeminiLiveStorytellerBar: React.FC<GeminiLiveStorytellerBarProps> =
         />
 
         <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <InlineEnginePicker moduleId="tafsir-storyteller" compact />
           {isRunning ? (
             <>
               <button

@@ -259,6 +259,7 @@ function buildUnits(wordText: string, wordIndex: number): Unit[] {
       continue;
     }
     const current = units[units.length - 1];
+    if (!current) continue;
     if (isMark(character)) {
       current.text += character;
       current.marks.push(character);
@@ -272,14 +273,16 @@ function buildUnits(wordText: string, wordIndex: number): Unit[] {
 
 function nextUnit(flat: FlatUnit[], position: number): FlatUnit | undefined {
   for (let index = position + 1; index < flat.length; index++) {
-    if (flat[index].base.length > 0) return flat[index];
+    const unit = flat[index];
+    if (unit && unit.base.length > 0) return unit;
   }
   return undefined;
 }
 
 function previousUnit(flat: FlatUnit[], position: number): FlatUnit | undefined {
   for (let index = position - 1; index >= 0; index--) {
-    if (flat[index].base.length > 0) return flat[index];
+    const unit = flat[index];
+    if (unit && unit.base.length > 0) return unit;
   }
   return undefined;
 }

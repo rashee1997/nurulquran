@@ -5,6 +5,7 @@
  */
 
 import type { FeedbackLanguage } from '@/lib/i18n/language';
+import { resolveAudioContextConstructor } from './audio-context';
 
 // Audio sample rate constraints
 export const RECORDING_SAMPLE_RATE = 16000; // Gemini Live expects 16kHz Mono PCM
@@ -16,7 +17,7 @@ export const PLAYBACK_SAMPLE_RATE = 24000;  // Gemini Live returns 24kHz Mono PC
 export function convertFloat32ToInt16PCM(float32Array: Float32Array): Int16Array {
   const int16Array = new Int16Array(float32Array.length);
   for (let i = 0; i < float32Array.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    const s = Math.max(-1, Math.min(1, float32Array[i] ?? 0));
     int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
   }
   return int16Array;
@@ -50,7 +51,7 @@ export function downsampleBuffer(
     let accum = 0;
     let count = 0;
     for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-      accum += buffer[i];
+      accum += buffer[i] ?? 0;
       count++;
     }
     result[offsetResult] = count > 0 ? accum / count : 0;
@@ -97,7 +98,7 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
 export function computeRmsVolume(samples: Float32Array): number {
   let sum = 0;
   for (let i = 0; i < samples.length; i++) {
-    sum += samples[i] * samples[i];
+    sum += (samples[i] ?? 0) * (samples[i] ?? 0);
   }
   const rms = Math.sqrt(sum / samples.length);
   // Logarithmic conversion to human perceived loudness (0 to 100)
@@ -122,9 +123,7 @@ export class PCMAudioStreamPlayer {
 
   private ensureContext(): AudioContext {
     if (!this.audioCtx || this.audioCtx.state === 'closed') {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioContextClass = resolveAudioContextConstructor();
       this.audioCtx = new AudioContextClass({ sampleRate: this.sampleRate });
       this.gainNode = this.audioCtx.createGain();
       this.gainNode.connect(this.audioCtx.destination);
@@ -165,7 +164,7 @@ export class PCMAudioStreamPlayer {
     // Convert Int16 back to Float32 for Web Audio AudioBuffer
     const float32Array = new Float32Array(int16Array.length);
     for (let i = 0; i < int16Array.length; i++) {
-      float32Array[i] = int16Array[i] / 32768.0;
+      float32Array[i] = (int16Array[i] ?? 0) / 32768.0;
     }
 
     const audioBuffer = ctx.createBuffer(1, float32Array.length, this.sampleRate);
@@ -346,9 +345,8 @@ export async function playVoiceHarmonicPreview(
 
   // Fallback to harmonic cadence preview if network/API unavailable
   const voice = AI_TEACHER_VOICES.find((v) => v.id === voiceId) || AI_TEACHER_VOICES[0];
-  const AudioContextClass =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  if (!voice) throw new Error('AI teacher voice table must not be empty.');
+  const AudioContextClass = resolveAudioContextConstructor();
   const ctx = new AudioContextClass();
 
   const now = ctx.currentTime;

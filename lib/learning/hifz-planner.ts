@@ -91,11 +91,14 @@ export async function allocateTodaysSabaq(): Promise<VerseProgress[]> {
     await db.verseProgress.bulkPut(rows);
     // Move the target surah forward once a surah is fully queued.
     const last = rows[rows.length - 1];
-    const lastSurah = SURAHS.find((s) => s.id === last.surah);
-    if (lastSurah && last.ayah === lastSurah.versesCount && profile) {
-      await db.userProfile.update('default_user', { hifzTargetSurah: (last.surah % SURAHS.length) + 1 });
+    const first = rows[0];
+    if (last && first) {
+      const lastSurah = SURAHS.find((s) => s.id === last.surah);
+      if (lastSurah && last.ayah === lastSurah.versesCount && profile) {
+        await db.userProfile.update('default_user', { hifzTargetSurah: (last.surah % SURAHS.length) + 1 });
+      }
+      track('planner.sabaq_allocated', { count: rows.length, from: `${first.surah}:${first.ayah}` });
     }
-    track('planner.sabaq_allocated', { count: rows.length, from: `${rows[0].surah}:${rows[0].ayah}` });
   }
   return rows;
 }

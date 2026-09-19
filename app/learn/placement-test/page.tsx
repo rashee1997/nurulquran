@@ -534,7 +534,7 @@ export default function TajweedPlacementExamPage() {
               <button
                 type="button"
                 onClick={() => setCurrentQIndex(currentQIndex + 1)}
-                disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex].id] === undefined}
+                disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex]?.id ?? ''] === undefined}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-xs font-bold transition-all shadow-xs"
               >
                 <span>Next Question</span>
@@ -544,7 +544,7 @@ export default function TajweedPlacementExamPage() {
               <button
                 type="button"
                 onClick={() => setStep('recitation')}
-                disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex].id] === undefined}
+                disabled={selectedAnswers[DIAGNOSTIC_QUESTIONS[currentQIndex]?.id ?? ''] === undefined}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground text-xs font-bold transition-all shadow-md active:scale-95"
               >
                 <span>Proceed to Oral Recitation</span>

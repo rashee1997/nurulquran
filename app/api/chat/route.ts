@@ -30,14 +30,17 @@ function seededOrder(seed: string, length: number): number[] {
   for (let index = order.length - 1; index > 0; index--) {
     hash = (Math.imul(hash, 48271) + 11) % 2147483647;
     const swapWith = hash % (index + 1);
-    [order[index], order[swapWith]] = [order[swapWith], order[index]];
+    const current = order[index];
+    const swapTarget = order[swapWith];
+    if (current === undefined || swapTarget === undefined) continue;
+    [order[index], order[swapWith]] = [swapTarget, current];
   }
   return order;
 }
 
 function shuffleWithSeed<T>(items: readonly T[], seed: string): T[] {
   const order = seededOrder(seed, items.length);
-  return order.map((index) => items[index]);
+  return order.map((index) => items[index]).filter((item) => item !== undefined);
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -389,6 +392,9 @@ Be warm but measured, and remind students of patience and consistency.`;
            * the "correct" answer ambiguous rather than testing recall.
            */
           const target = words[0];
+          if (!target) {
+            return { available: false, reason: 'This verse contains no word-level data.' };
+          }
           const otherMeanings = Array.from(
             new Set(
               words

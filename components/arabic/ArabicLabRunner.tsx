@@ -67,7 +67,9 @@ function seededShuffle<T>(items: readonly T[], seed: string): T[] {
     state = (state * 1103515245 + 12345) % 2147483647;
     const j = state % (i + 1);
     const swap = out[i];
-    out[i] = out[j];
+    const target = out[j];
+    if (swap === undefined || target === undefined) continue;
+    out[i] = target;
     out[j] = swap;
   }
   return out;

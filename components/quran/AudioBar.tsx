@@ -438,7 +438,7 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   const cycleRepeatMode = useCallback((): void => {
     setRepeatMode((previous) => {
       const index = REPEAT_MODES.indexOf(previous as (typeof REPEAT_MODES)[number]);
-      return REPEAT_MODES[(index + 1) % REPEAT_MODES.length];
+      return REPEAT_MODES[(index + 1) % REPEAT_MODES.length] ?? 1;
     });
     setLoopState({ ayah: currentAyahNumber, count: 1 });
   }, [currentAyahNumber]);
@@ -446,7 +446,7 @@ export const AudioBar: React.FC<AudioBarProps> = ({
   const cycleSpeed = useCallback((): void => {
     setPlaybackRate((previous) => {
       const index = PLAYBACK_RATES.indexOf(previous as (typeof PLAYBACK_RATES)[number]);
-      const next = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+      const next = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length] ?? 1;
       if (audioRef.current) {
         audioRef.current.playbackRate = next;
       }

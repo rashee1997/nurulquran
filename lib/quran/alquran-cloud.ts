@@ -19,6 +19,7 @@ import {
 } from './verified-offline-corpus';
 import { wordAudioUrl } from './word-audio';
 import { db } from '../db';
+import { z } from 'zod';
 
 /**
  * AlQuran Cloud provider (keyless REST).
@@ -91,6 +92,46 @@ interface RemoteSearchMatch {
   surah?: { number?: number; englishName?: string; name?: string };
 }
 
+/*
+ * Runtime validation of the scripture boundary.
+ *
+ * `fetchScripture` used to return `(await response.json()) as T` — an unchecked promise that
+ * whatever api.alquran.cloud sent matched the interface above. The envelope is now validated
+ * with Zod before it leaves this module: the schemas mirror the interfaces exactly, and a
+ * shape the service does not honour becomes a thrown fetch failure (which the callers already
+ * route to the verified offline corpus) instead of an undefined-text Verse rendered to a child.
+ * Loose optional fields stay optional, so a new upstream field never breaks parsing.
+ */
+const ayahEditionSchema = z.object({
+  number: z.number(),
+  numberInSurah: z.number(),
+  text: z.string(),
+  juz: z.number().optional(),
+  hizbQuarter: z.number().optional(),
+  page: z.number().optional(),
+  edition: z.object({ identifier: z.string().optional() }).optional(),
+});
+
+const surahEditionSchema = z.object({
+  edition: z.object({ identifier: z.string().optional() }).optional(),
+  ayahs: z.array(ayahEditionSchema).optional(),
+});
+
+const remoteSearchMatchSchema = z.object({
+  text: z.string().optional(),
+  numberInSurah: z.number().optional(),
+  surah: z
+    .object({
+      number: z.number().optional(),
+      englishName: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .optional(),
+});
+
+const envelopeSchema = <T extends z.ZodTypeAny>(data: T) =>
+  z.object({ code: z.number().optional(), status: z.string().optional(), data });
+
 const WORD_MORPHOLOGY_MAP: Record<
   string,
   { root: string; morphology: string; transliteration: string; en: string; ta: string }
@@ -113,8 +154,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Fetches JSON with a timeout and bounded exponential backoff. */
-async function fetchScripture<T>(url: string): Promise<T> {
+/**
+ * Fetches JSON with a timeout and bounded exponential backoff, validating the response
+ * envelope against the Zod schema for the expected edition shape before it is returned.
+ * A response that does not parse is treated like a network failure: the retry/backoff path
+ * runs, and the callers' verified-offline fallbacks remain the only substitute.
+ */
+async function fetchScripture<T>(url: string, schema: z.ZodType<T>): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
@@ -126,7 +172,12 @@ async function fetchScripture<T>(url: string): Promise<T> {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} from ${response.url}`);
       }
-      return (await response.json()) as T;
+      const raw: unknown = await response.json();
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error(`Scripture response failed validation from ${response.url}`);
+      }
+      return parsed.data;
     } catch (error) {
       lastError = error;
       if (attempt < FETCH_ATTEMPTS) {
@@ -150,7 +201,9 @@ async function mapWithConcurrency<T, R>(
   async function run(): Promise<void> {
     while (cursor < items.length) {
       const index = cursor++;
-      results[index] = await worker(items[index], index);
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await worker(item, index);
     }
   }
 
@@ -466,8 +519,11 @@ export class AlQuranCloudProvider implements QuranProvider {
     }
 
     try {
-      const envelope = await fetchScripture<EditionsEnvelope<AyahEdition | AyahEdition[]>>(
-        `${API_BASE}/ayah/${ref.surah}:${ref.ayah}/editions/quran-uthmani,en.sahih,ta.tamil`
+      const envelope = await fetchScripture(
+        `${API_BASE}/ayah/${ref.surah}:${ref.ayah}/editions/quran-uthmani,en.sahih,ta.tamil`,
+        envelopeSchema(ayahEditionSchema.or(surahEditionSchema)) as z.ZodType<
+          EditionsEnvelope<AyahEdition | AyahEdition[]>
+        >
       );
       const editions = Array.isArray(envelope.data)
         ? envelope.data
@@ -515,8 +571,9 @@ export class AlQuranCloudProvider implements QuranProvider {
 
     // Fast path: one request per edition for the whole chapter.
     try {
-      const envelope = await fetchScripture<EditionsEnvelope<SurahEdition[]>>(
-        `${API_BASE}/surah/${surahId}/editions/quran-uthmani,en.sahih,ta.tamil`
+      const envelope = await fetchScripture(
+        `${API_BASE}/surah/${surahId}/editions/quran-uthmani,en.sahih,ta.tamil`,
+        envelopeSchema(z.array(surahEditionSchema)) as z.ZodType<EditionsEnvelope<SurahEdition[]>>
       );
       const editions = Array.isArray(envelope.data) ? envelope.data : [];
       const verses = this.composeChapterFromSurahEditions(surahId, editions);
@@ -676,9 +733,12 @@ export class AlQuranCloudProvider implements QuranProvider {
   private async searchRemote(raw: string, limit: number): Promise<SearchResult[]> {
     try {
       const edition = /[\u0600-\u06FF]/.test(raw) ? 'quran-uthmani' : 'en.sahih';
-      const envelope = await fetchScripture<
-        EditionsEnvelope<{ matches?: RemoteSearchMatch[] }>
-      >(`${API_BASE}/search/${encodeURIComponent(raw)}/all/${edition}`);
+      const envelope = await fetchScripture(
+        `${API_BASE}/search/${encodeURIComponent(raw)}/all/${edition}`,
+        envelopeSchema(z.object({ matches: z.array(remoteSearchMatchSchema).optional() })) as z.ZodType<
+          EditionsEnvelope<{ matches?: RemoteSearchMatch[] }>
+        >
+      );
 
       const matches = envelope.data?.matches;
       if (!Array.isArray(matches)) return [];

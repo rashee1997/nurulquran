@@ -198,7 +198,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
 
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
-        if (node.isMatched) continue;
+        if (!node || node.isMatched) continue;
 
         // Orbital floating physics
         node.phase += node.speed;
@@ -294,7 +294,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
     const nodes = nodesRef.current;
     for (let i = 0; i < nodes.length; i++) {
       const node = nodes[i];
-      if (node.isMatched) continue;
+      if (!node || node.isMatched) continue;
 
       const halfW = node.width / 2;
       const halfH = node.height / 2;
@@ -490,8 +490,9 @@ export const AyahAssemblyCanvas: React.FC = () => {
         className="relative w-full h-[460px] rounded-2xl overflow-hidden border border-border bg-slate-950/90 shadow-inner select-none cursor-pointer"
         onClick={(e) => handleCanvasInteraction(e.clientX, e.clientY)}
         onTouchStart={(e) => {
-          if (e.touches.length > 0) {
-            handleCanvasInteraction(e.touches[0].clientX, e.touches[0].clientY);
+          const touch = e.touches[0];
+          if (touch) {
+            handleCanvasInteraction(touch.clientX, touch.clientY);
           }
         }}
       >

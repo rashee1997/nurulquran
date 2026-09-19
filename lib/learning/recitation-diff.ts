@@ -72,12 +72,16 @@ export function diffRecitation(referenceText: string, transcript: string, refere
   const m = heard.length;
   // dp[i][j] = minimal cost aligning reference[0..i) with heard[0..j)
   const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
-  for (let i = 1; i <= n; i++) dp[i][0] = i;
-  for (let j = 1; j <= m; j++) dp[0][j] = j;
+  for (let i = 1; i <= n; i++) { const row = dp[i]; if (row) row[0] = i; }
+  for (let j = 1; j <= m; j++) { const row = dp[0]; if (row) row[j] = j; }
   for (let i = 1; i <= n; i++) {
     for (let j = 1; j <= m; j++) {
-      const substitution = dp[i - 1][j - 1] + (similar(reference[i - 1], heard[j - 1]) ? 0 : 1);
-      dp[i][j] = Math.min(substitution, dp[i - 1][j] + 1, dp[i][j - 1] + 1);
+      const subCost = dp[i - 1]?.[j - 1] ?? 0;
+      const delCost = dp[i - 1]?.[j] ?? 0;
+      const insCost = dp[i]?.[j - 1] ?? 0;
+      const substitution = subCost + (similar(reference[i - 1] ?? '', heard[j - 1] ?? '') ? 0 : 1);
+      const cell = dp[i];
+      if (cell) cell[j] = Math.min(substitution, delCost + 1, insCost + 1);
     }
   }
 
@@ -86,12 +90,12 @@ export function diffRecitation(referenceText: string, transcript: string, refere
   let j = m;
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0) {
-      const isSimilar = similar(reference[i - 1], heard[j - 1]);
-      if (dp[i][j] === dp[i - 1][j - 1] + (isSimilar ? 0 : 1)) {
+      const isSimilar = similar(reference[i - 1] ?? '', heard[j - 1] ?? '');
+      if (dp[i]?.[j] === (dp[i - 1]?.[j - 1] ?? 0) + (isSimilar ? 0 : 1)) {
         aligned.push({
           wordIndex: i,
-          expected: display[i - 1] ?? reference[i - 1],
-          heard: heard[j - 1],
+          expected: display[i - 1] ?? reference[i - 1] ?? '',
+          heard: heard[j - 1] ?? '',
           status: isSimilar ? 'match' : 'substituted',
         });
         i--;
@@ -99,18 +103,19 @@ export function diffRecitation(referenceText: string, transcript: string, refere
         continue;
       }
     }
-    if (i > 0 && dp[i][j] === dp[i - 1][j] + 1) {
-      aligned.push({ wordIndex: i, expected: display[i - 1] ?? reference[i - 1], status: 'skipped' });
+    if (i > 0 && dp[i]?.[j] === (dp[i - 1]?.[j] ?? 0) + 1) {
+      aligned.push({ wordIndex: i, expected: display[i - 1] ?? reference[i - 1] ?? '', status: 'skipped' });
       i--;
       continue;
     }
-    aligned.push({ wordIndex: 0, expected: '', heard: heard[j - 1], status: 'inserted' });
+    aligned.push({ wordIndex: 0, expected: '', heard: heard[j - 1] ?? '', status: 'inserted' });
     j--;
   }
   aligned.reverse();
 
   const matched = aligned.filter((w) => w.status === 'match').length;
   const mistakes = aligned.filter((w) => w.status !== 'match');
+  void mistakes;
   return {
     words: aligned,
     matched,

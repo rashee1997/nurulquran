@@ -11,11 +11,13 @@ import {
 } from '@/lib/audio/model-cache';
 import {
   MODEL_VARIANTS,
+  resolveModuleVariant,
   variantTotalBytes,
   type CoachModelVariant,
 } from '@/lib/audio/model-registry';
 import { ModelDownloadPanel, publishTick } from '@/components/quran/ModelDownloadPanel';
 import { RecitationCoachCanvas } from '@/components/quran/RecitationCoachCanvas';
+import { InlineEnginePicker } from '@/components/learning/InlineEnginePicker';
 import { showToast } from '@/lib/ui/toast';
 import { db } from '@/lib/db';
 
@@ -73,10 +75,14 @@ export default function RecitationCoachPage() {
     void (async () => {
       const profile = await db.userProfile.get('default_user');
       if (!active) return;
-      const variant: CoachModelVariant =
-        profile?.coachModelVariant && profile.coachModelVariant in MODEL_VARIANTS
-          ? profile.coachModelVariant
-          : 'balanced';
+      /*
+       * The recitation coach honours its own inline pick first (moduleEngines), then the
+       * Settings default — the same resolution every voice module uses. A 'cloud' inline pick
+       * still requires the local engine here (the canvas is the on-device coach), so it is
+       * treated as Default for readiness purposes.
+       */
+      const resolved = resolveModuleVariant('recitation-coach', profile?.moduleEngines, profile?.coachModelVariant);
+      const variant: CoachModelVariant = resolved?.id ?? 'balanced';
       setPreferredVariant(variant);
       const ready = await areAllModelsReady(variant);
       if (!active) return;
@@ -113,36 +119,18 @@ export default function RecitationCoachPage() {
     };
   }, [surah, ayah, words]);
 
-  /**
-   * Downloads the learner's preferred variant, walking its fallback chain automatically when a
-   * download fails. The toast names the variant that actually became ready so the learner can
-   * see when a fallback engine was used.
-   */
+  /** Downloads exactly the resolved variant — no fallback; failures surface inline. */
   const handleDownload = async (): Promise<void> => {
     setDownloading(true);
     try {
       const unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => publishTick(progress));
-      const { variant, error } = await ensurePreferredVariantReady(preferredVariant, (done, total) => {
+      const { variant } = await ensurePreferredVariantReady(preferredVariant, (done, total) => {
         setProgressLabel(`Model ${done} of ${total}`);
       });
       unsubscribe();
-      const ready = variant !== null;
-      setModelsReady(ready);
-      const snapshot = await getModelSnapshot();
-      const failed = snapshot.find((entry) => entry.state === 'error');
-      if (failed) {
-        showToast(`${failed.label}: ${failed.error ?? 'download failed'}`, 'error');
-      } else if (ready && variant) {
-        const size = (variantTotalBytes(variant) / 1048576).toFixed(0);
-        showToast(
-          variant.id === preferredVariant
-            ? `${variant.label} cached (${size} MB). The coach works offline.`
-            : `${variant.label} cached instead — your preferred engine could not be downloaded${error ? ` (${error})` : ''}.`,
-          'success'
-        );
-      } else {
-        showToast(error ?? 'Model download failed.', 'error');
-      }
+      setModelsReady(true);
+      const size = (variantTotalBytes(variant) / 1048576).toFixed(0);
+      showToast(`${variant.label} cached (${size} MB). The coach works offline.`, 'success');
     } catch (error: unknown) {
       showToast(error instanceof Error ? error.message : 'Model download failed.', 'error');
     } finally {
@@ -158,14 +146,15 @@ export default function RecitationCoachPage() {
       <header className="space-y-2">
         <h1 className="text-2xl font-extrabold text-foreground">Recitation Coach</h1>
         <p className="text-sm text-muted-foreground">
-          Recite aloud and get word-by-word feedback. Coaching runs on Google&apos;s cloud voice
-          model and seamlessly switches to a private on-device engine when the cloud is
-          unavailable — your microphone keeps running either way.
+          Recite aloud and get word-by-word feedback from the on-device engine you chose —
+          inline below, or the Settings default when left on Automatic. Feedback works fully
+          offline once the models are cached.
         </p>
       </header>
 
       {modelsReady === false && (
         <div className="rounded-2xl border border-info/40 bg-info-subtle p-4 space-y-3">
+          <InlineEnginePicker moduleId="recitation-coach" />
           <p className="flex items-center gap-2 text-sm font-bold text-info-strong">
             <HardDriveDownload className="w-4 h-4" aria-hidden="true" />
             One-time setup: {(variantTotalBytes(MODEL_VARIANTS[preferredVariant]) / 1048576).toFixed(0)} MB of models for the {MODEL_VARIANTS[preferredVariant].label} engine, cached on this device.

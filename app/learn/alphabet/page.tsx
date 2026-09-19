@@ -31,7 +31,9 @@ export default function AlphabetStudioPage() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
   const [vowelMode, setVowelMode] = useState<VowelMode>('isolated');
   const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
-  const [selectedLetter, setSelectedLetter] = useState<ArabicLetterMeta>(ARABIC_ALPHABET[0]);
+  const [selectedLetter, setSelectedLetter] = useState<ArabicLetterMeta>(
+    () => ARABIC_ALPHABET[0] as ArabicLetterMeta
+  );
   const [quizMode, setQuizMode] = useState(false);
   const [quizScore, setQuizScore] = useState(0);
   const [quizTotal, setQuizTotal] = useState(0);
@@ -118,7 +120,7 @@ export default function AlphabetStudioPage() {
   };
 
   const generateNextQuestion = () => {
-    const target = ARABIC_ALPHABET[Math.floor(Math.random() * ARABIC_ALPHABET.length)];
+    const target = ARABIC_ALPHABET[Math.floor(Math.random() * ARABIC_ALPHABET.length)] ?? selectedLetter;
     const distractors = shuffle(ARABIC_ALPHABET.filter((l) => l.id !== target.id)).slice(0, 3);
     const options = shuffle([target, ...distractors]);
 

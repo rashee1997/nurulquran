@@ -290,7 +290,7 @@ export function pronunciationItems(resolution: Pronunciation): PronunciationItem
   if (resolution.kind === 'quran') {
     const items: PronunciationItem[] = [];
     resolution.words.forEach((text, index) => {
-      const position = resolution.positions[index];
+      const position = resolution.positions[index] ?? 0;
       const sources = wordAudioCandidates(resolution.surah, resolution.ayah, position);
       if (sources.length === 0) return;
       items.push({
@@ -336,7 +336,7 @@ export function pronunciationSource(resolution: Pronunciation): {
       label: single ? 'Letter recording' : 'Letter recordings',
       detail:
         (single
-          ? `The recorded pronunciation of ${resolution.letters[0].nameEn}.`
+          ? `The recorded pronunciation of ${resolution.letters[0]?.nameEn ?? 'the letter'}.`
           : `Each letter recorded separately: ${resolution.letters.map((meta) => meta.nameEn).join(', ')}.`) + missing,
       recorded: true,
     };

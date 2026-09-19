@@ -4,6 +4,7 @@
  */
 
 import { previewAudio } from '../audio/preview-audio';
+import { resolveAudioContextConstructor } from '../audio/audio-context';
 
 class GameSoundEngine {
   private ctx: AudioContext | null = null;
@@ -12,10 +13,12 @@ class GameSoundEngine {
   private initCtx(): AudioContext | null {
     if (typeof window === 'undefined') return null;
 
-    const AudioCtxClass =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtxClass) return null;
+    let AudioCtxClass: typeof AudioContext;
+    try {
+      AudioCtxClass = resolveAudioContextConstructor();
+    } catch {
+      return null;
+    }
 
     if (!this.ctx || this.ctx.state === 'closed') {
       this.ctx = new AudioCtxClass();

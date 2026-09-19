@@ -17,12 +17,12 @@ function pad3(value: number): string {
 
 export function wordClipUrl(verseKey: string, wordIndex: number): string {
   const [surah, ayah] = verseKey.split(':').map((part) => Number.parseInt(part, 10));
-  return `https://audio.qurancdn.com/wbw/${pad3(surah)}_${pad3(ayah)}_${pad3(wordIndex + 1)}.mp3`;
+  return `https://audio.qurancdn.com/wbw/${pad3(surah ?? 0)}_${pad3(ayah ?? 0)}_${pad3(wordIndex + 1)}.mp3`;
 }
 
 export function ayahAudioUrl(verseKey: string, reciter = 'Alafasy_128kbps'): string {
   const [surah, ayah] = verseKey.split(':').map((part) => Number.parseInt(part, 10));
-  return `https://everyayah.com/data/${reciter}/${pad3(surah)}${pad3(ayah)}.mp3`;
+  return `https://everyayah.com/data/${reciter}/${pad3(surah ?? 0)}${pad3(ayah ?? 0)}.mp3`;
 }
 
 /** Plays an authentic recitation clip; resolves when playback finishes (or fails cleanly). */

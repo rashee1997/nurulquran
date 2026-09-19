@@ -183,6 +183,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
       const cards = cardsRef.current;
       for (let i = 0; i < cards.length; i++) {
         const card = cards[i];
+        if (!card) continue;
 
         // Animate flip progress towards target
         const targetFlip = card.isFlipped || card.isMatched ? 1 : 0;
@@ -318,7 +319,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
     const cards = cardsRef.current;
     for (let i = 0; i < cards.length; i++) {
       const card = cards[i];
-      if (card.isMatched || card.isFlipped) continue;
+      if (!card || card.isMatched || card.isFlipped) continue;
 
       if (
         clickX >= card.x &&
@@ -338,6 +339,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
         if (currentlyFlipped.length === 2) {
           setMoves((prev) => prev + 1);
           const [cardA, cardB] = currentlyFlipped;
+          if (!cardA || !cardB) { flippedCardsRef.current = []; break; }
 
           if (cardA.pairId === cardB.pairId && cardA.type !== cardB.type) {
             // MATCH!
@@ -459,8 +461,9 @@ export const MemoryMatrixCanvas: React.FC = () => {
         className="relative w-full h-[480px] rounded-2xl overflow-hidden border border-border bg-slate-950 shadow-inner select-none cursor-pointer"
         onClick={(e) => handleCanvasClick(e.clientX, e.clientY)}
         onTouchStart={(e) => {
-          if (e.touches.length > 0) {
-            handleCanvasClick(e.touches[0].clientX, e.touches[0].clientY);
+          const touch = e.touches[0];
+          if (touch) {
+            handleCanvasClick(touch.clientX, touch.clientY);
           }
         }}
       >

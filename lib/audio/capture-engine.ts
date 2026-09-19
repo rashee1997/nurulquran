@@ -1,5 +1,7 @@
 'use client';
 
+import { resolveAudioContextConstructor } from './audio-context';
+
 /**
  * Low-latency capture engine and stream multiplexer.
  *
@@ -119,9 +121,7 @@ export async function startCapture(): Promise<AudioContext> {
     });
     engine.stream = stream;
 
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass = resolveAudioContextConstructor();
     const context = new AudioContextClass({ sampleRate: 16000 });
     engine.context = context;
 
@@ -228,7 +228,9 @@ export type EngineWorkerRequest =
   | { type: 'audio-frame'; seq: number; ts: number; buffer: ArrayBuffer }
   | { type: 'set-target'; verseKey: string; words: string[] }
   | { type: 'flush' }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  /** One-shot scoring of a complete 16 kHz utterance, bypassing the streaming VAD. */
+  | { type: 'score-once'; requestId: number; verseKey: string; words: string[]; buffer: ArrayBuffer };
 
 export interface EngineWordScore {
   verseKey: string;
@@ -246,7 +248,8 @@ export type EngineWorkerResponse =
   | { type: 'utterance-complete' }
   | { type: 'word-scores'; verseKey: string; scores: EngineWordScore[] }
   | { type: 'coach-cue'; lang: 'ta' | 'en'; text: string }
-  | { type: 'reference-audio-request'; verseKey: string; wordIndex: number };
+  | { type: 'reference-audio-request'; verseKey: string; wordIndex: number }
+  | { type: 'score-once-result'; requestId: number; scores: EngineWordScore[]; transcript: string };
 
 /**
  * Creates the engine worker and returns a thin typed wrapper.

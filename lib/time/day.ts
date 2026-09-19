@@ -19,7 +19,8 @@ export function localDayKey(date: Date = new Date()): string {
 /** Parses a `YYYY-MM-DD` key into a Date at local midnight. */
 export function parseLocalDayKey(key: string): Date {
   const [year, month, day] = key.split('-').map((part) => Number.parseInt(part, 10));
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+  if (year === undefined || month === undefined || day === undefined ||
+      !Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     return new Date();
   }
   return new Date(year, month - 1, day);

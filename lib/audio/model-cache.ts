@@ -4,7 +4,6 @@ import Dexie, { type Table } from 'dexie';
 import {
   MODEL_VARIANTS,
   MODEL_BUDGET_BYTES,
-  resolveVariantChain,
   variantTotalBytes,
   type CoachModelVariant,
   type ModelAsset,
@@ -16,8 +15,8 @@ import {
  *
  * Model binaries live in their own IndexedDB database (`NurulQuranModelDB`) so a 50 MB decoder
  * blob never sweeps into the learner-data backup tables. Multiple variants may coexist on disk;
- * the runtime resolves which one to use through `resolvePreferredVariant`, which walks the
- * learner's chosen fallback chain and picks the first fully-cached variant.
+ * the runtime resolves which one to use through `resolvePreferredVariant` — exactly the chosen
+ * variant, with no automatic fallback chain.
  *
  * Progress uses the stream reader pattern: the response body is read chunk by chunk so the UI
  * shows real megabytes, and interrupted downloads leave a partial row that the next attempt
@@ -112,29 +111,19 @@ export async function isVariantReady(variant: ModelVariant): Promise<boolean> {
 }
 
 /**
- * Resolves the learner's preference to the best usable variant.
- *
- * Walks the fallback chain and returns the first variant that is fully cached. If none are
- * ready, the first variant in the chain is returned as the download target — the orchestrator
- * will then find nothing usable and surface the download prompt, which is the correct outcome
- * for "chosen variant never downloaded".
+ * Resolves the learner's preference to a single variant — no fallback chain. The returned
+ * `ready` flag tells the caller whether the chosen variant still needs downloading; when it is
+ * false, `variant` is the download target, and a failed download surfaces as an error rather
+ * than silently switching to a different voice.
  */
 export async function resolvePreferredVariant(
   preferred: CoachModelVariant
-): Promise<{ variant: ModelVariant; ready: boolean; chain: ModelVariant[] }> {
-  const chain = resolveVariantChain(preferred);
-  for (const variant of chain) {
-    if (await isVariantReady(variant)) {
-      return { variant, ready: true, chain };
-    }
-  }
-  return { variant: chain[0], ready: false, chain };
+): Promise<{ variant: ModelVariant; ready: boolean }> {
+  const variant = MODEL_VARIANTS[preferred] ?? MODEL_VARIANTS.balanced;
+  return { variant, ready: await isVariantReady(variant) };
 }
 
-/**
- * Legacy convenience: whether the learner's preferred variant (or any fallback) is usable.
- * Kept because the coach page gates its UI on this shape.
- */
+/** Legacy convenience name kept for the coach page gate. */
 export async function areAllModelsReady(preferred: CoachModelVariant = 'balanced'): Promise<boolean> {
   const { ready } = await resolvePreferredVariant(preferred);
   return ready;
@@ -268,30 +257,21 @@ export async function ensureVariantDownloaded(
 }
 
 /**
- * Ensures the learner's preferred variant is available, falling back down the chain when the
- * preferred variant cannot be downloaded. Returns the variant that actually became ready (or
- * `null` when the whole chain failed, with the last error attached).
+ * Ensures the learner's chosen variant is available — exactly that variant, no fallback. Throws
+ * with the underlying error when the download fails so callers can surface it inline.
  */
 export async function ensurePreferredVariantReady(
   preferred: CoachModelVariant,
   onProgress?: (done: number, total: number) => void
-): Promise<{ variant: ModelVariant | null; error?: string }> {
-  const chain = resolveVariantChain(preferred);
-  let lastError: string | undefined;
-
-  for (const variant of chain) {
-    try {
-      await ensureVariantDownloaded(variant, onProgress);
-      if (await isVariantReady(variant)) {
-        return { variant };
-      }
-      lastError = `${variant.label} did not verify after download.`;
-    } catch (error: unknown) {
-      lastError = error instanceof Error ? error.message : 'Download failed.';
-      // Fall through to the next variant in the chain.
-    }
+): Promise<{ variant: ModelVariant; error?: undefined }> {
+  const variant = MODEL_VARIANTS[preferred] ?? MODEL_VARIANTS.balanced;
+  try {
+    await ensureVariantDownloaded(variant, onProgress);
+    return { variant };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Download failed.';
+    throw new Error(`${variant.label}: ${message}`);
   }
-  return { variant: null, error: lastError };
 }
 
 /** Removes every cached model (settings "Free up space" action). */

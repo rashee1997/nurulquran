@@ -47,21 +47,23 @@ export function intervalForRetention(stability: number, retention = DEFAULT_REQU
   return clamp(Math.round(raw), 1, MAX_INTERVAL_DAYS);
 }
 
+const w0 = (w: readonly number[], index: number): number => w[index] ?? 0;
+
 function initialStability(w: readonly number[], grade: FsrsGrade): number {
-  return Math.max(0.1, w[grade - 1]);
+  return Math.max(0.1, w0(w, grade - 1));
 }
 
 function initialDifficulty(w: readonly number[], grade: FsrsGrade): number {
-  return clamp(w[4] - Math.exp(w[5] * (grade - 1)) + 1, 1, 10);
+  return clamp(w0(w, 4) - Math.exp(w0(w, 5) * (grade - 1)) + 1, 1, 10);
 }
 
 function nextDifficulty(w: readonly number[], difficulty: number, grade: FsrsGrade): number {
-  const delta = -w[6] * (grade - 3);
+  const delta = -w0(w, 6) * (grade - 3);
   // Linear damping keeps difficulty from saturating at the extremes.
   const damped = difficulty + delta * ((10 - difficulty) / 9);
   // Mean reversion toward the difficulty of a "Good" first review.
   const target = initialDifficulty(w, 4);
-  return clamp(w[7] * target + (1 - w[7]) * damped, 1, 10);
+  return clamp(w0(w, 7) * target + (1 - w0(w, 7)) * damped, 1, 10);
 }
 
 function stabilityAfterRecall(
@@ -71,13 +73,13 @@ function stabilityAfterRecall(
   r: number,
   grade: FsrsGrade
 ): number {
-  const hardPenalty = grade === 2 ? w[15] : 1;
-  const easyBonus = grade === 4 ? w[16] : 1;
+  const hardPenalty = grade === 2 ? w0(w, 15) : 1;
+  const easyBonus = grade === 4 ? w0(w, 16) : 1;
   const growth =
-    Math.exp(w[8]) *
+    Math.exp(w0(w, 8)) *
     (11 - difficulty) *
-    Math.pow(stability, -w[9]) *
-    (Math.exp(w[10] * (1 - r)) - 1) *
+    Math.pow(stability, -w0(w, 9)) *
+    (Math.exp(w0(w, 10) * (1 - r)) - 1) *
     hardPenalty *
     easyBonus;
   return Math.max(0.1, stability * (1 + growth));
@@ -90,10 +92,10 @@ function stabilityAfterForgetting(
   r: number
 ): number {
   const next =
-    w[11] *
-    Math.pow(difficulty, -w[12]) *
-    (Math.pow(stability + 1, w[13]) - 1) *
-    Math.exp(w[14] * (1 - r));
+    w0(w, 11) *
+    Math.pow(difficulty, -w0(w, 12)) *
+    (Math.pow(stability + 1, w0(w, 13)) - 1) *
+    Math.exp(w0(w, 14) * (1 - r));
   // A lapse can never leave the item *more* stable than it was.
   return Math.max(0.1, Math.min(next, stability));
 }

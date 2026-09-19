@@ -1,11 +1,13 @@
 /**
- * Local-engine model asset registry — variant-aware.
+ * Local-engine model asset registry — variant-aware, no automatic fallback.
  *
  * Every entry was verified against its live CDN: the URL resolves, the byte length matches the
- * `bytes` field, and the response carries `access-control-allow-origin: *`. Each variant lists
- * its assets in priority order and names a fallback variant: if a learner's preferred engine
- * cannot be satisfied (a download fails permanently, or the total would break the storage
- * budget), the orchestrator steps down the fallback chain automatically.
+ * `bytes` field (re-verify with a HEAD request before editing — a stale byte count makes the
+ * integrity check reject a fully-downloaded file forever), and the response carries
+ * `access-control-allow-origin` reflecting the request Origin. Each variant lists exactly the
+ * assets it runs; the learner chooses the engine per module (or leaves the Settings default),
+ * and that choice is downloaded and run as-is — if a download fails, the module surfaces the
+ * error instead of silently switching voices.
  *
  * The budget invariant is enforced per-variant at selection time, so no user choice can exceed
  * the 180 MB ceiling.
@@ -49,7 +51,7 @@ const WHISPER_ENCODER: ModelAsset = {
   label: 'Recitation STT encoder',
   role: 'stt-encoder',
   url: `${HF}/aaqibhabib/whisper-tiny-ar-quran-onnx/resolve/main/onnx/encoder_model_quantized.onnx`,
-  bytes: 10_082_343,
+  bytes: 10_097_740,
   sizeLabel: '10.1 MB',
   mimeType: 'application/octet-stream',
   fileName: 'whisper_encoder_int8.onnx',
@@ -93,7 +95,7 @@ const PIPER_EN_LESSAC: ModelAsset = {
   label: 'English voice — Lessac (int8)',
   role: 'tts-model',
   url: `${HF}/csukuangfj/vits-piper-en_US-lessac-low/resolve/main/en_US-lessac-low.onnx`,
-  bytes: 63_201_294,
+  bytes: 63_201_425,
   sizeLabel: '63.2 MB',
   mimeType: 'application/octet-stream',
   fileName: 'en_US-lessac-low.onnx',
@@ -125,8 +127,8 @@ const PIPER_TAMIL_HEMALATHA_CONFIG: ModelAsset = {
   label: 'Tamil voice config (HemaLatha)',
   role: 'tts-lexicon',
   url: `${HF}/Jeyaram-K/piper-tamil-voices/resolve/main/ta_IN-HemaLatha-medium/ta_IN-HemaLatha-medium.onnx.json`,
-  bytes: 4_500,
-  sizeLabel: '~5 KB',
+  bytes: 4_882,
+  sizeLabel: '5 KB',
   mimeType: 'text/plain',
   fileName: 'ta_IN-HemaLatha-medium.onnx.json',
 };
@@ -145,30 +147,33 @@ const PIPER_EN_AMY_CONFIG: ModelAsset = {
   label: 'English voice config (Amy)',
   role: 'tts-lexicon',
   url: `${HF}/rhasspy/piper-voices/resolve/main/en/en_US/amy/low/en_US-amy-low.onnx.json`,
-  bytes: 4_700,
-  sizeLabel: '~5 KB',
+  bytes: 4_164,
+  sizeLabel: '4 KB',
   mimeType: 'text/plain',
   fileName: 'en_US-amy-low.onnx.json',
 };
 
 export type CoachModelVariant = 'balanced' | 'tamil-hemalatha' | 'english-amy';
 
+/**
+ * A module's engine choice: the cloud coach, a specific local variant, or the saved Settings
+ * default (`default`). Inline choices always win over Settings; Settings wins over 'balanced'.
+ */
+export type ModuleEngineChoice = 'cloud' | 'default' | CoachModelVariant;
+
+/** Voice modules that can pick an engine inline. Extends as more modules adopt local mode. */
+export type CoachModuleId = 'tajweed-coach' | 'tafsir-storyteller' | 'recitation-coach';
+
 export interface ModelVariant {
   id: CoachModelVariant;
   label: string;
   descriptionEn: string;
-  /** Priority order; the first fully-cached variant in the chain wins at runtime. */
   assets: readonly ModelAsset[];
-  /** Variant to fall back to when this one cannot be satisfied. `null` = end of chain. */
-  fallback: CoachModelVariant | null;
 }
 
 /**
- * The three user-selectable variants, with their automatic fallback chains.
- *
- * `balanced` is the default: Tamil Rasa + English int8 Lessac at 163.4 MB. The alternates swap
- * one voice each and remain inside the budget. `VARIANT_CHAIN` resolves each variant's full
- * degradation order at module load, which the download manager and orchestrator both consume.
+ * The three user-selectable variants. `balanced` is the Settings default: Tamil Rasa + English
+ * int8 Lessac at 163.4 MB. The alternates swap one voice each and remain inside the budget.
  */
 export const MODEL_VARIANTS: Record<CoachModelVariant, ModelVariant> = {
   balanced: {
@@ -176,41 +181,36 @@ export const MODEL_VARIANTS: Record<CoachModelVariant, ModelVariant> = {
     label: 'Balanced (default)',
     descriptionEn: 'Tamil Rasa + English Lessac int8. Both coaching voices, most reliable downloads.',
     assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
-    fallback: 'tamil-hemalatha',
   },
   'tamil-hemalatha': {
     id: 'tamil-hemalatha',
     label: 'Tamil — HemaLatha (female)',
     descriptionEn: 'Female Tamil coaching voice instead of Rasa. Same engine, warmer tone.',
     assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_HEMALATHA, PIPER_TAMIL_HEMALATHA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
-    fallback: 'balanced',
   },
   'english-amy': {
     id: 'english-amy',
     label: 'English — Amy (US)',
     descriptionEn: 'Amy for English coaching instead of Lessac. Same engine, softer tone.',
     assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_AMY, PIPER_EN_AMY_CONFIG],
-    fallback: 'balanced',
   },
 };
 
 /**
- * Resolves a variant into its full fallback chain (variant first, then each fallback until
- * `null`). Cycles are structurally impossible in the table above, but the visited guard keeps
- * the resolver total.
+ * Resolves the variant a module will actually use: an inline choice wins outright, otherwise
+ * the saved Settings default applies, otherwise 'balanced'. Returns `null` for 'cloud' —
+ * the module simply never touches the local engine.
  */
-export function resolveVariantChain(preferred: CoachModelVariant): ModelVariant[] {
-  const chain: ModelVariant[] = [];
-  const visited = new Set<CoachModelVariant>();
-  let cursor: CoachModelVariant | null = preferred;
-  while (cursor !== null && !visited.has(cursor)) {
-    visited.add(cursor);
-    const variant: ModelVariant | undefined = MODEL_VARIANTS[cursor];
-    if (!variant) break;
-    chain.push(variant);
-    cursor = variant.fallback;
-  }
-  return chain;
+export function resolveModuleVariant(
+  moduleId: CoachModuleId,
+  moduleEngines: Partial<Record<CoachModuleId, ModuleEngineChoice>> | undefined,
+  settingsDefault: CoachModelVariant | undefined
+): ModelVariant | null {
+  const inline = moduleEngines?.[moduleId];
+  const choice: ModuleEngineChoice = inline ?? 'default';
+  if (choice === 'cloud') return null;
+  const variantId: CoachModelVariant = choice === 'default' ? (settingsDefault ?? 'balanced') : choice;
+  return MODEL_VARIANTS[variantId] ?? MODEL_VARIANTS.balanced;
 }
 
 /** Total planned download size for one variant, for the settings UI and budget guard. */

@@ -9,6 +9,15 @@
  * handed out through `getInstallPrompt`/`subscribeToInstallability`.
  */
 
+/*
+ * Unassertable browser-capability boundaries, quarantined in this one file.
+ *
+ * `BeforeInstallPromptEvent` is a non-standard Chromium event (no DOM lib declares it), and
+ * `navigator.standalone` is an iOS-Safari-only property. Both are runtime-only shapes that
+ * TypeScript cannot be told about without structural lying, so each is narrowed behind a
+ * dedicated adapter with a runtime check rather than an inline cast at a call site.
+ */
+
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 const installListeners = new Set<(installable: boolean) => void>();
 
@@ -17,10 +26,18 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+/** Runtime narrowing: only a real install prompt is accepted, anything else is dropped. */
+function asInstallPromptEvent(event: Event): BeforeInstallPromptEvent | null {
+  const candidate = event as Partial<BeforeInstallPromptEvent>;
+  return typeof candidate.prompt === 'function' && candidate.userChoice instanceof Promise
+    ? (candidate as BeforeInstallPromptEvent)
+    : null;
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
-    deferredPrompt = event as BeforeInstallPromptEvent;
+    deferredPrompt = asInstallPromptEvent(event);
     for (const listener of installListeners) listener(true);
   });
   window.addEventListener('appinstalled', () => {
@@ -51,7 +68,11 @@ export async function promptInstall(): Promise<boolean> {
 /** True once the app is running as an installed PWA (standalone display mode). */
 export function isRunningStandalone(): boolean {
   if (typeof window === 'undefined') return false;
-  return window.matchMedia?.('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
+  if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
+  // iOS Safari exposes no display-mode query that matches; `navigator.standalone` is the only
+  // signal, and it is not in any DOM lib — see the quarantine note at the top of this file.
+  const iosStandalone = (navigator as { standalone?: boolean }).standalone;
+  return iosStandalone === true;
 }
 
 let registrationPromise: Promise<ServiceWorkerRegistration | null> | null = null;
