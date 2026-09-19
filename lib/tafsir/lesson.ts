@@ -163,7 +163,9 @@ export async function loadLessonExegesis(
       ta: entryFor('ta', tamil.text, tamil.provenance),
     },
     asbab,
-    failedEditions,
+    // Sorted because the two editions settle in parallel and push as they fail, so the notice's
+    // ordering would otherwise vary between identical loads.
+    failedEditions: [...failedEditions].sort(),
   };
 }
 

@@ -2,10 +2,13 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Download, Trash2, Smartphone, HardDrive, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { Download, Trash2, Smartphone, HardDrive, RefreshCw, CheckCircle2, BookOpen } from 'lucide-react';
 import { SURAHS } from '@/lib/quran/surahs';
 import { estimateStorageUsage, formatBytes, listDownloadedSurahs, removeSurahDownload } from '@/lib/quran/downloads';
 import { isInstallable, isRunningStandalone, promptInstall, subscribeToInstallability } from '@/lib/pwa/register';
+import { db } from '@/lib/db';
+import { clearTafsirCache } from '@/lib/tafsir/tafsirCache';
+import { showToast } from '@/lib/ui/toast';
 
 function surahName(id: number): string {
   return SURAHS.find((s) => s.id === id)?.nameSimple ?? `Surah ${id}`;
@@ -21,11 +24,25 @@ export const OfflinePanel: React.FC = () => {
   const [storage, setStorage] = useState<{ usage: number; quota: number } | null>(null);
   const [downloads, setDownloads] = useState<Array<{ surahId: number; reciterId: string; ayahCount: number }>>([]);
   const [removing, setRemoving] = useState<string | null>(null);
+  /**
+   * Rows in the Tafseer commentary cache.
+   *
+   * This cache had no owner: `clearTafsirCache` existed and nothing called it, so every sūrah
+   * whose commentary was ever opened kept its rows for the life of the profile (159 KiB for one
+   * Tamil chapter) and a `resetDatabase` left it untouched. It is reported and clearable here.
+   */
+  const [commentaryRows, setCommentaryRows] = useState(0);
+  const [clearingCommentary, setClearingCommentary] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [usage, list] = await Promise.all([estimateStorageUsage(), listDownloadedSurahs()]);
+    const [usage, list, cached] = await Promise.all([
+      estimateStorageUsage(),
+      listDownloadedSurahs(),
+      db.tafsirCache.count().catch(() => 0),
+    ]);
     setStorage(usage);
     setDownloads(list.sort((a, b) => a.surahId - b.surahId));
+    setCommentaryRows(cached);
   }, []);
 
   useEffect(() => {
@@ -51,6 +68,19 @@ export const OfflinePanel: React.FC = () => {
       await refresh();
     } finally {
       setRemoving(null);
+    }
+  };
+
+  const handleClearCommentary = async () => {
+    setClearingCommentary(true);
+    try {
+      await clearTafsirCache();
+      await refresh();
+      showToast('Saved commentary cleared. Opening a lesson will fetch it again.', 'success');
+    } catch {
+      showToast('The saved commentary could not be cleared.', 'error');
+    } finally {
+      setClearingCommentary(false);
     }
   };
 
@@ -144,6 +174,29 @@ export const OfflinePanel: React.FC = () => {
               );
             })}
           </ul>
+        )}
+      </div>
+
+      <div className="pt-3 border-t border-border space-y-2">
+        <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+          <BookOpen className="w-4 h-4 text-primary" />
+          Saved commentary
+        </span>
+        <p className="text-[11px] text-muted-foreground">
+          {commentaryRows === 0
+            ? 'No commentary saved yet. Opening a Tafseer lesson saves it so the next visit needs no network.'
+            : `${commentaryRows} cached chapter${commentaryRows === 1 ? '' : 's'} and verses. Clearing them costs one refetch per chapter and frees the space.`}
+        </p>
+        {commentaryRows > 0 && (
+          <button
+            type="button"
+            onClick={() => void handleClearCommentary()}
+            disabled={clearingCommentary}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-surface border border-border hover:bg-surface-hover text-foreground text-xs font-bold transition-colors disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>{clearingCommentary ? 'Clearing…' : 'Clear saved commentary'}</span>
+          </button>
         )}
       </div>
 

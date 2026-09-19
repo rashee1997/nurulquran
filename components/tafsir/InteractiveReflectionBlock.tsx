@@ -13,7 +13,9 @@ import {
   ThumbsUp,
 } from 'lucide-react';
 import { db } from '@/lib/db';
-import { arrayBufferToBase64 } from '@/lib/audio/pcm-audio';
+import { arrayBufferToBase64, downsampleBuffer, RECORDING_SAMPLE_RATE } from '@/lib/audio/pcm-audio';
+import { resolveAudioContextConstructor } from '@/lib/audio/audio-context';
+import { float32ToWavBase64 } from '@/lib/audio/wav';
 import type { ReflectionReply, ReflectionVerdict, TafsirLanguage } from '@/lib/tafsir/types';
 
 interface InteractiveReflectionBlockProps {
@@ -50,6 +52,38 @@ const VERDICT_PRESENTATION: Record<
 };
 
 type ReflectionStatus = 'idle' | 'recording' | 'submitting' | 'answered' | 'error';
+
+/**
+ * Decodes a recorded clip and re-encodes it as 16 kHz mono WAV, base64.
+ *
+ * Returns `null` when the browser cannot decode the container it just recorded, so the caller
+ * can fall back to uploading the original bytes with their real content type.
+ */
+async function blobToWavBase64(blob: Blob): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+
+  let context: AudioContext;
+  try {
+    context = new (resolveAudioContextConstructor())();
+  } catch {
+    return null;
+  }
+  try {
+    const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+    const channel = decoded.getChannelData(0);
+    if (channel.length === 0) return null;
+    const resampled =
+      decoded.sampleRate === RECORDING_SAMPLE_RATE
+        ? channel
+        : downsampleBuffer(channel, decoded.sampleRate, RECORDING_SAMPLE_RATE);
+    return float32ToWavBase64(resampled, RECORDING_SAMPLE_RATE);
+  } catch (error: unknown) {
+    console.warn('The recording could not be re-encoded as WAV:', error);
+    return null;
+  } finally {
+    void context.close().catch(() => undefined);
+  }
+}
 
 function readErrorMessage(payload: unknown, fallback: string): string {
   if (typeof payload === 'object' && payload !== null) {
@@ -121,7 +155,12 @@ export const InteractiveReflectionBlock: React.FC<InteractiveReflectionBlockProp
   }, []);
 
   const submit = useCallback(
-    async (payload: { question?: string; audioBase64?: string }): Promise<void> => {
+    async (payload: {
+      question?: string;
+      audioBase64?: string;
+      /** Declared so the grader is told what the bytes actually are. */
+      audioMimeType?: string;
+    }): Promise<void> => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -256,9 +295,26 @@ export const InteractiveReflectionBlock: React.FC<InteractiveReflectionBlockProp
           }
 
           void (async () => {
-            const buffer = await blob.arrayBuffer();
-            const base64 = arrayBufferToBase64(buffer);
-            await submit({ audioBase64: base64 });
+            /*
+             * Re-encoded as WAV before upload.
+             *
+             * `MediaRecorder` yields WebM/Opus in Chromium and MP4/AAC in Safari, and the route
+             * declared every clip as raw 16 kHz PCM because the client never sent a type — so a
+             * spoken reflection was graded from bytes whose declared format did not describe
+             * them. Decoding to float samples and writing a real 16 kHz mono WAV keeps the
+             * declaration and the audio in agreement, in a format the model service documents.
+             * If the browser cannot decode its own recording, the original blob is sent with its
+             * true type rather than a fabricated one.
+             */
+            const wav = await blobToWavBase64(blob);
+            await submit(
+              wav
+                ? { audioBase64: wav, audioMimeType: 'audio/wav' }
+                : {
+                    audioBase64: arrayBufferToBase64(await blob.arrayBuffer()),
+                    audioMimeType: blob.type || 'audio/webm',
+                  }
+            );
           })();
         };
 

@@ -51,18 +51,35 @@ export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voi
     []
   );
 
+  /*
+   * The loaded commentary only counts when it describes the verse on screen — the same identity
+   * gate the in-reader dialog applies.
+   *
+   * `useTafsirLesson` deliberately keeps the previous segment while the next one resolves, so
+   * stepping to a neighbouring ayah of a warm chapter swaps in a single commit instead of
+   * flickering. On this page that also covered a full chapter change, where `state` is not reset
+   * to 'loading' either: the page rendered the previous lesson's Arabic, translations and
+   * commentary under the new verse's header, with "Tell me the story" and the reflection box
+   * enabled against a verse whose commentary was not on screen. Neighbouring ayahs still swap
+   * without a skeleton (their segment matches immediately); a mismatched segment now shows it.
+   */
+  const describesThisAyah =
+    segment !== null && segment.surah === verse.surah && segment.ayah === verse.ayah;
+  const displaySegment = describesThisAyah ? segment : null;
+  const isLoading = !describesThisAyah && state !== 'error';
+
+  // The session reads the lesson context through a ref, so a context that changes mid-session
+  // is picked up without tearing the connection down. It is primed with the *displayed* segment,
+  // never the raw one, so Ameen cannot narrate the previous verse during a transition.
+  const lessonReady = displaySegment !== null;
+
   const live = useGeminiLiveTafsir({
-    segment,
+    segment: displaySegment,
     language,
     // `||` rather than `??`: an empty saved voice would otherwise be sent as an empty voice
     // name, which the server quietly replaces with a default.
     voiceId: voiceId || savedVoiceId || undefined,
   });
-
-  // The session reads the lesson context through a ref, so a context that changes mid-session
-  // is picked up without tearing the connection down.
-  const lessonReady = segment !== null;
-  const isLoading = state === 'loading' || state === 'idle';
 
   return (
     <div id="tafsir-lesson" className="flex flex-col gap-6">
@@ -105,7 +122,7 @@ export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voi
             </span>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-hero-card-bg border border-hero-border backdrop-blur-xs">
               <Sparkles className="w-3 h-3" aria-hidden="true" />
-              {segment?.asbab ? 'Occasion of revelation available' : 'Theme-based teaching'}
+              {displaySegment?.asbab ? 'Occasion of revelation available' : 'Theme-based teaching'}
             </span>
           </div>
         </div>
@@ -130,7 +147,7 @@ export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voi
       )}
 
       <TafsirReaderViewport
-        segment={segment}
+        segment={displaySegment}
         view={view}
         onViewChange={setView}
         loading={isLoading}

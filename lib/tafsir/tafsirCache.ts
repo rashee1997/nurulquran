@@ -18,7 +18,7 @@
  */
 
 import { db } from '@/lib/db';
-import { LESSON_EDITIONS, type TafsirEditionDefinition } from './editions';
+import { ASBAB_EDITION, LESSON_EDITIONS, type TafsirEditionDefinition } from './editions';
 import { fetchSurahTafsir, fetchTafsirAyah } from './tafsirClient';
 import type { TafsirAyahRecord } from './types';
 
@@ -349,7 +349,12 @@ export async function getAyahTafsir(
 
     if (ayahMemory.has(key)) {
       counters.cacheHits += 1;
-      return { text: ayahMemory.get(key) ?? null, provenance: 'cache' };
+      const cached = ayahMemory.get(key) ?? null;
+      // Re-inserted so eviction is least-*recently*-used, matching the chapter map. Without this
+      // the ayah a learner keeps reopening held its original position and was evicted before one
+      // touched once and never revisited — the opposite of what the bound is for.
+      rememberAyahInMemory(key, cached);
+      return { text: cached, provenance: 'cache' };
     }
 
     const existing = ayahInflight.get(key);
@@ -390,15 +395,21 @@ export async function getAyahTafsir(
  * With chapter-level caching this is effectively free, but it is still called explicitly
  * on every navigation so that the *first* open of a chapter issues one request while the
  * learner is still reading ayah N, and not two requests in sequence as they advance.
- * Failures are swallowed: a prefetch must never surface an error the learner did not ask
- * for.
+ *
+ * The sparse occasion-of-revelation edition is included deliberately: it is the *only* edition
+ * with no chapter file, so it is the only one that genuinely needs a request per verse, and it
+ * was previously left out of this loop (the sparse branch below was unreachable, since
+ * `LESSON_EDITIONS` holds just the two abridged chapter editions). Every ayah change therefore
+ * paid a per-ayah asbab round trip that this function exists to absorb.
+ *
+ * Failures are swallowed: a prefetch must never surface an error the learner did not ask for.
  */
 export async function prefetchUpcomingAyahs(surah: number, ayah: number, versesCount: number): Promise<void> {
   const upcoming = [ayah + 1, ayah + 2].filter((n) => n >= 1 && n <= versesCount);
   if (upcoming.length === 0) return;
 
   await Promise.all(
-    LESSON_EDITIONS.map(async (edition) => {
+    [...LESSON_EDITIONS, ASBAB_EDITION].map(async (edition) => {
       if (!edition.sparse) {
         try {
           await getChapterTafsir(edition, surah);

@@ -38,6 +38,16 @@ import {
 const FETCH_TIMEOUT_MS = 9_000;
 /** Attempts *per* CDN tier before moving to the next one. */
 const ATTEMPTS_PER_TIER = 2;
+/**
+ * Whole-request budget across every tier and every attempt.
+ *
+ * The per-attempt cap alone does not bound the call: a CDN that accepts connections and then
+ * stalls could hold the caller for 3 tiers × (9 s + 0.2 s backoff + 9 s) ≈ 54.6 s, which is
+ * longer than the 45 s ceiling of the route that awaits a lesson (`/api/tafsir/reflect`) and far
+ * longer than a reader will wait. The tier walk stops once this budget is spent, and any attempt
+ * that starts is shortened to whatever remains, so the caller always settles in bounded time.
+ */
+const TOTAL_BUDGET_MS = 12_000;
 /** Exegesis is immutable upstream, so a long server-side revalidation window is safe. */
 const TAFSIR_REVALIDATE_SECONDS = 60 * 60 * 24 * 30;
 
@@ -81,12 +91,16 @@ type ProbeResult<T> = { kind: 'ok'; value: T } | { kind: 'missing' } | { kind: '
  */
 async function probeTier<T>(
   url: string,
-  parse: (raw: unknown) => T | null
+  parse: (raw: unknown) => T | null,
+  /** Epoch ms after which no further attempt may start; the last one is shortened to fit. */
+  deadline: number
 ): Promise<ProbeResult<T>> {
   for (let attempt = 1; attempt <= ATTEMPTS_PER_TIER; attempt += 1) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
       const init: GuardedInit = {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS, remaining)),
         next: { revalidate: TAFSIR_REVALIDATE_SECONDS },
       };
       const response = await fetch(url, init);
@@ -114,7 +128,10 @@ async function probeTier<T>(
       return { kind: 'ok', value: parsed };
     } catch (error) {
       if (attempt < ATTEMPTS_PER_TIER) {
-        await delay(200 * 2 ** (attempt - 1));
+        const backoff = 200 * 2 ** (attempt - 1);
+        // Retrying into a spent budget would only delay the report of the failure.
+        if (Date.now() + backoff >= deadline) break;
+        await delay(backoff);
       } else {
         console.warn(`Tafseer CDN tier failed for ${url}:`, error);
       }
@@ -130,8 +147,14 @@ async function fetchAcrossTiers<T>(
   onExhausted: (cause: unknown) => never
 ): Promise<T | null> {
   let lastFailure: unknown;
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
   for (const cdnBase of TAFSIR_CDN_BASES) {
-    const result = await probeTier(buildUrl(cdnBase), parse);
+    // A spent budget short-circuits the remaining tiers rather than starting a doomed attempt.
+    if (Date.now() >= deadline) {
+      lastFailure = new Error(`The tafseer request budget of ${TOTAL_BUDGET_MS} ms was exhausted.`);
+      break;
+    }
+    const result = await probeTier(buildUrl(cdnBase), parse, deadline);
     if (result.kind === 'ok') return result.value;
     if (result.kind === 'missing') return null;
     lastFailure = new Error(`All attempts failed for ${cdnBase}`);
@@ -191,8 +214,10 @@ export async function fetchSurahTafsir(
   const rows = await fetchAcrossTiers(
     (cdnBase) => surahTafsirUrl(cdnBase, edition.slug, surah),
     (raw) => normalizeSurahPayload(raw, surah),
-    () => {
-      throw new TafsirUnavailableError(edition.slug, surah, undefined);
+    (cause) => {
+      // The cause is carried through: without it every failure reads identically and the tier
+      // that failed is unrecoverable from the error.
+      throw new TafsirUnavailableError(edition.slug, surah, undefined, cause);
     }
   );
 

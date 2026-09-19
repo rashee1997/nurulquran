@@ -176,6 +176,9 @@ const TafsirDialogBody: React.FC<TafsirDialogBodyProps> = ({
    */
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
+    // A control that consumed the key owns it — the commentary view radiogroup uses the arrow
+    // keys to move between English, Tamil and Both, and that must not also change the ayah.
+    if (event.defaultPrevented) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
 

@@ -158,7 +158,7 @@ export const LESSON_TRACKS: readonly TafsirLessonTrack[] = [
     title: 'Juz Amma — Short Surahs',
     titleTamil: 'ஜுஸ் அம்மா — சிறிய அத்தியாயங்கள்',
     description:
-      'The thirty short sūrahs recited most often in prayer, starting with the four every child learns first.',
+      'The short sūrahs recited most often in prayer, starting with the ones every child learns first.',
     surahs: [1, 112, 113, 114, 108, 110, 111, 109, 107, 106, 105, 104, 103, 102, 101, 100],
     accent: 'emerald',
   },

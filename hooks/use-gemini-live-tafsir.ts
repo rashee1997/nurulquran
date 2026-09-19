@@ -53,6 +53,15 @@ const FLUSH_INTERVAL_MS = 120;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
 
 /**
+ * Rendered transcript lines kept in memory.
+ *
+ * The transcript was unbounded: a long lesson appended every spoken line for as long as it ran,
+ * and each append copied the whole array. The oldest lines are dropped once this many are held —
+ * far more than fits on screen, so the visible behaviour is unchanged.
+ */
+const MAX_TRANSCRIPT_LINES = 200;
+
+/**
  * Bounded automatic recovery from a dropped or rejected Live socket.
  *
  * A Live session can end for reasons that have nothing to do with the learner: the ephemeral
@@ -62,15 +71,6 @@ const HANDSHAKE_TIMEOUT_MS = 15_000;
  * quota in silence while the UI pretended to be busy. Past the cap the learner is given an
  * explicit "tap start", never a dead bar.
  */
-/**
- * Rendered transcript lines kept in memory.
- *
- * The transcript was unbounded: a long lesson appended every spoken line for as long as it ran,
- * and each append copied the whole array. The oldest lines are dropped once this many are held —
- * far more than fits on screen, so the visible behaviour is unchanged.
- */
-const MAX_TRANSCRIPT_LINES = 200;
-
 const MAX_AUTO_RECONNECTS = 3;
 const RECONNECT_BASE_DELAY_MS = 1_200;
 const RECONNECT_MAX_DELAY_MS = 8_000;
@@ -822,6 +822,46 @@ export function useGeminiLiveTafsir({
         }
       };
 
+      /**
+       * The learner's stored provider, read once per session.
+       *
+       * On-device mode was intended to work without a configured server key, but this turn is
+       * answered by `/api/chat` and no `providerConfig` was ever sent — so a learner who chose
+       * the on-device engine *because* the cloud is not configured got a 503 instead of an
+       * answer, and one who had configured their own key silently spent the server's quota.
+       */
+      let providerConfigPromise: Promise<Record<string, unknown> | undefined> | null = null;
+      const loadProviderConfig = (): Promise<Record<string, unknown> | undefined> => {
+        providerConfigPromise ??= (async () => {
+          try {
+            const [{ db }, { decryptApiKey }] = await Promise.all([
+              import('@/lib/db'),
+              import('@/lib/db/crypto'),
+            ]);
+            const provider = await db.aiProviders.filter((row) => row.isDefault).first();
+            if (!provider) return undefined;
+
+            let apiKey: string | undefined;
+            if (provider.encryptedKey) {
+              // `decryptApiKey` resolves to an empty string when a value cannot be read, which
+              // must be treated as "no usable key" rather than sent as one.
+              const decrypted = await decryptApiKey(provider.encryptedKey);
+              apiKey = decrypted.length > 0 ? decrypted : undefined;
+            }
+            return {
+              type: provider.type,
+              baseUrl: provider.baseUrl,
+              selectedModel: provider.selectedModel,
+              ...(apiKey ? { apiKey } : {}),
+            };
+          } catch (error: unknown) {
+            console.warn('The provider configuration could not be read for the on-device storyteller:', error);
+            return undefined;
+          }
+        })();
+        return providerConfigPromise;
+      };
+
       const answerLocally = async (question: string): Promise<void> => {
         const current = segmentRef.current;
         const packet = current
@@ -830,17 +870,49 @@ export function useGeminiLiveTafsir({
         appendTranscript('student', question);
         setStatus('connecting'); // reuse as "thinking"
         try {
+          const providerConfig = await loadProviderConfig();
           const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              messages: [
-                { role: 'system', content: packet },
-                { role: 'user', content: question },
-              ],
+              /*
+               * The lesson packet travels in `lessonContext`, not as a `system` message.
+               *
+               * `/api/chat` deliberately strips client-supplied system turns (they could replace
+               * its grounding rules), so sending the packet there meant every on-device turn was
+               * answered with no lesson context at all — no Arabic ayah, no translations, no
+               * exegesis, no occasion of revelation, and no way for the model to know which verse
+               * the child was looking at. The route now appends this field to its own system
+               * prompt, where the zero-hallucination rules still take precedence.
+               */
+              messages: [{ role: 'user', content: question }],
+              lessonContext: packet,
+              ...(providerConfig ? { providerConfig } : {}),
             }),
           });
-          if (!response.ok || !response.body) throw new Error(`chat ${response.status}`);
+          if (!response.ok) {
+            /*
+             * Report what the route said instead of a generic retry prompt.
+             *
+             * The usual failure here is `not_configured` (503): this mode answers through the
+             * chat route, so it needs either a provider configured on the device or a key on the
+             * server, and "the on-device storyteller could not answer" tells the learner nothing
+             * about which of the two is missing.
+             */
+            const payload: unknown = await response.json().catch(() => null);
+            const message = readErrorMessage(
+              payload,
+              `The study assistant could not answer (HTTP ${response.status}).`
+            );
+            setErrorMessage(
+              response.status === 503 && !providerConfig
+                ? `${message} On-device voice mode still sends the reply through the study assistant, so add a provider key in Settings → AI, or a server key.`
+                : message
+            );
+            setStatus('error');
+            return;
+          }
+          if (!response.body) throw new Error('The study assistant returned an empty response.');
 
           // The chat route streams the UI message protocol (SSE `text-delta` chunks).
           const reader = response.body.getReader();

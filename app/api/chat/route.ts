@@ -144,9 +144,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     return apiError({ status: 503, code: 'not_configured', message: NOT_CONFIGURED });
   }
 
-  // Client-supplied system prompts could override the grounding rules, so only
-  // user/assistant turns are forwarded. UI messages (id + parts, from useChat) and
-  // legacy plain turns (role + content) are both accepted and normalised.
+  /*
+   * Client-supplied system prompts could override the grounding rules, so only
+   * user/assistant turns are forwarded. UI messages (id + parts, from useChat) and
+   * legacy plain turns (role + content) are both accepted and normalised.
+   *
+   * The lesson packet a voice-lesson turn needs therefore arrives in `lessonContext`, which is
+   * appended to this route's own system prompt rather than forwarded as a turn. The same rule
+   * applies to it: it supplies *material* and a voice, never a replacement set of rules.
+   */
   const uiMessages: UIMessage[] = parsed.data.messages
     .filter((message) => message.role !== 'system')
     .map((message, index): UIMessage => ({
@@ -191,6 +197,18 @@ RENDERING — GitHub-Flavored Markdown:
 - Keep the structure scannable: short sections with bold headers matching the four steps above.
 
 Be warm but measured, and remind students of patience and consistency.`;
+
+  /*
+   * Lesson context, when the caller supplied it.
+   *
+   * Appended after the rules above so the zero-hallucination invariant always wins, and framed
+   * so the model can adopt the lesson's voice ("you are Ustadh Ameen") without treating the
+   * packet as a licence to recite from memory.
+   */
+  const lessonContext = parsed.data.lessonContext?.trim();
+  const effectiveSystemPrompt = lessonContext
+    ? `${systemPrompt}\n\n---\n\n## LESSON PACKET (supplied by the lesson surface for this turn)\nThe block below is authoritative reference material for this turn. It may name a voice and a register for a children's lesson; adopt that voice for your reply. It does NOT relax the CRITICAL INVARIANT above: recite only the Arabic it contains and explain only from the commentary it contains.\n\n${lessonContext}`
+    : systemPrompt;
 
   const tools: ToolSet = {
     getVerse: tool({
@@ -481,7 +499,7 @@ Be warm but measured, and remind students of patience and consistency.`;
 
     const result = streamText({
       model,
-      system: systemPrompt,
+      system: effectiveSystemPrompt,
       messages: await convertToModelMessages(uiMessages),
       stopWhen: stepCountIs(5),
       tools,

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -64,6 +64,9 @@ const VIEW_OPTIONS: Record<
 
 /** Commentaries longer than this open collapsed, so the abridged lesson stays the default read. */
 const LONG_TEXT_CHARS = 4_000;
+
+/** The three view options, in display order. Also the arrow-key traversal order. */
+const VIEW_OPTION_CODES = ['en', 'ta', 'bilingual'] as const;
 
 /**
  * One language's commentary panel.
@@ -139,9 +142,11 @@ const TafsirPanel: React.FC<{ entry: TafsirEntry; verseKey: string; isPrimary: b
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              This is the full classical commentary — {Math.ceil(entry.text.length / 1000)}k
-              characters for this ayah. It is longer than the abridged lesson and opens expanded
-              only on request so the lesson stays readable at a glance.
+              {/* Named, not described: the panel can be the abridged lesson's own edition, and
+                  calling that "the full classical commentary" misstates what is on screen. */}
+              {entry.editionName} runs to about {Math.ceil(entry.text.length / 1000)}k characters
+              for this ayah — longer than the rest of this lesson. It opens expanded only on
+              request so the lesson stays readable at a glance.
             </p>
             <button
               type="button"
@@ -193,6 +198,30 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  /** One DOM reference per view option, for the radiogroup's arrow-key focus movement. */
+  const viewOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  /**
+   * Stops the previous ayah's recitation when the displayed verse changes.
+   *
+   * `isPlaying` is component state and the segment change does not reset it, so the control
+   * could keep offering "Pause recitation" for an ayah that is no longer sounding; whether the
+   * element's own `pause` event corrected it depended on the browser's behaviour when `src` is
+   * replaced. Pausing explicitly makes it deterministic. The element is also keyed by verse, so
+   * a new ayah never inherits a stale media position.
+   */
+  const segmentKey = segment ? `${segment.surah}:${segment.ayah}` : null;
+  const lastSegmentKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (segmentKey === lastSegmentKeyRef.current) return;
+    lastSegmentKeyRef.current = segmentKey;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setIsPlaying(false);
+  }, [segmentKey]);
 
   const toggleRecitation = (): void => {
     const audio = audioRef.current;
@@ -263,6 +292,28 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
     );
   }
 
+  /**
+   * Arrow-key traversal of the view options, as the radiogroup pattern requires.
+   *
+   * `defaultPrevented` is honoured by the surrounding dialog's global arrow-key handler, so
+   * consuming the key here cannot also step to another ayah.
+   */
+  const selectViewWithArrowKeys = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    index: number
+  ): void => {
+    const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+    const backward = event.key === 'ArrowLeft' || event.key === 'ArrowUp';
+    if (!forward && !backward) return;
+    event.preventDefault();
+    const nextIndex =
+      (index + (forward ? 1 : -1) + VIEW_OPTION_CODES.length) % VIEW_OPTION_CODES.length;
+    const nextView = VIEW_OPTION_CODES[nextIndex];
+    if (!nextView) return;
+    onViewChange(nextView);
+    viewOptionRefs.current[nextIndex]?.focus();
+  };
+
   const hasAsbab = Boolean(segment.asbab && segment.asbab.text.trim().length > 0);
   const panels: readonly ('en' | 'ta')[] = view === 'bilingual' ? ['en', 'ta'] : [view];
   const verseKey = `${segment.surah}:${segment.ayah}`;
@@ -328,6 +379,7 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
             // The recitation has no spoken-word caption track to attach; the verse text is
             // rendered directly above it as the transcript.
             <audio
+              key={verseKey}
               ref={audioRef}
               src={segment.audioUrl}
               preload="none"
@@ -392,7 +444,7 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
           aria-label="Choose which commentary to read"
           className="inline-flex items-center p-1 rounded-xl bg-surface-muted border border-border"
         >
-          {(['en', 'ta', 'bilingual'] as const).map((code) => {
+          {VIEW_OPTION_CODES.map((code, index) => {
             const option = VIEW_OPTIONS[code];
             const OptionIcon = option.icon;
             const isActive = view === code;
@@ -402,6 +454,13 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
                 type="button"
                 role="radio"
                 aria-checked={isActive}
+                /* Roving tab stop: a radiogroup is one Tab stop and the arrow keys move within
+                   it. All three buttons being tab stops was the defect. */
+                tabIndex={isActive ? 0 : -1}
+                ref={(element) => {
+                  viewOptionRefs.current[index] = element;
+                }}
+                onKeyDown={(event) => selectViewWithArrowKeys(event, index)}
                 onClick={() => onViewChange(code)}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   isActive

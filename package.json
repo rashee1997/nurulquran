@@ -10,6 +10,7 @@
     "verify:arabic": "bun lib/arabic/validate.ts",
     "verify:pronunciation": "bun scripts/verify-lesson-pronunciation.ts",
     "verify:timings": "bun scripts/verify-reciter-timings.ts",
+    "verify:tafsir": "bun scripts/verify-tafsir-editions.ts",
     "clean": "next clean"
   },
   "dependencies": {

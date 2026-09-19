@@ -134,6 +134,22 @@ export const chatMessageSchema = z.object({
 export const chatRequestSchema = z.object({
   messages: z.array(chatMessageSchema).min(1).max(60),
   providerConfig: providerConfigSchema.optional(),
+  /**
+   * Grounding material for a lesson turn, supplied by the lesson surface.
+   *
+   * The voice storyteller's on-device mode answers through this route, and the lesson packet it
+   * needs — the verified Arabic ayah, both translations, the exegesis and the occasion of
+   * revelation — used to be sent as a `system` message, which the route strips (see its comment
+   * on client-supplied system prompts). Every on-device turn was therefore answered with no
+   * lesson context at all. A separate, bounded field carries it instead, so the packet reaches
+   * the model without letting a caller replace the server's grounding rules.
+   *
+   * 40 000 is headroom above the packet's own ceiling, not a target: the two commentaries are
+   * capped at 6 000 characters each and the occasion of revelation at 2 500, so a full packet
+   * sits just under 20 000. A cap set at the packet's size would turn one long translation into
+   * a 400 that fails the whole turn.
+   */
+  lessonContext: z.string().max(40_000).optional(),
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
