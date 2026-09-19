@@ -181,6 +181,11 @@ export function useGeminiLiveTafsir({
   const localTurnBufferRef = useRef<Float32Array[]>([]);
   /** The resolved on-device variant while a local session runs; null in cloud mode. */
   const localVariantRef = useRef<ModelVariant | null>(null);
+  /**
+   * The local-mode answerer, installed by `runLocalStorytellerSession`. `askAmeen` routes
+   * through it when a local session is active, so typed questions work in both engines.
+   */
+  const localAskRef = useRef<((question: string) => void) | null>(null);
 
   /** Bumped by `stop` and by unmount so a pending start cannot attach to a dead session. */
   const generationRef = useRef(0);
@@ -343,6 +348,7 @@ export function useGeminiLiveTafsir({
     localFrameSinkRef.current = null;
     localTurnBufferRef.current = [];
     localVariantRef.current = null;
+    localAskRef.current = null;
     cleanupAudio();
 
     const session = sessionRef.current;
@@ -582,9 +588,18 @@ export function useGeminiLiveTafsir({
   }, [currentContextPacket]);
 
   const askAmeen = useCallback((question: string): void => {
-    const session = sessionRef.current;
     const trimmed = question.trim();
-    if (!session || trimmed.length === 0) return;
+    if (trimmed.length === 0) return;
+
+    // Local mode answers through the BYOK chat loop; cloud mode through the Live session.
+    const localAsk = localAskRef.current;
+    if (localAsk) {
+      localAsk(trimmed);
+      return;
+    }
+
+    const session = sessionRef.current;
+    if (!session) return;
     openLineRef.current.ameen = null;
     session.sendClientContent({
       turns: [{ role: 'user', parts: [{ text: trimmed }] }],
@@ -813,6 +828,11 @@ export function useGeminiLiveTafsir({
       void answerLocally(
         segmentRef.current ? 'Assalamu alaykum! Please tell me the story of this ayah.' : 'Assalamu alaykum!'
       );
+
+      // Typed questions from the storyteller bar flow through the same local answerer.
+      localAskRef.current = (question: string): void => {
+        void answerLocally(question);
+      };
 
       // Turn-based conversation: speech start (RMS ≥ 38) followed by ≥1.6 s of silence is one
       // question; the same hysteresis gates the tajweed coach uses.

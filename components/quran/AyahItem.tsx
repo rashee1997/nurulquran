@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Play, Pause, Bookmark, BookmarkCheck, Sparkles, ArrowRightLeft, Loader2, StickyNote, Brain } from 'lucide-react';
+import Link from 'next/link';
+import { Play, Pause, Bookmark, BookmarkCheck, Sparkles, ArrowRightLeft, Loader2, StickyNote, Brain, BookOpen } from 'lucide-react';
 import { QuranWord, Verse } from '@/lib/quran/types';
 import { QuranWordItem } from './QuranWord';
 import { SrsState } from '@/lib/db';
@@ -213,6 +214,15 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
               <StickyNote className="w-4 h-4" aria-hidden="true" />
             </button>
           )}
+
+          <Link
+            href={`/lessons/tafsir/${verse.surah}/${verse.ayah}`}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-surface-hover transition-colors"
+            aria-label={`Open the Tafseer lesson for ayah ${verse.surah}:${verse.ayah}`}
+            title={`Tafseer lesson for ${verse.surah}:${verse.ayah} — commentary, storyteller, reflection`}
+          >
+            <BookOpen className="w-4 h-4" aria-hidden="true" />
+          </Link>
 
           <button
             type="button"

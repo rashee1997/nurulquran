@@ -102,13 +102,13 @@ const TafsirPanel: React.FC<{ entry: TafsirEntry; isPrimary: boolean }> = ({ ent
             still shown above, and the other language may still carry commentary.
           </p>
         ) : (
-          <p
-            className={`text-sm leading-relaxed text-foreground whitespace-pre-line ${
-              entry.language === 'ta' ? 'font-tamil' : ''
+          <div
+            className={`text-[0.95rem] text-foreground whitespace-pre-line max-w-[65ch] ${
+              entry.language === 'ta' ? 'font-tamil leading-[1.9]' : 'leading-[1.75]'
             }`}
           >
             {entry.text}
-          </p>
+          </div>
         )}
       </div>
     </article>
@@ -201,7 +201,12 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
             </div>
           </div>
 
-          <p className="font-arabic text-2xl sm:text-3xl leading-loose text-hero-fg" dir="rtl" lang="ar">
+          <p
+            className="font-arabic text-[1.7rem] sm:text-4xl leading-[2.4] text-hero-fg text-center"
+            dir="rtl"
+            lang="ar"
+            style={{ lineHeight: 2.2 }}
+          >
             {segment.textUthmani}
           </p>
 
@@ -239,24 +244,24 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
       <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div
           translate="no"
-          className="notranslate rounded-xl border border-border bg-card px-4 py-3"
+          className="notranslate rounded-xl border border-border bg-card px-4 py-3.5"
         >
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
             English translation
           </p>
-          <p className="text-sm text-foreground leading-relaxed">
+          <p className="text-sm text-foreground leading-[1.75]">
             {segment.translationEn || '—'}
           </p>
         </div>
         <div
           lang="ta"
           translate="no"
-          className="notranslate rounded-xl border border-border bg-card px-4 py-3"
+          className="notranslate rounded-xl border border-border bg-card px-4 py-3.5"
         >
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
             தமிழ் மொழிபெயர்ப்பு
           </p>
-          <p className="text-sm text-foreground leading-relaxed font-tamil">
+          <p className="text-sm text-foreground leading-[1.9] font-tamil">
             {segment.translationTa || '—'}
           </p>
         </div>

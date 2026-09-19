@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { QuranWord, Verse, Chapter } from '@/lib/quran/types';
 import { wordAudioCandidates } from '@/lib/quran/word-audio';
 import { usePreviewAudio } from '@/hooks/use-preview-audio';
+import Link from 'next/link';
 import { 
   Eye, 
   EyeOff, 
@@ -12,8 +13,7 @@ import {
   Volume2, 
   RotateCcw, 
   Layers, 
-  Sparkles,
-  Bookmark
+  BookOpen
 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
@@ -31,7 +31,6 @@ interface MushafPageViewProps {
   fontSize?: number;
   showTajweedColors?: boolean;
   onSelectVerse?: (verse: Verse) => void;
-  onOpenAiTutor?: (prompt: string) => void;
 }
 
 export const MushafPageView: React.FC<MushafPageViewProps> = ({
@@ -40,7 +39,6 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
   fontSize = 24,
   showTajweedColors = true,
   onSelectVerse,
-  onOpenAiTutor,
 }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [maskMode, setMaskMode] = useState<'none' | 'all' | 'alternate' | 'random'>('none');
@@ -226,9 +224,20 @@ export const MushafPageView: React.FC<MushafPageViewProps> = ({
           <span className="font-arabic text-sm text-primary font-bold" lang="ar" dir="rtl">
             الجزء {Math.ceil(chapter.id / 4)}
           </span>
-          <span className="font-bold text-foreground">
-            Page {currentPage}
-          </span>
+          {/* Tafseer entry for the first ayah visible on this page. */}
+          {(() => {
+            const firstAyah = activePageData?.lines[0]?.tokens[0]?.verse.ayah ?? 1;
+            return (
+              <Link
+                href={`/lessons/tafsir/${chapter.id}/${firstAyah}`}
+                className="inline-flex items-center gap-1 font-bold text-primary hover:text-primary-hover transition-colors"
+                title={`Tafseer lesson for ${chapter.id}:${firstAyah}`}
+              >
+                <BookOpen className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Tafseer</span>
+              </Link>
+            );
+          })()}
         </div>
 
         {/* 15 Lines Grid */}

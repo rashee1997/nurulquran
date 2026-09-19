@@ -139,18 +139,24 @@ async function fetchAcrossTiers<T>(
   return onExhausted(lastFailure);
 }
 
-function normalizeSurahPayload(raw: unknown): TafsirAyahRecord[] | null {
+function normalizeSurahPayload(raw: unknown, surah: number): TafsirAyahRecord[] | null {
   const parsed = parseWithSchema(surahTafsirPayloadSchema, raw);
   if (!parsed.ok) return null;
 
   const rows = Array.isArray(parsed.data) ? parsed.data : parsed.data.ayahs;
-  return rows.map((row, index) => ({
-    // Some editions omit `surah`; position in the chapter file is the only other signal,
-    // and it is only trusted for the sūrah field, never for the ayah number.
-    surah: row.surah ?? 0,
-    ayah: row.ayah ?? index + 1,
-    text: row.text,
-  }));
+  /*
+   * Identity check on the network payload, mirroring `isCachedChapterFor` on the cached one:
+   * a file that names a *different* sūrah (a CDN path mix-up, a future layout change) must
+   * not be relabelled and rendered beside this sūrah's verse. Position is only trusted for
+   * the ayah number, and only for rows the edition left unnumbered.
+   */
+  return rows
+    .map((row, index) => ({
+      surah: row.surah ?? surah,
+      ayah: row.ayah ?? index + 1,
+      text: row.text,
+    }))
+    .filter((row) => row.surah === surah);
 }
 
 /**
@@ -184,7 +190,7 @@ export async function fetchSurahTafsir(
 ): Promise<TafsirAyahRecord[]> {
   const rows = await fetchAcrossTiers(
     (cdnBase) => surahTafsirUrl(cdnBase, edition.slug, surah),
-    normalizeSurahPayload,
+    (raw) => normalizeSurahPayload(raw, surah),
     () => {
       throw new TafsirUnavailableError(edition.slug, surah, undefined);
     }

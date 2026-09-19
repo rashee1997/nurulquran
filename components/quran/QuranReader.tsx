@@ -576,7 +576,6 @@ Explain the root words, linguistic context, and practical spiritual reflections.
           fontSize={fontSize}
           showTajweedColors={showTajweedColors}
           onSelectVerse={handlePlayVerse}
-          onOpenAiTutor={onOpenAiTutor}
         />
       ) : (
         <div ref={listRef} className="max-w-3xl mx-auto w-full space-y-4">
