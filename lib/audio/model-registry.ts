@@ -10,7 +10,7 @@
  * error instead of silently switching voices.
  *
  * The budget invariant is enforced per-variant at selection time, so no user choice can exceed
- * the 220 MB ceiling.
+ * the 300 MB ceiling.
  */
 
 
@@ -32,14 +32,15 @@ export interface ModelAsset {
 /**
  * Hard ceiling on the total bytes this variant may require, checked before any download starts.
  *
- * Raised from 180 MB after a measured audit: the Balanced variant's exact byte sum is
- * 180.3 MB (VAD 2.24 + Whisper encoder 10.1 + decoder 50.02 + Tamil Rasa 63.51 + English
- * Lessac int8 63.20 + two JSON configs), which the old ceiling rejected — `ensureVariantDownloaded`
- * threw "exceeds the 180 MB budget" before a single byte was fetched, so downloads aborted
- * instantly for *every* variant. 220 MB keeps ~40 MB of headroom above the largest variant
- * while still capping abuse of the storage quota.
+ * 300 MB, raised from 220 MB when the shared STT pair moved from Whisper tiny to Whisper base:
+ * the Balanced variant's exact byte sum is now 231 537 815 B = 220.8 MB (VAD 2.14 + base encoder
+ * 22.09 + base decoder 75.73 + Tamil Rasa 60.57 + English Lessac int8 60.27 + two JSON configs),
+ * which the old 220 MB ceiling would have rejected — the *same* failure mode the previous
+ * 180 MB → 220 MB bump fixed, where `ensureVariantDownloaded` threw "exceeds the budget" before a
+ * single byte was fetched and every download aborted instantly. The ceiling now leaves ~69 MB of
+ * headroom above the largest variant while matching the project's 300–400 MB on-device budget.
  */
-export const MODEL_BUDGET_BYTES = 220 * 1024 * 1024;
+export const MODEL_BUDGET_BYTES = 300 * 1024 * 1024;
 
 /**
  * Ceiling on what *all* cached variants may occupy together.
@@ -47,10 +48,10 @@ export const MODEL_BUDGET_BYTES = 220 * 1024 * 1024;
  * `MODEL_BUDGET_BYTES` is a per-variant ceiling — it is what stops an oversized single download,
  * and it is the guard that was wrongly set to 180 MB and aborted every download. It cannot bound
  * the total, because variants may coexist on disk and share the VAD/Whisper assets while each
- * swapping one voice: all three variants together are ~316 MB (2.2 VAD + 10.1 encoder + 50.0
- * decoder + Rasa 63.5 + HemaLatha 63.5 + Lessac 63.2 + Amy 63.1 + four small JSON configs). This
- * ceiling therefore has to sit above that sum while still being a real bound; 400 MiB leaves
- * ~90 MB of headroom and refuses a fourth variant's worth of storage.
+ * swapping one voice: all three variants together are ~342 MB (2.14 VAD + 22.09 encoder +
+ * 75.73 decoder + Rasa 60.57 + HemaLatha 60.58 + Lessac 60.27 + Amy 60.18 + four small JSON
+ * configs). This ceiling therefore has to sit above that sum while still being a real bound;
+ * 400 MiB leaves ~61 MB of headroom and refuses a fourth variant's worth of storage.
  */
 export const MODEL_TOTAL_BUDGET_BYTES = 400 * 1024 * 1024;
 
@@ -68,26 +69,46 @@ const SILERO_VAD: ModelAsset = {
   fileName: 'silero_vad.onnx',
 };
 
-/** Shared STT assets (Whisper-tiny-ar-quran, int8). Verified 200 / ACO:*. */
+/**
+ * Shared recitation STT assets — Whisper **base** ar-quran (int8), a Quran fine-tune.
+ *
+ * Verified 2026-09-19: a HEAD request returns 200 with `x-linked-size` equal to the byte counts
+ * below and `access-control-allow-origin` reflecting the request Origin.
+ *
+ * This pair replaced Whisper **tiny** ar-quran (10.1 MB + 50.0 MB). Tiny is 39 M parameters and
+ * transcribed Quranic Arabic loosely enough that the GOP alignment mis-flagged acceptable
+ * recitation; base is 74 M parameters — roughly double the acoustic capacity — for +42.5 MB.
+ * The swap is otherwise a drop-in: both are fine-tunes exported through the same transformers.js
+ * pipeline (same `onnx/` paths, same merged-decoder graph), the multilingual tokenizer is
+ * identical across every Whisper checkpoint (so `lib/audio/whisper-vocab.ts` and the worker's
+ * decode loop are untouched), and the 30 s / 3000-frame mel window is the same for both sizes.
+ *
+ * Qwen3-ASR — the obvious "more robust" alternative — was evaluated and rejected: it is an
+ * audio-LLM (a Qwen3 language-model decoder plus an audio front end), not an encoder/decoder
+ * pair, so even the smallest int8 export (`csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25`)
+ * is encoder 182 491 662 B + decoder 755 914 231 B + conv frontend 44 148 281 B ≈ 937 MB — well
+ * over twice the 400 MB total budget — and its language list excludes Tamil. Whisper base
+ * ar-quran is the strongest Quran-tuned model that fits on device.
+ */
 const WHISPER_ENCODER: ModelAsset = {
   id: 'whisper-encoder',
-  label: 'Recitation STT encoder',
+  label: 'Recitation STT encoder (Whisper base)',
   role: 'stt-encoder',
-  url: `${HF}/aaqibhabib/whisper-tiny-ar-quran-onnx/resolve/main/onnx/encoder_model_quantized.onnx`,
-  bytes: 10_097_740,
-  sizeLabel: '10.1 MB',
+  url: `${HF}/aaqibhabib/whisper-base-ar-quran-onnx/resolve/main/onnx/encoder_model_quantized.onnx`,
+  bytes: 23_161_017,
+  sizeLabel: '22.1 MB',
   mimeType: 'application/octet-stream',
-  fileName: 'whisper_encoder_int8.onnx',
+  fileName: 'whisper_base_encoder_int8.onnx',
 };
 const WHISPER_DECODER: ModelAsset = {
   id: 'whisper-decoder',
-  label: 'Recitation STT decoder',
+  label: 'Recitation STT decoder (Whisper base)',
   role: 'stt-decoder',
-  url: `${HF}/aaqibhabib/whisper-tiny-ar-quran-onnx/resolve/main/onnx/decoder_model_merged_quantized.onnx`,
-  bytes: 50_020_106,
-  sizeLabel: '50.0 MB',
+  url: `${HF}/aaqibhabib/whisper-base-ar-quran-onnx/resolve/main/onnx/decoder_model_merged_quantized.onnx`,
+  bytes: 79_409_343,
+  sizeLabel: '75.7 MB',
   mimeType: 'application/octet-stream',
-  fileName: 'whisper_decoder_int8.onnx',
+  fileName: 'whisper_base_decoder_int8.onnx',
 };
 
 /** Tamil voices. Both verified 200 / ACO:*. */
@@ -196,7 +217,7 @@ export interface ModelVariant {
 
 /**
  * The three user-selectable variants. `balanced` is the Settings default: Tamil Rasa + English
- * int8 Lessac at 180.3 MB. The alternates swap one voice each and remain inside the budget.
+ * int8 Lessac at 220.8 MB. The alternates swap one voice each and remain inside the budget.
  */
 export const MODEL_VARIANTS: Record<CoachModelVariant, ModelVariant> = {
   balanced: {

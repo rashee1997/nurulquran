@@ -2,7 +2,7 @@
  * Local S2S engine worker.
  *
  * ALL on-device inference lives here, off the main UI thread: Silero VAD framing, the
- * Whisper-tiny-ar-quran encoder/decoder pair through onnxruntime-web, and the Goodness of
+ * Whisper base ar-quran encoder/decoder pair through onnxruntime-web, and the Goodness of
  * Pronunciation (GOP) scoring math. The worker never fetches: the main thread hands over model
  * blobs and reference-audio requests, which keeps network ownership and caching in one place.
  *
@@ -119,7 +119,7 @@ async function vadProb(samples: Float32Array): Promise<number> {
 interface SttState {
   encoder: ort.InferenceSession;
   decoder: ort.InferenceSession;
-  /** Whisper-tiny tokenizer vocabulary, subsetted to what GOP actually needs. */
+  /** Whisper tokenizer vocabulary (identical across multilingual checkpoints), subsetted to what GOP actually needs. */
   vocab: Map<string, number>;
   idToToken: Map<number, string>;
   sotToken: number;
@@ -132,7 +132,7 @@ interface SttState {
 
 let stt: SttState | null = null;
 
-/** Number of mel frames the encoder sees; 3000 = 30 s window (Whisper-tiny). */
+/** Number of mel frames the encoder sees; 3000 = 30 s window, identical for every Whisper size. */
 const N_MEL_FRAMES = 3000;
 const MAX_NEW_TOKENS = 96;
 
