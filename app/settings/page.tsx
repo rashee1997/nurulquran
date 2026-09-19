@@ -16,6 +16,8 @@ import { useTheme } from '@/hooks/use-theme';
 import { useLocale } from '@/lib/i18n/useLocale';
 import { localDayKey } from '@/lib/time/day';
 import { AI_TEACHER_VOICES, playVoiceHarmonicPreview } from '@/lib/audio/pcm-audio';
+import type { CoachModelVariant } from '@/lib/audio/model-registry';
+import { EngineVariantSelector } from '@/components/settings/EngineVariantSelector';
 import {
   FEEDBACK_LANGUAGE_OPTIONS,
   FeedbackLanguage,
@@ -36,6 +38,7 @@ interface SettingsDraft {
   aiVoiceId: string;
   aiTeacherPersona: 'gentle' | 'balanced' | 'strict';
   aiFeedbackLanguage: FeedbackLanguage;
+  coachModelVariant: CoachModelVariant;
   arabicFontSize: number;
   showEnglish: boolean;
   showTamil: boolean;
@@ -54,6 +57,7 @@ function draftFromProfile(profile: UserProfile): SettingsDraft {
     aiVoiceId: profile.aiVoiceId || 'Kore',
     aiTeacherPersona: profile.aiTeacherPersona ?? 'balanced',
     aiFeedbackLanguage: normalizeFeedbackLanguage(profile.aiFeedbackLanguage),
+    coachModelVariant: profile.coachModelVariant ?? 'balanced',
     arabicFontSize: clampFontSize(profile.arabicFontSize ?? DEFAULT_ARABIC_FONT_SIZE),
     // `both` (and an unset value) enables both; the reader always shows at least one translation.
     showEnglish: profile.preferredTranslationLang !== 'ta',
@@ -71,6 +75,7 @@ function patchFromDraft(draft: SettingsDraft): Partial<UserProfile> {
     aiVoiceId: draft.aiVoiceId,
     aiTeacherPersona: draft.aiTeacherPersona,
     aiFeedbackLanguage: draft.aiFeedbackLanguage,
+    coachModelVariant: draft.coachModelVariant,
     arabicFontSize: draft.arabicFontSize,
     preferredTranslationLang,
     tajweedColorsEnabled: draft.tajweedColorsEnabled,
@@ -83,6 +88,7 @@ function isDraftEqual(a: SettingsDraft, b: SettingsDraft): boolean {
     a.aiVoiceId === b.aiVoiceId &&
     a.aiTeacherPersona === b.aiTeacherPersona &&
     a.aiFeedbackLanguage === b.aiFeedbackLanguage &&
+    a.coachModelVariant === b.coachModelVariant &&
     a.arabicFontSize === b.arabicFontSize &&
     a.showEnglish === b.showEnglish &&
     a.showTamil === b.showTamil &&
@@ -588,6 +594,11 @@ export default function SettingsPage() {
             })}
           </div>
         </div>
+
+        <EngineVariantSelector
+          value={draft?.coachModelVariant}
+          onChange={(variant) => updateDraft({ coachModelVariant: variant })}
+        />
       </div>
 
       {/* AI BYOK Callout Card */}

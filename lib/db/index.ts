@@ -44,6 +44,11 @@ export interface UserProfile {
   aiTeacherPersona?: 'gentle' | 'balanced' | 'strict';
   aiFeedbackLanguage?: 'both' | 'en' | 'ta';
   aiSpeechRate?: number;
+  /**
+   * Which local-engine model variant the recitation coach prefers, with automatic fallback
+   * down the variant chain when the preferred one cannot be satisfied. Undefined = 'balanced'.
+   */
+  coachModelVariant?: 'balanced' | 'tamil-hemalatha' | 'english-amy';
   /** Last ayah the reader was scrolled to, so the dashboard can resume it. */
   readingPosition?: ReadingPosition;
   /** Chosen memorisation pace in ayahs per day (Hifz planner). */
@@ -449,6 +454,7 @@ const userProfileRowSchema = z.object({
   aiTeacherPersona: z.enum(['gentle', 'balanced', 'strict']).optional(),
   aiFeedbackLanguage: feedbackLanguageSchema.optional(),
   aiSpeechRate: z.number().min(0.5).max(2).optional(),
+  coachModelVariant: z.enum(['balanced', 'tamil-hemalatha', 'english-amy']).optional(),
   readingPosition: z
     .object({ surah: surahNumberSchema, ayah: ayahNumberSchema, updatedAt: z.string().min(1) })
     .optional(),

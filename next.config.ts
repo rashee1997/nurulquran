@@ -22,16 +22,27 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   transpilePackages: ['motion'],
   /*
-   * Cross-origin isolation is what unlocks SharedArrayBuffer, which onnxruntime-web needs for
-   * multithreaded WASM SIMD inference inside the local engine worker. COEP is `credentialless`
-   * rather than `require-corp` so third-party subresources (scripture CDNs, images) keep loading
-   * without per-resource CORP opt-ins, while crossOriginIsolated still evaluates to true in
-   * Chromium. Audio CDNs are fetched with CORS already, so they are unaffected.
+   * Cross-origin isolation unlocks SharedArrayBuffer, which onnxruntime-web needs for
+   * multithreaded WASM SIMD inference inside the local engine worker. It is scoped to
+   * `/quran/coach` — the only page that runs the engine — and to the service worker script,
+   * which must carry the same COEP as the isolated client it controls.
+   *
+   * It must NOT be applied site-wide: the reciter audio CDN (cdn.islamic.network) sends no
+   * CORS headers, and under COEP the browser blocks the reader's no-cors `<audio>` loads,
+   * which surfaced as "Playback was blocked or the recitation could not be loaded" for every
+   * reciter. On non-isolated pages media elements load exactly as before.
    */
   async headers() {
     return [
       {
-        source: '/:path*',
+        source: '/quran/coach',
+        headers: [
+          {key: 'Cross-Origin-Opener-Policy', value: 'same-origin'},
+          {key: 'Cross-Origin-Embedder-Policy', value: 'credentialless'},
+        ],
+      },
+      {
+        source: '/sw.js',
         headers: [
           {key: 'Cross-Origin-Opener-Policy', value: 'same-origin'},
           {key: 'Cross-Origin-Embedder-Policy', value: 'credentialless'},

@@ -1,20 +1,27 @@
 'use client';
 
 import Dexie, { type Table } from 'dexie';
-import { MODEL_ASSETS, MODEL_BUDGET_BYTES, TOTAL_REGISTRY_BYTES } from '@/lib/audio/model-registry';
+import {
+  MODEL_VARIANTS,
+  MODEL_BUDGET_BYTES,
+  resolveVariantChain,
+  variantTotalBytes,
+  type CoachModelVariant,
+  type ModelAsset,
+  type ModelVariant,
+} from '@/lib/audio/model-registry';
 
 /**
- * Model asset persistence and download management.
+ * Model asset persistence and download management — variant-aware.
  *
- * Model binaries live in their own IndexedDB database (`NurulQuranModelDB`) rather than in the
- * main Dexie database: a 50 MB decoder blob has no business being swept into the learner-data
- * backup tables, and a fresh database keeps the upgrade paths independent.
+ * Model binaries live in their own IndexedDB database (`NurulQuranModelDB`) so a 50 MB decoder
+ * blob never sweeps into the learner-data backup tables. Multiple variants may coexist on disk;
+ * the runtime resolves which one to use through `resolvePreferredVariant`, which walks the
+ * learner's chosen fallback chain and picks the first fully-cached variant.
  *
- * Progress uses the stream reader pattern: the response body is read chunk by chunk and both the
- * partially assembled blob and the byte count are updated, so the UI shows real megabytes instead
- * of an indeterminate spinner. Interrupted downloads leave a partial row with `state: 'partial'`,
- * which the next attempt resumes from zero — model CDNs do not offer range-resumable semantics we
- * can rely on inside a browser blob, so a clean restart is more honest than a fake resume.
+ * Progress uses the stream reader pattern: the response body is read chunk by chunk so the UI
+ * shows real megabytes, and interrupted downloads leave a partial row that the next attempt
+ * restarts cleanly (model CDNs do not offer browser-side range resumes).
  */
 
 export type ModelAssetState = 'missing' | 'downloading' | 'partial' | 'ready' | 'error';
@@ -55,14 +62,16 @@ class ModelDatabase extends Dexie {
 export const modelDb = new ModelDatabase();
 
 /* -------------------------------------------------------------------------- */
-/* Read helpers (reactive via dexie-react-hooks in the UI)                     */
+/* Read helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
-export async function getReadyBlobs(): Promise<Map<string, Blob>> {
+/** All ready blobs for the given variant's asset ids (used by the worker init). */
+export async function getReadyBlobs(variant: ModelVariant): Promise<Map<string, Blob>> {
   const rows = await modelDb.modelAssets.where('state').equals('ready').toArray();
+  const wanted = new Set(variant.assets.map((asset) => asset.id));
   const map = new Map<string, Blob>();
   for (const row of rows) {
-    if (row.blob) map.set(row.id, row.blob);
+    if (row.blob && wanted.has(row.id)) map.set(row.id, row.blob);
   }
   return map;
 }
@@ -70,8 +79,12 @@ export async function getReadyBlobs(): Promise<Map<string, Blob>> {
 export async function getModelSnapshot(): Promise<ModelDbProgress[]> {
   const rows = await modelDb.modelAssets.toArray();
   const byId = new Map(rows.map((row) => [row.id, row]));
-  // Every registry asset is reported, even before its first download attempt.
-  return MODEL_ASSETS.map((asset) => {
+  // Union of every variant's assets so the panel shows all possible entries.
+  const allAssets = new Map<string, ModelAsset>();
+  for (const variant of Object.values(MODEL_VARIANTS)) {
+    for (const asset of variant.assets) allAssets.set(asset.id, asset);
+  }
+  return [...allAssets.values()].map((asset) => {
     const row = byId.get(asset.id);
     return {
       id: asset.id,
@@ -89,16 +102,42 @@ export async function totalStoredModelBytes(): Promise<number> {
   return rows.reduce((sum, row) => sum + (row.blob?.size ?? 0), 0);
 }
 
-/**
- * Whether every registry asset is cached and verified. The engine refuses to start otherwise:
- * a half-present model directory would produce runtime failures far less clear than this gate.
- */
-export async function areAllModelsReady(): Promise<boolean> {
+/** Whether one specific variant is fully cached and byte-verified. */
+export async function isVariantReady(variant: ModelVariant): Promise<boolean> {
   const rows = await modelDb.modelAssets.where('state').equals('ready').toArray();
-  return MODEL_ASSETS.every((asset) => {
+  return variant.assets.every((asset) => {
     const row = rows.find((candidate) => candidate.id === asset.id);
     return row !== undefined && row.blob !== undefined && row.blob.size === asset.bytes;
   });
+}
+
+/**
+ * Resolves the learner's preference to the best usable variant.
+ *
+ * Walks the fallback chain and returns the first variant that is fully cached. If none are
+ * ready, the first variant in the chain is returned as the download target — the orchestrator
+ * will then find nothing usable and surface the download prompt, which is the correct outcome
+ * for "chosen variant never downloaded".
+ */
+export async function resolvePreferredVariant(
+  preferred: CoachModelVariant
+): Promise<{ variant: ModelVariant; ready: boolean; chain: ModelVariant[] }> {
+  const chain = resolveVariantChain(preferred);
+  for (const variant of chain) {
+    if (await isVariantReady(variant)) {
+      return { variant, ready: true, chain };
+    }
+  }
+  return { variant: chain[0], ready: false, chain };
+}
+
+/**
+ * Legacy convenience: whether the learner's preferred variant (or any fallback) is usable.
+ * Kept because the coach page gates its UI on this shape.
+ */
+export async function areAllModelsReady(preferred: CoachModelVariant = 'balanced'): Promise<boolean> {
+  const { ready } = await resolvePreferredVariant(preferred);
+  return ready;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -108,7 +147,6 @@ export async function areAllModelsReady(): Promise<boolean> {
 let activeDownload = false;
 const progressListeners = new Set<(progress: ModelDbProgress) => void>();
 
-/** Subscribes to per-asset progress ticks for live UI updates without Dexie live queries. */
 export function subscribeModelProgress(listener: (progress: ModelDbProgress) => void): () => void {
   progressListeners.add(listener);
   return () => {
@@ -132,18 +170,8 @@ async function putAndEmit(record: ModelAssetRecord, label: string): Promise<void
   });
 }
 
-/**
- * Downloads one asset with streamed progress and byte-length integrity verification.
- *
- * `ReadableStreamDefaultReader` (via `response.body.getReader()`) is used rather than
- * `response.blob()` because the latter reports no progress: the learner would stare at a
- * spinner for 63 MB. Chunks are accumulated into an array and joined once at the end, which
- * avoids per-chunk blob copies.
- */
-async function downloadAsset(assetId: string): Promise<void> {
-  const asset = MODEL_ASSETS.find((entry) => entry.id === assetId);
-  if (!asset) throw new Error(`Unknown model asset: ${assetId}`);
-
+/** Streams one asset with live progress and byte-length integrity verification. */
+async function downloadAsset(asset: ModelAsset): Promise<void> {
   const base: ModelAssetRecord = {
     id: asset.id,
     state: 'downloading',
@@ -172,7 +200,6 @@ async function downloadAsset(assetId: string): Promise<void> {
       if (value) {
         chunks.push(value);
         received += value.byteLength;
-        // Throttle the UI to ~10 updates/second; every-chunk emission floods React.
         if (received - lastEmit > asset.bytes / 50 || received === asset.bytes) {
           lastEmit = received;
           await putAndEmit({ ...base, bytesReceived: received }, asset.label);
@@ -181,8 +208,6 @@ async function downloadAsset(assetId: string): Promise<void> {
     }
 
     const blob = new Blob(chunks as BlobPart[], { type: asset.mimeType });
-    // Hard integrity check: the CDN advertised a byte length and the stream must match it.
-    // A truncated response that "succeeded" would otherwise poison the runtime for weeks.
     if (blob.size !== asset.bytes) {
       throw new Error(
         `${asset.label} is incomplete: received ${blob.size} bytes, expected ${asset.bytes}.`
@@ -201,56 +226,72 @@ async function downloadAsset(assetId: string): Promise<void> {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Download failed.';
-    await putAndEmit(
-      {
-        ...base,
-        state: 'error',
-        error: message,
-      },
-      asset.label
-    );
+    await putAndEmit({ ...base, state: 'error', error: message }, asset.label);
     throw error;
   }
 }
 
 /**
- * Downloads every missing/invalid asset, enforcing the storage budget before starting.
+ * Downloads one variant's full asset set, enforcing the budget before starting.
  *
- * Sequential rather than parallel on purpose: parallel 63 MB streams saturate the connection the
- * learner is also using for the app shell, and the progress UI becomes unreadable. The budget is
- * checked against the full registry, not the remaining assets, because a partial adoption of the
- * stack is not a supported configuration — the engine needs every model.
+ * Assets already cached (from another variant, e.g. the shared VAD/STT files) are skipped, so
+ * switching voices only downloads the voice that actually changed.
  */
-export async function ensureAllModelsDownloaded(
+export async function ensureVariantDownloaded(
+  variant: ModelVariant,
   onProgress?: (done: number, total: number) => void
 ): Promise<void> {
-  if (activeDownload) return;
+  if (activeDownload) throw new Error('A model download is already running.');
   activeDownload = true;
 
   try {
-    const existing = await areAllModelsReady();
-    if (existing) return;
-
-    if (TOTAL_REGISTRY_BYTES > MODEL_BUDGET_BYTES) {
+    if (variantTotalBytes(variant) > MODEL_BUDGET_BYTES) {
       throw new Error(
-        `The model registry needs ${(TOTAL_REGISTRY_BYTES / 1048576).toFixed(1)} MB, which exceeds the ${(MODEL_BUDGET_BYTES / 1048576).toFixed(0)} MB budget.`
+        `The "${variant.label}" variant needs ${(variantTotalBytes(variant) / 1048576).toFixed(1)} MB, which exceeds the ${(MODEL_BUDGET_BYTES / 1048576).toFixed(0)} MB budget.`
       );
     }
 
     let done = 0;
-    for (const asset of MODEL_ASSETS) {
+    for (const asset of variant.assets) {
       const row = await modelDb.modelAssets.get(asset.id);
       const intact =
         row?.state === 'ready' && row.blob !== undefined && row.blob.size === asset.bytes;
       if (!intact) {
-        await downloadAsset(asset.id);
+        await downloadAsset(asset);
       }
       done += 1;
-      onProgress?.(done, MODEL_ASSETS.length);
+      onProgress?.(done, variant.assets.length);
     }
   } finally {
     activeDownload = false;
   }
+}
+
+/**
+ * Ensures the learner's preferred variant is available, falling back down the chain when the
+ * preferred variant cannot be downloaded. Returns the variant that actually became ready (or
+ * `null` when the whole chain failed, with the last error attached).
+ */
+export async function ensurePreferredVariantReady(
+  preferred: CoachModelVariant,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ variant: ModelVariant | null; error?: string }> {
+  const chain = resolveVariantChain(preferred);
+  let lastError: string | undefined;
+
+  for (const variant of chain) {
+    try {
+      await ensureVariantDownloaded(variant, onProgress);
+      if (await isVariantReady(variant)) {
+        return { variant };
+      }
+      lastError = `${variant.label} did not verify after download.`;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error.message : 'Download failed.';
+      // Fall through to the next variant in the chain.
+    }
+  }
+  return { variant: null, error: lastError };
 }
 
 /** Removes every cached model (settings "Free up space" action). */

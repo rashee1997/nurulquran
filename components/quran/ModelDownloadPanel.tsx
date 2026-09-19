@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Loader2, Download, Cloud, CloudOff, Cpu } from 'lucide-react';
 import { modelDb, subscribeModelProgress, type ModelDbProgress } from '@/lib/audio/model-cache';
-import { TOTAL_REGISTRY_BYTES } from '@/lib/audio/model-registry';
+import { MODEL_VARIANTS, type CoachModelVariant } from '@/lib/audio/model-registry';
 
 /**
  * Model download + engine status panel for the local S2S coach.
@@ -49,16 +49,29 @@ function formatBytes(bytes: number): string {
   return `${(bytes / MB).toFixed(1)} MB`;
 }
 
-export const ModelDownloadPanel: React.FC = () => {
+/**
+ * Variant-aware model download + engine status panel for the local S2S coach.
+ *
+ * `preferredVariant` is the learner's saved choice; the asset list shows that variant's
+ * downloads so the progress bar tracks exactly what the coach needs. Download progress comes
+ * from two sources, merged: Dexie live queries provide the durable state (what is on disk right
+ * now), while the in-flight stream reader ticks arrive through a module-level external store so
+ * a 63 MB download visibly moves without waiting on IndexedDB write latency.
+ */
+export const ModelDownloadPanel: React.FC<{ preferredVariant?: CoachModelVariant }> = ({
+  preferredVariant = 'balanced',
+}) => {
   useSyncExternalStore(subscribeTicks, getTicks, getTicks);
 
   const rows = useLiveQuery(async () => {
     const records = await modelDb.modelAssets.toArray();
-    const byId = new Map(records.map((row) => [row.id, row]));
-    return TOTAL_REGISTRY_BYTES > 0 ? byId : byId;
+    return new Map(records.map((row) => [row.id, row]));
   }, []);
 
-  const assets = MODEL_ASSETS_FOR_UI;
+  const variant = MODEL_VARIANTS[preferredVariant] ?? MODEL_VARIANTS.balanced;
+  const assets = variant.assets;
+  const totalBytes = assets.reduce((sum, asset) => sum + asset.bytes, 0);
+
   const totalReady = assets.reduce((sum, asset) => {
     const tick = liveTicks[asset.id];
     const record = rows?.get(asset.id);
@@ -79,14 +92,14 @@ export const ModelDownloadPanel: React.FC = () => {
           On-device engine models
         </h3>
         <span className="text-[11px] font-semibold text-muted-foreground">
-          {formatBytes(totalReady)} / {formatBytes(TOTAL_REGISTRY_BYTES)}
+          {formatBytes(totalReady)} / {formatBytes(totalBytes)}
         </span>
       </div>
 
-      <div className="h-1.5 rounded-full bg-surface overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((totalReady / TOTAL_REGISTRY_BYTES) * 100)}>
+      <div className="h-1.5 rounded-full bg-surface overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((totalReady / totalBytes) * 100)}>
         <div
           className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${Math.min(100, (totalReady / TOTAL_REGISTRY_BYTES) * 100)}%` }}
+          style={{ width: `${Math.min(100, (totalReady / totalBytes) * 100)}%` }}
         />
       </div>
 
@@ -131,5 +144,3 @@ export const ModelDownloadPanel: React.FC = () => {
   );
 };
 
-// Imported after the component so the module graph reads top-down; kept explicit for tree-shaking.
-import { MODEL_ASSETS as MODEL_ASSETS_FOR_UI } from '@/lib/audio/model-registry';

@@ -419,8 +419,14 @@ export class SpeechOrchestrator {
     };
 
     // Pull blobs straight from IndexedDB — no network, no re-download, works offline.
-    const { getReadyBlobs } = await import('@/lib/audio/model-cache');
-    const blobs = await getReadyBlobs();
+    // The learner's saved variant preference (Settings → AI) decides which asset set is loaded;
+    // the fallback chain is already resolved at download time, so whichever variant is cached
+    // wins here.
+    const { getReadyBlobs, resolvePreferredVariant } = await import('@/lib/audio/model-cache');
+    const profile = await (await import('@/lib/db')).db.userProfile.get('default_user');
+    const preferred = profile?.coachModelVariant ?? 'balanced';
+    const { variant } = await resolvePreferredVariant(preferred);
+    const blobs = await getReadyBlobs(variant);
     const assets = [...blobs.entries()].map(([id, blob]) => ({ id, blob }));
 
     worker.onmessage = worker.onmessage; // keep existing handler

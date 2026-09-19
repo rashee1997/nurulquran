@@ -2,8 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, HardDriveDownload } from 'lucide-react';
-import { ensureAllModelsDownloaded, areAllModelsReady, getModelSnapshot, subscribeModelProgress, type ModelDbProgress } from '@/lib/audio/model-cache';
-import { TOTAL_REGISTRY_BYTES } from '@/lib/audio/model-registry';
+import {
+  areAllModelsReady,
+  ensurePreferredVariantReady,
+  getModelSnapshot,
+  subscribeModelProgress,
+  type ModelDbProgress,
+} from '@/lib/audio/model-cache';
+import {
+  MODEL_VARIANTS,
+  variantTotalBytes,
+  type CoachModelVariant,
+} from '@/lib/audio/model-registry';
 import { ModelDownloadPanel, publishTick } from '@/components/quran/ModelDownloadPanel';
 import { RecitationCoachCanvas } from '@/components/quran/RecitationCoachCanvas';
 import { showToast } from '@/lib/ui/toast';
@@ -55,14 +65,22 @@ export default function RecitationCoachPage() {
   const [progressLabel, setProgressLabel] = useState('');
   const [surah, setSurah] = useState(DEFAULT_TARGET.surah);
   const [ayah, setAyah] = useState(DEFAULT_TARGET.ayah);
+  /** The learner's saved engine choice (Settings → AI); `undefined` = 'balanced'. */
+  const [preferredVariant, setPreferredVariant] = useState<CoachModelVariant>('balanced');
 
   useEffect(() => {
     let active = true;
     void (async () => {
-      const ready = await areAllModelsReady();
+      const profile = await db.userProfile.get('default_user');
+      if (!active) return;
+      const variant: CoachModelVariant =
+        profile?.coachModelVariant && profile.coachModelVariant in MODEL_VARIANTS
+          ? profile.coachModelVariant
+          : 'balanced';
+      setPreferredVariant(variant);
+      const ready = await areAllModelsReady(variant);
       if (!active) return;
       setModelsReady(ready);
-      const profile = await db.userProfile.get('default_user');
       if (profile?.readingPosition && active) {
         setSurah(profile.readingPosition.surah);
         setAyah(profile.readingPosition.ayah);
@@ -71,7 +89,7 @@ export default function RecitationCoachPage() {
 
     // Re-verify after any downloads triggered elsewhere in the session.
     const interval = setInterval(() => {
-      void areAllModelsReady().then((ready) => {
+      void areAllModelsReady(preferredVariant).then((ready) => {
         if (active) setModelsReady(ready);
       });
     }, 4000);
@@ -80,7 +98,7 @@ export default function RecitationCoachPage() {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [preferredVariant]);
 
   const words = useMemo(() => [] as string[], []);
   const [verseWords, setVerseWords] = useState<string[]>(words);
@@ -95,22 +113,35 @@ export default function RecitationCoachPage() {
     };
   }, [surah, ayah, words]);
 
+  /**
+   * Downloads the learner's preferred variant, walking its fallback chain automatically when a
+   * download fails. The toast names the variant that actually became ready so the learner can
+   * see when a fallback engine was used.
+   */
   const handleDownload = async (): Promise<void> => {
     setDownloading(true);
     try {
       const unsubscribe = subscribeModelProgress((progress: ModelDbProgress) => publishTick(progress));
-      await ensureAllModelsDownloaded((done, total) => {
+      const { variant, error } = await ensurePreferredVariantReady(preferredVariant, (done, total) => {
         setProgressLabel(`Model ${done} of ${total}`);
       });
       unsubscribe();
-      const ready = await areAllModelsReady();
+      const ready = variant !== null;
       setModelsReady(ready);
       const snapshot = await getModelSnapshot();
       const failed = snapshot.find((entry) => entry.state === 'error');
       if (failed) {
         showToast(`${failed.label}: ${failed.error ?? 'download failed'}`, 'error');
-      } else if (ready) {
-        showToast(`All models cached (${(TOTAL_REGISTRY_BYTES / 1048576).toFixed(0)} MB). The coach works offline.`, 'success');
+      } else if (ready && variant) {
+        const size = (variantTotalBytes(variant) / 1048576).toFixed(0);
+        showToast(
+          variant.id === preferredVariant
+            ? `${variant.label} cached (${size} MB). The coach works offline.`
+            : `${variant.label} cached instead — your preferred engine could not be downloaded${error ? ` (${error})` : ''}.`,
+          'success'
+        );
+      } else {
+        showToast(error ?? 'Model download failed.', 'error');
       }
     } catch (error: unknown) {
       showToast(error instanceof Error ? error.message : 'Model download failed.', 'error');
@@ -137,7 +168,7 @@ export default function RecitationCoachPage() {
         <div className="rounded-2xl border border-info/40 bg-info-subtle p-4 space-y-3">
           <p className="flex items-center gap-2 text-sm font-bold text-info-strong">
             <HardDriveDownload className="w-4 h-4" aria-hidden="true" />
-            One-time setup: {(TOTAL_REGISTRY_BYTES / 1048576).toFixed(0)} MB of models, cached on this device.
+            One-time setup: {(variantTotalBytes(MODEL_VARIANTS[preferredVariant]) / 1048576).toFixed(0)} MB of models for the {MODEL_VARIANTS[preferredVariant].label} engine, cached on this device.
           </p>
           <p className="text-xs text-info-strong/80">
             After this, recitation feedback works entirely offline and never leaves your device.
@@ -157,7 +188,7 @@ export default function RecitationCoachPage() {
               <span>Download models</span>
             )}
           </button>
-          <ModelDownloadPanel />
+          <ModelDownloadPanel preferredVariant={preferredVariant} />
         </div>
       )}
 

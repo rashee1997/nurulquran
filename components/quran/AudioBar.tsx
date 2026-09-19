@@ -68,6 +68,24 @@ export interface PlaybackIntent {
 }
 
 /**
+ * Turns a failed `play()` into a message that says what actually happened: a browser
+ * autoplay/permission block is a user-gesture problem (tapping play again fixes it), while any
+ * other rejection means the clip itself did not load — which is when pointing at another reciter
+ * or the network makes sense.
+ */
+function describePlayFailure(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') {
+      return 'The browser blocked playback until you interact with the page — tap play to start it.';
+    }
+    if (error.name === 'NotSupportedError') {
+      return 'This recitation could not be decoded. Try another reciter.';
+    }
+  }
+  return 'Playback was blocked or the recitation could not be loaded. Check your connection or try another reciter.';
+}
+
+/**
  * Sticky recitation player.
  *
  * One component owns the media element: there is a single `play()` authority, the
@@ -261,10 +279,10 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     }
 
     wantsPlaybackRef.current = true;
-    audio.play().catch(() => {
+    audio.play().catch((error: unknown) => {
       wantsPlaybackRef.current = false;
       setIsPlaying(false);
-      setAudioError('Playback was blocked or the recitation could not be loaded.');
+      setAudioError(describePlayFailure(error));
     });
   }, [audioUrl, playIntent]);
 
@@ -300,10 +318,10 @@ export const AudioBar: React.FC<AudioBarProps> = ({
     audio
       .play()
       .then(() => setIsPlaying(true))
-      .catch(() => {
+      .catch((error: unknown) => {
         wantsPlaybackRef.current = false;
         setIsPlaying(false);
-        setAudioError('Playback was blocked or the recitation could not be loaded.');
+        setAudioError(describePlayFailure(error));
       });
   }, [audioUrl]);
 
