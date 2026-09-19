@@ -16,8 +16,11 @@ import {
   ExternalLink 
 } from 'lucide-react';
 import Link from 'next/link';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import { initializeVerseProgress } from '@/lib/learning/srs-engine';
+import { usePreviewAudio } from '@/hooks/use-preview-audio';
+import { DEFAULT_RECITER, globalAyahNumber, reciterAudioUrl } from '@/lib/quran/reciters';
 
 interface MutashabihatModalProps {
   entry: MutashabihEntry;
@@ -25,25 +28,28 @@ interface MutashabihatModalProps {
 }
 
 export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({ entry, onClose }) => {
-  const [activeAudioIndex, setActiveAudioIndex] = useState<number | null>(null);
   const [savedStatus, setSavedStatus] = useState<Record<string, boolean>>({});
+  const { isPlaying, playUrl } = usePreviewAudio();
+  const profile = useLiveQuery(() => db.userProfile.get('default_user'), []);
 
   const verse1 = entry.pair[0];
   const verse2 = entry.pair[1];
 
   const diff = computeTokenDiff(verse1.textUthmani, verse2.textUthmani);
 
-  const playVerseAudio = (text: string, idx: number) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setActiveAudioIndex(idx);
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'ar-SA';
-      u.rate = 0.85;
-      u.onend = () => setActiveAudioIndex(null);
-      u.onerror = () => setActiveAudioIndex(null);
-      window.speechSynthesis.speak(u);
-    }
+  /*
+   * Playback key per verse, so the button reflects the shared player's actual state.
+   *
+   * This button used to read the Uthmani text aloud through `speechSynthesis`. That is the one
+   * thing this app never does with scripture: a synthesizer reads the Quran in a voice that is
+   * not a recitation, and on a device with no Arabic voice the button produced nothing at all.
+   * The authentic recording for the verse is played instead, from the learner's chosen reciter.
+   */
+  const verseAudioKey = (index: number): string => `mutashabihat:${index}`;
+
+  const playVerseAudio = (verse: { surah: number; ayah: number }, index: number): void => {
+    const reciter = profile?.reciterId ?? DEFAULT_RECITER;
+    void playUrl(verseAudioKey(index), reciterAudioUrl(reciter, globalAyahNumber(verse.surah, verse.ayah)));
   };
 
   const handleSaveToHifz = async (surah: number, ayah: number, key: string) => {
@@ -130,9 +136,9 @@ export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({ entry, onC
 
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => playVerseAudio(verse1.textUthmani, 0)}
+                    onClick={() => playVerseAudio(verse1, 0)}
                     className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
-                      activeAudioIndex === 0
+                      isPlaying(verseAudioKey(0))
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground hover:bg-surface-hover'
                     }`}
@@ -211,9 +217,9 @@ export const MutashabihatModal: React.FC<MutashabihatModalProps> = ({ entry, onC
 
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => playVerseAudio(verse2.textUthmani, 1)}
+                    onClick={() => playVerseAudio(verse2, 1)}
                     className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${
-                      activeAudioIndex === 1
+                      isPlaying(verseAudioKey(1))
                         ? 'bg-secondary text-secondary-foreground'
                         : 'text-muted-foreground hover:text-foreground hover:bg-surface-hover'
                     }`}
