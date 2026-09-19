@@ -1,48 +1,36 @@
 /**
- * Whisper tokenizer vocabulary subset for the local recitation engine.
+ * Whisper special-token ids for the local recitation engine.
  *
- * Only what GOP scoring needs is kept: Arabic letters, Arabic harakat/diacritics and the
- * byte-fallback entry points, plus the fixed special-token ids that are contractually stable
- * across every Whisper checkpoint. Storing this as data keeps the worker's hot path free of a
- * ~100 KB vocab.json fetch for tokens the recitation domain never produces.
+ * The multilingual Whisper tokenizer is shared by every checkpoint, so these ids are a stable
+ * contract — but they are **not** the ids the English-only (`.en`) checkpoints use, and the two
+ * sets diverge from `<|startoftranscript|>` onward. Every value below was read out of the shipped
+ * model's own `added_tokens.json` and `vocab.json`
+ * (`aaqibhabib/whisper-base-ar-quran-onnx`), not recalled:
+ *
+ *   `<|startoftranscript|>` 50258 · `<|en|>` 50259 · `<|ar|>` 50272 · `<|ta|>` 50287
+ *   `<|translate|>` 50358 · `<|transcribe|>` 50359 · `<|nocaptions|>` 50362
+ *   `<|notimestamps|>` 50363 · `<|0.00|>` 50364
+ *
+ * `<|endoftext|>` (50257) lives in `vocab.json` rather than `added_tokens.json`.
+ *
+ * The values previously shipped here were the `.en` checkpoint's, which seeded the decoder with
+ * `<|endoftext|>` where `<|startoftranscript|>` belongs and requested Arabic with an English
+ * language token. No amount of acoustic accuracy recovers from a malformed prompt, so the local
+ * engine could not have transcribed anything correctly.
+ *
+ * The word-level token table that used to live here is gone: Whisper's Arabic tokens are
+ * byte-level BPE merges, not single graphemes, so a hand-written grapheme→id map can never
+ * decode a real transcript. The worker now reads the model's own `vocab.json` — see
+ * `WHISPER_TOKENIZER` in `lib/audio/model-registry.ts`.
  */
-
 export const WHISPER_SPECIAL: Record<string, number> = {
-  eot: 50256,
-  sot: 50257,
-  transcribe: 50358,
-  translate: 50357,
-  no_speech: 50361,
-  ar: 50220,
+  eot: 50257,
+  sot: 50258,
+  transcribe: 50359,
+  translate: 50358,
+  notimestamps: 50363,
+  no_speech: 50362,
+  ar: 50272,
   en: 50259,
-  ta: 50309,
-};
-
-/**
- * Arabic graphemes → Whisper token ids for the letters of the Hafs mushaf, including
- * harakat. Ids follow the multilingual byte-level BPE of the original Whisper release.
- */
-export const WHISPER_VOCAB: Record<string, number> = {
-  // Letters (isolated forms carry the same ids regardless of joining in the source text).
-  'ا': 431, 'ب': 463, 'ت': 470, 'ث': 478, 'ج': 484, 'ح': 491, 'خ': 499,
-  'د': 505, 'ذ': 512, 'ر': 517, 'ز': 523, 'س': 529, 'ش': 536, 'ص': 543,
-  'ض': 550, 'ط': 556, 'ظ': 562, 'ع': 569, 'غ': 576, 'ف': 582, 'ق': 589,
-  'ك': 595, 'ل': 601, 'م': 607, 'ن': 613, 'ه': 619, 'و': 625, 'ي': 631,
-  'ة': 466, 'ى': 632, 'ء': 424, 'أ': 426, 'إ': 429, 'آ': 420, 'ئ': 634, 'ؤ': 627,
-  // Harakat & marks.
-  '\u064B': 388, // fathatan
-  '\u064C': 389, // dammatan
-  '\u064D': 390, // kasratan
-  '\u064E': 391, // fatha
-  '\u064F': 392, // damma
-  '\u0650': 393, // kasra
-  '\u0651': 394, // shadda
-  '\u0652': 395, // sukun
-  '\u0670': 396, // superscript alef
-  '\u0640': 397, // tatweel
-  // Space and common punctuation (whitespace-prefixed forms dominate the BPE merges).
-  ' ': 220,
-  '\u060C': 646, // Arabic comma
-  '.': 13,
-  ',': 11,
+  ta: 50287,
 };

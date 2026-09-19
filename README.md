@@ -108,6 +108,7 @@ The app installs as a PWA from the browser's install prompt once served over HTT
 | `bun run verify:arabic` | Validate the Arabic curriculum dataset (`lib/arabic/validate.ts`) |
 | `bun run verify:pronunciation` | Verify every lesson's Arabic resolves to real recitation clips |
 | `bun run verify:timings` | Verify reciter audio ↔ word-timing pairings against the live APIs |
+| `bun run verify:whisper` | Verify the on-device log-mel front end against Whisper's own filterbank and token ids |
 | `bun run clean` | Remove Next.js build output |
 
 ### Environment Variables

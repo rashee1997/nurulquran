@@ -11,6 +11,7 @@
     "verify:pronunciation": "bun scripts/verify-lesson-pronunciation.ts",
     "verify:timings": "bun scripts/verify-reciter-timings.ts",
     "verify:tafsir": "bun scripts/verify-tafsir-editions.ts",
+    "verify:whisper": "bun scripts/verify-whisper-mel.ts",
     "clean": "next clean"
   },
   "dependencies": {

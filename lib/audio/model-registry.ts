@@ -18,13 +18,13 @@ export interface ModelAsset {
   /** Stable id used as the IndexedDB key and in worker messages. */
   id: string;
   label: string;
-  role: 'vad' | 'stt-encoder' | 'stt-decoder' | 'tts-model' | 'tts-lexicon';
+  role: 'vad' | 'stt-encoder' | 'stt-decoder' | 'stt-vocab' | 'tts-model' | 'tts-lexicon';
   url: string;
   /** Exact byte length verified from the CDN's content-length header. */
   bytes: number;
   /** Human-readable size for the download UI. */
   sizeLabel: string;
-  mimeType: 'application/octet-stream' | 'text/plain';
+  mimeType: 'application/octet-stream' | 'text/plain' | 'application/json';
   /** File name when handed to a runtime (sherpa-onnx expects real file names). */
   fileName: string;
 }
@@ -33,12 +33,13 @@ export interface ModelAsset {
  * Hard ceiling on the total bytes this variant may require, checked before any download starts.
  *
  * 300 MB, raised from 220 MB when the shared STT pair moved from Whisper tiny to Whisper base:
- * the Balanced variant's exact byte sum is now 231 537 815 B = 220.8 MB (VAD 2.14 + base encoder
- * 22.09 + base decoder 75.73 + Tamil Rasa 60.57 + English Lessac int8 60.27 + two JSON configs),
- * which the old 220 MB ceiling would have rejected — the *same* failure mode the previous
- * 180 MB → 220 MB bump fixed, where `ensureVariantDownloaded` threw "exceeds the budget" before a
- * single byte was fetched and every download aborted instantly. The ceiling now leaves ~69 MB of
- * headroom above the largest variant while matching the project's 300–400 MB on-device budget.
+ * the Balanced variant's exact byte sum is now 232 373 365 B = 221.6 MB (VAD 2.14 + base encoder
+ * 22.09 + base decoder 75.73 + tokenizer 0.80 + Tamil Rasa 60.57 + English Lessac int8 60.27 + two
+ * JSON configs), which the old 220 MB ceiling would have rejected — the *same* failure mode the
+ * previous 180 MB → 220 MB bump fixed, where `ensureVariantDownloaded` threw "exceeds the budget"
+ * before a single byte was fetched and every download aborted instantly. The ceiling now leaves
+ * ~78 MB of headroom above the largest variant while matching the project's 300–400 MB on-device
+ * budget.
  */
 export const MODEL_BUDGET_BYTES = 300 * 1024 * 1024;
 
@@ -48,10 +49,11 @@ export const MODEL_BUDGET_BYTES = 300 * 1024 * 1024;
  * `MODEL_BUDGET_BYTES` is a per-variant ceiling — it is what stops an oversized single download,
  * and it is the guard that was wrongly set to 180 MB and aborted every download. It cannot bound
  * the total, because variants may coexist on disk and share the VAD/Whisper assets while each
- * swapping one voice: all three variants together are ~342 MB (2.14 VAD + 22.09 encoder +
- * 75.73 decoder + Rasa 60.57 + HemaLatha 60.58 + Lessac 60.27 + Amy 60.18 + four small JSON
- * configs). This ceiling therefore has to sit above that sum while still being a real bound;
- * 400 MiB leaves ~61 MB of headroom and refuses a fourth variant's worth of storage.
+ * swapping one voice. Cached assets are keyed by `id`, so a shared asset is stored once: the
+ * three variants' *union* is 359 002 988 B = 342.4 MB (2.14 VAD + 22.09 encoder + 75.73 decoder
+ * + 0.80 tokenizer + Rasa 60.57 + HemaLatha 60.58 + Lessac 60.27 + Amy 60.18 + four small JSON
+ * configs). This ceiling therefore has to sit above that union while still being a real bound;
+ * 400 MiB leaves ~58 MB of headroom and refuses a fourth variant's worth of storage.
  */
 export const MODEL_TOTAL_BUDGET_BYTES = 400 * 1024 * 1024;
 
@@ -109,6 +111,31 @@ const WHISPER_DECODER: ModelAsset = {
   sizeLabel: '75.7 MB',
   mimeType: 'application/octet-stream',
   fileName: 'whisper_base_decoder_int8.onnx',
+};
+
+/**
+ * Whisper's multilingual byte-level BPE vocabulary — the tokenizer the model was trained with.
+ *
+ * The decoder emits token *ids*; turning those back into text needs this table, and nothing else
+ * can substitute for it. Whisper's Arabic tokens are byte-level BPE merges (`ال`, `قُر`, `آن` …),
+ * not single graphemes, so the hand-written grapheme→id subset that used to live in
+ * `lib/audio/whisper-vocab.ts` resolved almost no real token and left the transcript empty —
+ * every word then scored `unknown` no matter how well the learner recited.
+ *
+ * 835 550 B is 0.3% of the 300 MB per-variant ceiling, and it is the difference between a
+ * scoring path that works and one that cannot produce a single word.
+ *
+ * Verified 2026-09-19: 200, 835,550 bytes, ACO:*.
+ */
+const WHISPER_TOKENIZER: ModelAsset = {
+  id: 'whisper-tokenizer',
+  label: 'Recitation STT tokenizer (Whisper multilingual)',
+  role: 'stt-vocab',
+  url: `${HF}/aaqibhabib/whisper-base-ar-quran-onnx/resolve/main/vocab.json`,
+  bytes: 835_550,
+  sizeLabel: '0.8 MB',
+  mimeType: 'application/json',
+  fileName: 'whisper_vocab.json',
 };
 
 /** Tamil voices. Both verified 200 / ACO:*. */
@@ -224,19 +251,19 @@ export const MODEL_VARIANTS: Record<CoachModelVariant, ModelVariant> = {
     id: 'balanced',
     label: 'Balanced (default)',
     descriptionEn: 'Tamil Rasa + English Lessac int8. Both coaching voices, most reliable downloads.',
-    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
+    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, WHISPER_TOKENIZER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
   },
   'tamil-hemalatha': {
     id: 'tamil-hemalatha',
     label: 'Tamil — HemaLatha (female)',
     descriptionEn: 'Female Tamil coaching voice instead of Rasa. Same engine, warmer tone.',
-    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_HEMALATHA, PIPER_TAMIL_HEMALATHA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
+    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, WHISPER_TOKENIZER, PIPER_TAMIL_HEMALATHA, PIPER_TAMIL_HEMALATHA_CONFIG, PIPER_EN_LESSAC, PIPER_EN_LESSAC_CONFIG],
   },
   'english-amy': {
     id: 'english-amy',
     label: 'English — Amy (US)',
     descriptionEn: 'Amy for English coaching instead of Lessac. Same engine, softer tone.',
-    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_AMY, PIPER_EN_AMY_CONFIG],
+    assets: [SILERO_VAD, WHISPER_ENCODER, WHISPER_DECODER, WHISPER_TOKENIZER, PIPER_TAMIL_RASA, PIPER_TAMIL_RASA_CONFIG, PIPER_EN_AMY, PIPER_EN_AMY_CONFIG],
   },
 };
 

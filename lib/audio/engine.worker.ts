@@ -18,6 +18,7 @@ import type {
   EngineWorkerResponse,
   EngineWordScore,
 } from '@/lib/audio/capture-engine';
+import { N_MELS, N_MEL_FRAMES, floatToLogMel } from '@/lib/audio/whisper-mel';
 
 /*
  * Worker-scope boundary, quarantined here.
@@ -48,16 +49,28 @@ ort.env.logLevel = 'error';
 /* Silero VAD                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** Silero VAD is a streaming RNN: these are its hidden/context state tensors. */
+/**
+ * Silero VAD is a streaming RNN, and the build this app ships (`onnx-community/silero-vad`,
+ * `onnx/model.onnx`) is the v5 export: `input` float32[B, N], `state` float32[2, B, 128],
+ * `sr` int64[] → `output`, `stateN`. Those names came from the model's own `inputMetadata`.
+ *
+ * The two-tensor `h`/`c` → `hn`/`cn` API assumed here before belongs to the older v4 export and
+ * does not exist in the shipped graph, so *every* `session.run` threw on an unknown input name —
+ * and the `catch { return 0 }` below swallowed it. The VAD therefore reported "not speaking" for
+ * every chunk, `inSpeech` never became true, `finalizeUtterance` was never reached, and the
+ * streaming local engine could not score anything at all. Failures are now reported once, so a
+ * breakage degrades visibly instead of masquerading as silence.
+ */
 interface VadState {
   session: ort.InferenceSession;
-  h: ort.Tensor;
-  c: ort.Tensor;
-  /** 16 kHz context window fed to the model (last 64 samples precede the chunk). */
-  context: Float32Array;
+  /** Combined recurrent state, `[2, batch, 128]`. */
+  state: ort.Tensor;
 }
 
-const VAD_CHUNK = 512; // Silero expects 512-sample chunks at 16 kHz.
+const VAD_CHUNK = 512; // Silero's 16 kHz window.
+const VAD_STATE_DIMS = [2, 1, 128];
+const VAD_STATE_SIZE = 2 * 1 * 128;
+const VAD_SAMPLE_RATE = 16000;
 const VAD_THRESHOLD = 0.5;
 const VAD_EXIT_THRESHOLD = 0.35; // Hysteresis: speech must fall below this to count as a pause.
 const MIN_UTTERANCE_SAMPLES = 16000 * 0.4; // 400 ms — ignore accidental clicks.
@@ -65,23 +78,18 @@ const MIN_UTTERANCE_SAMPLES = 16000 * 0.4; // 400 ms — ignore accidental click
 let vad: VadState | null = null;
 /** Samples left over from the previous worker frame, awaiting a full `VAD_CHUNK`. */
 let vadRemainder = new Float32Array(0);
-
-function zeros1(n: number): ort.Tensor {
-  return new ort.Tensor('float32', new Float32Array(n), [1, n]);
-}
+let vadReportedFailure = false;
 
 async function initVad(blob: Blob): Promise<void> {
-  const buffer = await blob.arrayBuffer();
-  const session = await ort.InferenceSession.create(buffer, {
+  const session = await ort.InferenceSession.create(await blob.arrayBuffer(), {
     executionProviders: ['wasm'],
     graphOptimizationLevel: 'all',
   });
   vad = {
     session,
-    h: zeros1(64),
-    c: zeros1(64),
-    context: new Float32Array(64),
+    state: new ort.Tensor('float32', new Float32Array(VAD_STATE_SIZE), VAD_STATE_DIMS),
   };
+  vadReportedFailure = false;
 }
 
 /**
@@ -90,24 +98,26 @@ async function initVad(blob: Blob): Promise<void> {
  */
 async function vadProb(samples: Float32Array): Promise<number> {
   if (!vad) return 0;
-  const input = new Float32Array(64 + samples.length);
-  input.set(vad.context, 0);
-  input.set(samples, 64);
-
   const feeds: Record<string, ort.Tensor> = {
-    input: new ort.Tensor('float32', input, [1, input.length]),
-    h: vad.h,
-    c: vad.c,
-    sr: new ort.Tensor('int64', BigInt64Array.from([BigInt(16000)]), []),
+    input: new ort.Tensor('float32', samples, [1, samples.length]),
+    state: vad.state,
+    sr: new ort.Tensor('int64', BigInt64Array.from([BigInt(VAD_SAMPLE_RATE)]), []),
   };
   try {
     const results = await vad.session.run(feeds);
-    if (!results.hn || !results.cn || !results.output) return 0;
-    vad.h = results.hn;
-    vad.c = results.cn;
-    const prob = results.output.data[0];
+    const nextState = results.stateN;
+    if (nextState) vad.state = nextState;
+    const prob = results.output?.data?.[0];
     return typeof prob === 'number' ? prob : 0;
-  } catch {
+  } catch (error: unknown) {
+    if (!vadReportedFailure) {
+      vadReportedFailure = true;
+      post({
+        type: 'engine-error',
+        fatal: false,
+        message: error instanceof Error ? error.message : 'The voice activity detector failed.',
+      });
+    }
     return 0;
   }
 }
@@ -119,24 +129,68 @@ async function vadProb(samples: Float32Array): Promise<number> {
 interface SttState {
   encoder: ort.InferenceSession;
   decoder: ort.InferenceSession;
-  /** Whisper tokenizer vocabulary (identical across multilingual checkpoints), subsetted to what GOP actually needs. */
-  vocab: Map<string, number>;
+  /** id → byte-level BPE token string, from the model's own `vocab.json`. */
   idToToken: Map<number, string>;
+  /** Token-character codepoint → the byte it stands for (GPT-2's byte↔unicode mapping). */
+  charToByte: Map<number, number>;
   sotToken: number;
   eotToken: number;
-  noSpeechToken: number;
+  notimestampsToken: number;
   transcribeToken: number;
   arabicToken: number;
-  padToken: number;
 }
 
 let stt: SttState | null = null;
 
-/** Number of mel frames the encoder sees; 3000 = 30 s window, identical for every Whisper size. */
-const N_MEL_FRAMES = 3000;
+/** Upper bound on generated tokens for one utterance (a 30 s window's worth). */
 const MAX_NEW_TOKENS = 96;
+/**
+ * Whisper's `begin_suppress_tokens`. Forced at the first generated position so the decoder cannot
+ * open with a bare space or `<|endoftext|>` — without it a quiet or hesitant recitation collapses
+ * to an immediate end-of-text instead of being transcribed.
+ */
+const BEGIN_SUPPRESS_TOKENS = new Set([220, 50257]);
+/**
+ * Whisper's head dimension is 64 at every checkpoint size, so `n_head = d_model / 64`. The head
+ * count is read from the encoder output rather than hard-coded, because it is 6 for base/tiny's
+ * 384/512-wide encoder and 12+ for the larger sizes; a wrong count makes `session.run` reject
+ * every `past_key_values` tensor.
+ */
+const WHISPER_HEAD_DIM = 64;
 
-async function initStt(encoderBlob: Blob, decoderBlob: Blob): Promise<void> {
+/**
+ * Builds GPT-2's byte↔unicode table, which Whisper's vocabulary is written in.
+ *
+ * Byte-level BPE cannot store raw bytes in JSON, so every one of the 256 bytes is remapped onto a
+ * printable codepoint. Decoding has to invert that mapping before UTF-8 decoding; treating a
+ * token string as literal text is what turned real transcripts into mojibake.
+ */
+function buildByteDecoder(): Map<number, number> {
+  const bytes: number[] = [];
+  for (let i = 33; i <= 126; i += 1) bytes.push(i);
+  for (let i = 161; i <= 172; i += 1) bytes.push(i);
+  for (let i = 174; i <= 255; i += 1) bytes.push(i);
+  const codepoints = [...bytes];
+  let extra = 0;
+  for (let byte = 0; byte < 256; byte += 1) {
+    if (bytes.includes(byte)) continue;
+    bytes.push(byte);
+    codepoints.push(256 + extra);
+    extra += 1;
+  }
+  const map = new Map<number, number>();
+  for (let i = 0; i < bytes.length; i += 1) {
+    const codepoint = codepoints[i];
+    const byte = bytes[i];
+    if (codepoint !== undefined && byte !== undefined) map.set(codepoint, byte);
+  }
+  return map;
+}
+
+/**
+ * @param vocabBlob the model's own `vocab.json` — see `WHISPER_TOKENIZER` in the model registry.
+ */
+async function initStt(encoderBlob: Blob, decoderBlob: Blob, vocabBlob: Blob): Promise<void> {
   const executionProviders: string[] = ['webgpu', 'wasm'];
   let encoder: ort.InferenceSession;
   try {
@@ -156,234 +210,180 @@ async function initStt(encoderBlob: Blob, decoderBlob: Blob): Promise<void> {
     graphOptimizationLevel: 'all',
   });
 
-  // The Whisper tokenizer ships inside the app bundle (it is ~2 KB of JSON for the Arabic
-  // subset we need); a full vocab.json fetch would duplicate the fixed OpenAI token ids.
-  const { WHISPER_VOCAB, WHISPER_SPECIAL } = await loadWhisperVocab();
+  const vocab = JSON.parse(await vocabBlob.text()) as Record<string, number>;
+  const idToToken = new Map<number, string>();
+  for (const [token, id] of Object.entries(vocab)) idToToken.set(id, token);
 
-  /**
-   * Special token ids, read from the shipped vocabulary rather than re-typed here. The literals
-   * that used to sit below duplicated `WHISPER_SPECIAL` and would have drifted silently if the
-   * tokenizer subset were ever regenerated.
-   */
-  const special = (key: string, fallback: number): number => WHISPER_SPECIAL[key] ?? fallback;
+  const { WHISPER_SPECIAL } = await import('@/lib/audio/whisper-vocab');
+  /** Throws rather than defaulting: a silent wrong id produces a valid-looking prompt and a
+   * permanently empty transcript, which is far harder to diagnose than a startup error. */
+  const special = (key: string): number => {
+    const value = WHISPER_SPECIAL[key];
+    if (value === undefined) throw new Error(`The Whisper tokenizer contract is missing "${key}".`);
+    return value;
+  };
 
   stt = {
     encoder,
     decoder,
-    vocab: WHISPER_VOCAB,
-    idToToken: new Map([...WHISPER_VOCAB.entries()].map(([token, id]) => [id, token])),
-    sotToken: special('sot', 50257),
-    eotToken: special('eot', 50256),
-    noSpeechToken: special('no_speech', 50361),
-    transcribeToken: special('transcribe', 50358),
-    arabicToken: special('ar', 50220),
-    padToken: special('eot', 50256),
+    idToToken,
+    charToByte: buildByteDecoder(),
+    sotToken: special('sot'),
+    eotToken: special('eot'),
+    notimestampsToken: special('notimestamps'),
+    transcribeToken: special('transcribe'),
+    arabicToken: special('ar'),
   };
 }
 
-/**
- * Loads the Whisper vocab.
- *
- * Kept in a separate function so the (large-ish) literal stays tree-shakeable from the hot
- * inference path. The subset covers Arabic graphemes with diacritics — exactly the space the
- * GOP scoring needs; the decoder's byte-fallback tokens cover anything outside it.
- */
-async function loadWhisperVocab(): Promise<{
-  WHISPER_VOCAB: Map<string, number>;
-  WHISPER_SPECIAL: Record<string, number>;
-}> {
-  const { WHISPER_VOCAB, WHISPER_SPECIAL } = await import('@/lib/audio/whisper-vocab');
-  return { WHISPER_VOCAB: new Map(Object.entries(WHISPER_VOCAB)), WHISPER_SPECIAL };
+/** Decodes token ids into UTF-8 text through the model's byte-level BPE vocabulary. */
+function decodeTokens(ids: readonly number[], state: SttState): string {
+  const bytes: number[] = [];
+  for (const id of ids) {
+    const token = state.idToToken.get(id);
+    if (token === undefined) continue;
+    for (const character of token) {
+      const byte = state.charToByte.get(character.codePointAt(0) ?? 0);
+      if (byte !== undefined) bytes.push(byte);
+    }
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(Uint8Array.from(bytes));
 }
 
 /**
- * Runs encoder + decoder over one utterance.
+ * Runs encoder + decoder over one utterance and returns the decoded text.
  *
- * The capture path delivers Float32 PCM at (approximately) 16 kHz. Whisper consumes log-mel
- * spectrograms; a full mel implementation in the worker is heavy, so a compact 80-bin mel
- * projection (Hann-windowed STFT + mel filterbank, ~40 lines) is applied — accurate enough for
- * a grapheme-level GOP read at this model size, and identical in shape to the training input.
+ * The capture path delivers Float32 PCM at (approximately) 16 kHz. The encoder's input is
+ * `input_features` (Whisper's ONNX exports name it that, never `mel`); feeding a differently
+ * named tensor left `encoderFeeds` empty, so `encoder.run({})` threw on every utterance.
+ *
+ * The decoder runs through the merged graph's cache path, which has two non-obvious
+ * requirements, both verified against the shipped checkpoint:
+ *
+ *  1. `use_cache_branch` must be fed, and the `past_key_values.*` inputs must be present even on
+ *     the first pass — as correctly shaped, zero-length tensors (`[1, n_head, 0, 64]`), because
+ *     ONNX validates their rank and head count.
+ *  2. The encoder cross-attention cache is only ever valid from that first
+ *     (`use_cache_branch = false`) pass. Every later pass through the cache branch emits a
+ *     degenerate encoder tensor (`[0, 8, 1, 64]` instead of `[1, 8, 1500, 64]`), which zeroes
+ *     cross-attention and collapses the decoder to a flat distribution — it keeps emitting
+ *     plausible-looking words while hearing nothing. The step-0 encoder cache is therefore
+ *     pinned and reused for the rest of the utterance.
  */
-async function transcribeUtterance(pcm: Float32Array): Promise<string[]> {
-  if (!stt) return [];
+async function transcribeUtterance(pcm: Float32Array): Promise<string> {
+  if (!stt) return '';
 
   const mel = floatToLogMel(pcm);
-  const melInput = new ort.Tensor('float32', mel, [1, 80, N_MEL_FRAMES]);
-
-  const encoderFeeds: Record<string, ort.Tensor> = {};
-  for (const name of stt.encoder.inputNames) {
-    if (name === 'mel') encoderFeeds[name] = melInput;
-  }
-  const encoderOut = await stt.encoder.run(encoderFeeds);
-  const encoded = encoderOut[Object.keys(encoderOut)[0] ?? ''];
+  const encoderOut = await stt.encoder.run({
+    input_features: new ort.Tensor('float32', mel, [1, N_MELS, N_MEL_FRAMES]),
+  });
+  const encoded = encoderOut.last_hidden_state ?? encoderOut[stt.encoder.outputNames[0] ?? ''];
   if (!encoded) throw new Error('Whisper encoder produced no output tensor.');
+  const dModel = encoded.dims[2];
+  if (dModel === undefined) throw new Error('Unexpected encoder output rank.');
 
-  // Greedy decode from SOT with forced Arabic/transcribe task tokens.
-  const tokens: number[] = [
+  const heads = dModel / WHISPER_HEAD_DIM;
+  const zeroPast = (): ort.Tensor =>
+    new ort.Tensor('float32', new Float32Array(0), [1, heads, 0, WHISPER_HEAD_DIM]);
+
+  /** Step-0 encoder cross-attention KV, pinned for the whole utterance (see the note above). */
+  const encoderCache = new Map<string, ort.Tensor>();
+  /** Latest decoder self-attention KV; refreshed every step. */
+  let decoderCache = new Map<string, ort.Tensor>();
+
+  // Greedy decode from SOT with the forced Arabic/transcribe task tokens. `notimestamps` must
+  // close the prompt — the previous prompt put `no_speech` there instead, which is not a valid
+  // decoder prefix at all.
+  const history: number[] = [
     stt.sotToken,
     stt.arabicToken,
     stt.transcribeToken,
-    stt.noSpeechToken,
+    stt.notimestampsToken,
   ];
-  const produced: string[] = [];
-  let pastKeys: ort.Tensor[] = [];
-  let pastValues: ort.Tensor[] = [];
+  const produced: number[] = [];
 
   for (let step = 0; step < MAX_NEW_TOKENS; step += 1) {
-    const inputIds = new ort.Tensor(
-      'int64',
-      BigInt64Array.from(tokens.map((t) => BigInt(t))),
-      [1, tokens.length]
-    );
-    const feeds: Record<string, ort.Tensor> = { input_ids: inputIds, encoder_hidden_states: encoded };
-    let cacheIndex = 0;
-    for (const layer of stt.decoder.inputNames) {
-      if (layer.startsWith('past_key_values')) {
-        const idx = cacheIndex % 2 === 0 ? cacheIndex / 2 : Math.floor(cacheIndex / 2);
-        const cached = (cacheIndex % 2 === 0 ? pastKeys : pastValues)[idx];
-        if (cached) feeds[layer] = cached;
-        cacheIndex += 1;
-      }
+    // The cache branch is only usable once step 0 has populated it; a zero-length past on the
+    // cache branch would leave cross-attention with nothing to attend to.
+    const caching = decoderCache.size > 0 && encoderCache.size > 0;
+    const last = history[history.length - 1];
+    const ids = caching && last !== undefined ? [last] : history;
+
+    const feeds: Record<string, ort.Tensor> = {
+      input_ids: new ort.Tensor(
+        'int64',
+        BigInt64Array.from(ids.map((t) => BigInt(t))),
+        [1, ids.length]
+      ),
+      encoder_hidden_states: encoded,
+    };
+    if (stt.decoder.inputNames.includes('use_cache_branch')) {
+      feeds.use_cache_branch = new ort.Tensor('bool', Uint8Array.from([caching ? 1 : 0]), [1]);
+    }
+    for (const name of stt.decoder.inputNames) {
+      if (!name.startsWith('past_key_values')) continue;
+      // `past_key_values.<n>.…` pairs with the previous pass's `present.<n>.…` by name.
+      const cached = caching
+        ? decoderCache.get(name.replace('past_key_values', 'present'))
+        : undefined;
+      feeds[name] = cached ?? zeroPast();
     }
 
     const out = await stt.decoder.run(feeds);
-    const logitsName = stt.decoder.outputNames.find((n) => n.includes('logits')) ?? stt.decoder.outputNames[0] ?? '';
-    const logits = out[logitsName];
+    const logits = out.logits ?? out[stt.decoder.outputNames[0] ?? ''];
     if (!logits) throw new Error('Whisper decoder produced no logits tensor.');
-
-    const [batch, seq, vocabSize] = logits.dims;
+    const seq = logits.dims[1];
+    const vocabSize = logits.dims[2];
     if (seq === undefined || vocabSize === undefined) throw new Error('Unexpected logits rank.');
     if (!(logits.data instanceof Float32Array)) throw new Error('Logits data is not Float32Array.');
+
     const data = logits.data;
-    // Argmax over the last position's vocab row.
+    const rowOffset = (seq - 1) * vocabSize;
     let best = 0;
     let bestScore = -Infinity;
-    const rowOffset = (seq - 1) * vocabSize;
     for (let v = 0; v < vocabSize; v += 1) {
+      if (step === 0 && BEGIN_SUPPRESS_TOKENS.has(v)) continue;
       const score = data[rowOffset + v] ?? -Infinity;
       if (score > bestScore) {
         bestScore = score;
         best = v;
       }
     }
-    void batch;
 
     if (best === stt.eotToken) break;
+    produced.push(best);
+    history.push(best);
 
-    const tokenText = stt.idToToken.get(best);
-    if (tokenText) produced.push(tokenText);
-    tokens.push(best);
-
-    // Collect KV caches for the next step.
-    pastKeys = [];
-    pastValues = [];
-    let kvIdx = 0;
+    const nextDecoderCache = new Map<string, ort.Tensor>();
     for (const name of stt.decoder.outputNames) {
-      if (name.startsWith('present')) {
+      if (!name.startsWith('present') || name.includes('.encoder.')) continue;
+      const tensor = out[name];
+      if (tensor) nextDecoderCache.set(name, tensor);
+    }
+    decoderCache = nextDecoderCache;
+    if (encoderCache.size === 0) {
+      for (const name of stt.decoder.outputNames) {
+        if (!name.startsWith('present') || !name.includes('.encoder.')) continue;
         const tensor = out[name];
-        if (!tensor) continue;
-        if (kvIdx % 2 === 0) pastKeys.push(tensor);
-        else pastValues.push(tensor);
-        kvIdx += 1;
+        if (tensor) encoderCache.set(name, tensor);
       }
     }
-    // The merged decoder usually exposes `present` only for the newest step; rebuilding the
-    // full past from `past_key_values` outputs is model-specific and handled by the shapes.
   }
 
-  return produced;
+  return decodeTokens(produced, stt);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Compact log-mel front end                                                   */
+/* Log-mel front end                                                           */
 /* -------------------------------------------------------------------------- */
 
-const N_FFT = 400;
-const HOP = 160;
-const N_MELS = 80;
-
-let melFilterbank: Float32Array[] | null = null;
-
-function buildMelFilterbank(): Float32Array[] {
-  if (melFilterbank) return melFilterbank;
-  const bins = N_FFT / 2 + 1;
-  const filters: Float32Array[] = [];
-  const hzToMel = (hz: number): number => 2595 * Math.log10(1 + hz / 700);
-  const minMel = hzToMel(0);
-  const maxMel = hzToMel(16000 / 2);
-  for (let m = 0; m < N_MELS; m += 1) {
-    const filter = new Float32Array(bins);
-    const left = minMel + ((maxMel - minMel) * m) / (N_MELS + 1);
-    const center = minMel + ((maxMel - minMel) * (m + 1)) / (N_MELS + 1);
-    const right = minMel + ((maxMel - minMel) * (m + 2)) / (N_MELS + 1);
-    for (let b = 0; b < bins; b += 1) {
-      const hz = (b * 16000) / N_FFT;
-      const mel = hzToMel(hz);
-      if (mel >= left && mel <= right) {
-        filter[b] =
-          mel <= center ? (mel - left) / (center - left) : (right - mel) / (right - center);
-      }
-    }
-    filters.push(filter);
-  }
-  melFilterbank = filters;
-  return filters;
-}
-
-/**
- * Pads/trims raw PCM into the fixed 30 s window and projects it onto the log-mel basis.
- * Whisper normalises by max(log(mel)) - 8; the same convention is applied.
+/*
+ * The transform itself lives in `lib/audio/whisper-mel.ts` so that
+ * `scripts/verify-whisper-mel.ts` can compare it, element by element, with the filterbank
+ * Whisper itself ships. Getting it wrong produces no runtime error — only a decoder that emits
+ * confident nonsense — so it is the one piece of this worker that has to be independently
+ * checkable.
  */
-function floatToLogMel(pcm: Float32Array): Float32Array {
-  const filters = buildMelFilterbank();
-  const frames = Math.max(1, Math.floor((pcm.length - N_FFT) / HOP) + 1);
-  const window = new Float32Array(N_FFT);
-  for (let i = 0; i < N_FFT; i += 1) {
-    window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N_FFT - 1));
-  }
-
-  const out = new Float32Array(N_MELS * N_MEL_FRAMES);
-  const clampedFrames = Math.min(frames, N_MEL_FRAMES);
-
-  const re = new Float32Array(N_FFT / 2 + 1);
-  const im = new Float32Array(N_FFT / 2 + 1);
-
-  for (let f = 0; f < clampedFrames; f += 1) {
-    re.fill(0);
-    im.fill(0);
-    const offset = f * HOP;
-    for (let i = 0; i < N_FFT; i += 1) {
-      const sample = offset + i < pcm.length ? (pcm[offset + i] ?? 0) : 0;
-      const windowed = sample * (window[i] ?? 0);
-      // Naive DFT (N=400): O(N^2) per frame is acceptable inside a worker for one utterance.
-      for (let b = 0; b <= N_FFT / 2; b += 1) {
-        const angle = (-2 * Math.PI * b * i) / N_FFT;
-        re[b] = (re[b] ?? 0) + windowed * Math.cos(angle);
-        im[b] = (im[b] ?? 0) + windowed * Math.sin(angle);
-      }
-    }
-    for (let m = 0; m < N_MELS; m += 1) {
-      const filter = filters[m];
-      if (!filter) continue;
-      let energy = 1e-10;
-      for (let b = 0; b <= N_FFT / 2; b += 1) {
-        const power = (re[b] ?? 0) * (re[b] ?? 0) + (im[b] ?? 0) * (im[b] ?? 0);
-        energy += (filter[b] ?? 0) * power;
-      }
-      out[m * N_MEL_FRAMES + f] = Math.log(energy);
-    }
-  }
-
-  let max = -Infinity;
-  for (let i = 0; i < out.length; i += 1) {
-    const value = out[i] ?? -Infinity;
-    if (value > max) max = value;
-  }
-  for (let i = 0; i < out.length; i += 1) {
-    out[i] = Math.max((out[i] ?? 0) - max, -8);
-  }
-  return out;
-}
 
 /* -------------------------------------------------------------------------- */
 /* GOP scoring                                                                 */
@@ -401,6 +401,31 @@ function stripDiacritics(token: string): string {
   return token.replace(HARAKAT, '');
 }
 
+/** Everything outside the Arabic script blocks (punctuation, Latin, digits). */
+const NON_ARABIC = /[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g;
+
+/** Diacritics and punctuation removed: the form GOP compares. */
+function normalizeWord(word: string): string {
+  return stripDiacritics(word).replace(NON_ARABIC, '');
+}
+
+/**
+ * Splits a decoded transcript into comparable words.
+ *
+ * Whisper tokenises Arabic into byte-level BPE merges, so a decoded token is a fragment of a word
+ * at best — comparison has to happen at word level, after the whole sequence has been reassembled.
+ * Matching per token (as this used to) could never line up with a canonical word.
+ */
+function transcriptWords(transcript: string): string[] {
+  return transcript
+    .split(/\s+/)
+    .map(normalizeWord)
+    .filter((word) => word.length > 0);
+}
+
+/** How many extra decoded words may be skipped while aligning one expected word. */
+const ALIGN_WINDOW = 3;
+
 /**
  * Frame-level log-likelihood ratio against the canonical token.
  *
@@ -413,8 +438,8 @@ function stripDiacritics(token: string): string {
 const GOP_THRESHOLD = -2.0;
 
 function scoreWord(expected: string, heard: string | undefined, margin: number): EngineWordScore['verdict'] {
-  const expectedNorm = stripDiacritics(expected);
-  const heardNorm = heard ? stripDiacritics(heard) : '';
+  const expectedNorm = normalizeWord(expected);
+  const heardNorm = heard ? normalizeWord(heard) : '';
   if (heardNorm === expectedNorm) return 'correct';
   if (heardNorm.length === 0) return 'unknown';
   return margin < GOP_THRESHOLD ? 'mispronounced' : 'correct';
@@ -530,7 +555,8 @@ async function scoreAndReport(verseKey: string, expectedWords: string[], merged:
   if (!stt) return { scores: [], transcript: '' };
 
   try {
-    const decoded = await transcribeUtterance(merged);
+    const transcript = await transcribeUtterance(merged);
+    const heardWords = transcriptWords(transcript);
 
     /**
      * Aligns decoded tokens to canonical words with a monotone walk: Arabic word order is
@@ -539,28 +565,31 @@ async function scoreAndReport(verseKey: string, expectedWords: string[], merged:
      * the expected grapheme sequence.
      */
     const scores: EngineWordScore[] = [];
-    let tokenCursor = 0;
+    let cursor = 0;
     for (let w = 0; w < expectedWords.length; w += 1) {
       const expected = expectedWords[w];
       if (expected === undefined) continue;
-      const expectedNorm = stripDiacritics(expected);
-      let heard: string | undefined;
-      let margin = 0;
+      const expectedNorm = normalizeWord(expected);
+      if (expectedNorm.length === 0) continue;
 
-      for (let t = tokenCursor; t < decoded.length; t += 1) {
-        const candidate = stripDiacritics(decoded[t] ?? '');
+      let heard: string | undefined;
+      let bestDistance = Infinity;
+      let bestIndex = -1;
+      for (let t = cursor; t < heardWords.length && t - cursor <= ALIGN_WINDOW; t += 1) {
+        const candidate = heardWords[t] ?? '';
         if (candidate.length === 0) continue;
         const distance = levenshtein(candidate, expectedNorm);
-        if (candidate === expectedNorm || distance <= Math.ceil(expectedNorm.length / 2)) {
-          heard = decoded[t] ?? '';
-          // Substitution distance maps onto the log-ratio: exact = 0, one letter off ≈ −2.5.
-          margin = distance === 0 ? 0 : -(1.5 + distance);
-          tokenCursor = t + 1;
-          break;
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          heard = candidate;
+          bestIndex = t;
         }
-        if (t - tokenCursor > 2) break; // Do not skip more than a couple of insertion tokens.
+        if (distance === 0) break;
       }
+      if (bestIndex >= 0) cursor = bestIndex + 1;
 
+      // Substitution distance maps onto the log-ratio: exact = 0, one letter off ≈ −2.5.
+      const margin = bestDistance === Infinity ? 0 : bestDistance === 0 ? 0 : -(1.5 + bestDistance);
       scores.push({
         verseKey,
         wordIndex: w,
@@ -591,7 +620,7 @@ async function scoreAndReport(verseKey: string, expectedWords: string[], merged:
       });
     }
 
-    return { scores, transcript: decoded.join(' ') };
+    return { scores, transcript };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Local inference failed.';
     post({ type: 'engine-error', fatal: false, message });
@@ -608,7 +637,8 @@ ctx.onmessage = async (event: MessageEvent<EngineWorkerRequest>) => {
         const vadBlob = byId.get('silero-vad');
         const encoderBlob = byId.get('whisper-encoder');
         const decoderBlob = byId.get('whisper-decoder');
-        if (!vadBlob || !encoderBlob || !decoderBlob) {
+        const vocabBlob = byId.get('whisper-tokenizer');
+        if (!vadBlob || !encoderBlob || !decoderBlob || !vocabBlob) {
           post({
             type: 'engine-error',
             fatal: true,
@@ -617,7 +647,7 @@ ctx.onmessage = async (event: MessageEvent<EngineWorkerRequest>) => {
           return;
         }
         await initVad(vadBlob);
-        await initStt(encoderBlob, decoderBlob);
+        await initStt(encoderBlob, decoderBlob, vocabBlob);
         post({
           type: 'engine-ready',
           providers: {
