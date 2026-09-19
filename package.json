@@ -13,6 +13,7 @@
     "verify:tafsir": "bun scripts/verify-tafsir-editions.ts",
     "verify:whisper": "bun scripts/verify-whisper-mel.ts",
     "verify:piper": "bun scripts/verify-piper-tts.ts",
+    "verify:games": "bun scripts/verify-ayah-assembly-layout.ts",
     "clean": "next clean"
   },
   "dependencies": {

@@ -113,6 +113,7 @@ The app installs as a PWA from the browser's install prompt once served over HTT
 | `bun run verify:timings` | Verify reciter audio ↔ word-timing pairings against the live APIs |
 | `bun run verify:whisper` | Verify the on-device log-mel front end against Whisper's own filterbank and token ids |
 | `bun run verify:piper` | Verify the on-device voice: vendored phonemizer checksums, and every shipped voice's phoneme table against the ids the phonemizer emits (`PIPER_E2E=1` also synthesizes a phrase) |
+| `bun run verify:games` | Verify the Ayah Assembly word-grid layout: cards never overlap, leave the stage, or hide under the tray, and stay above a usable size from a 320px phone to a wide desktop |
 | `bun run clean` | Remove Next.js build output |
 
 ### Environment Variables

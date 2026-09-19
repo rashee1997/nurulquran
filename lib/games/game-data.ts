@@ -75,7 +75,13 @@ export function getSurahGameVerses(surahId: number): Promise<GameVerse[]> {
   const meta = SURAHS.find((s) => s.id === surahId);
   const promise = quranProvider
     .getChapterVerses(surahId)
-    .then((verses) => verses.map((v) => toGameVerse(v, meta?.nameSimple ?? `Surah ${surahId}`, meta?.nameArabic ?? '')));
+    .then((verses) => verses.map((v) => toGameVerse(v, meta?.nameSimple ?? `Surah ${surahId}`, meta?.nameArabic ?? '')))
+    // A rejection must not stay cached. Holding it here handed the same failed promise to every
+    // later caller for that surah, so a transient outage broke the game until a full page reload.
+    .catch((error: unknown) => {
+      cache.delete(surahId);
+      throw error;
+    });
   cache.set(surahId, promise);
   return promise;
 }

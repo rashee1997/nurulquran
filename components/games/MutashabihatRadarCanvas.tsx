@@ -56,11 +56,17 @@ export const MutashabihatRadarCanvas: React.FC = () => {
   // Fold in any previously-built computed pairs so a returning player sees the wider pool immediately.
   useEffect(() => {
     let active = true;
-    primeComputedMutashabihatIndex().then((computed) => {
-      if (active && computed.length > 0) {
-        setPairs([...MUTASHABIHAT_DATASET, ...computed]);
-      }
-    });
+    primeComputedMutashabihatIndex()
+      .then((computed) => {
+        if (active && computed.length > 0) {
+          setPairs([...MUTASHABIHAT_DATASET, ...computed]);
+        }
+      })
+      // The curated dataset is already playable, so a failure here only narrows the pool —
+      // but an uncaught rejection would surface as an unhandled promise error.
+      .catch((error: unknown) => {
+        console.warn('Could not prime the computed Mutashabihat index; using the curated set.', error);
+      });
     return () => {
       active = false;
     };

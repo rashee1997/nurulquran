@@ -5,7 +5,7 @@ import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-eng
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
-import { getRandomGameVerses } from '@/lib/games/game-data';
+import { getRandomGameVerses, type GameVerse } from '@/lib/games/game-data';
 import { RefreshCw, Sparkles, Trophy, Loader2 } from 'lucide-react';
 
 interface MatrixCard {
@@ -40,6 +40,7 @@ export const MemoryMatrixCanvas: React.FC = () => {
   const [isFinished, setIsFinished] = useState<boolean>(false);
   const [matchedPairsCount, setMatchedPairsCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const cardsRef = useRef<MatrixCard[]>([]);
   const flippedCardsRef = useRef<MatrixCard[]>([]);
@@ -52,9 +53,26 @@ export const MemoryMatrixCanvas: React.FC = () => {
   // Initialize Matrix Cards, drawing a fresh pool of live verses on every round.
   const initCards = useCallback(async () => {
     setIsLoading(true);
-    const pool = await getRandomGameVerses(TOTAL_PAIRS);
+    setLoadError(null);
+
+    let pool: GameVerse[] = [];
+    try {
+      pool = await getRandomGameVerses(TOTAL_PAIRS);
+    } catch {
+      // A rejected fetch used to leave `isLoading` true forever: a spinner over a blank board,
+      // with no way to retry short of reloading. Surface it and let the player try again.
+      setIsLoading(false);
+      setLoadError('Verses could not be loaded. Check your connection and try again.');
+      return;
+    }
+
     setIsLoading(false);
-    if (!containerRef.current || pool.length === 0) return;
+    if (pool.length === 0) {
+      // An empty pool produced a board with nothing on it and no explanation.
+      setLoadError('No verses could be loaded for this round. Try again.');
+      return;
+    }
+    if (!containerRef.current) return;
     const width = containerRef.current.clientWidth || 800;
     const height = 480;
 
@@ -472,6 +490,20 @@ export const MemoryMatrixCanvas: React.FC = () => {
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-950/80 text-slate-300 text-sm font-semibold">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Drawing a fresh set of ayahs…</span>
+          </div>
+        )}
+
+        {loadError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/90 px-6 text-center">
+            <span className="text-sm font-semibold text-rose-300">{loadError}</span>
+            <button
+              type="button"
+              onClick={() => void initCards()}
+              className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Try Again</span>
+            </button>
           </div>
         )}
       </div>

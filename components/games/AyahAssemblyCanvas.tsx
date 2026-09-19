@@ -3,6 +3,16 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { GameVerse, getAvailableSurahs, getSurahGameVerses } from '@/lib/games/game-data';
 import { CanvasEngine, CanvasParticle, RippleWave } from '@/lib/games/canvas-engine';
+import {
+  DRIFT_X,
+  DRIFT_Y,
+  STAGE_HEIGHT,
+  arabicFontSize,
+  planWordGrid,
+  shouldShowTranslit,
+  stageHeightForWordCount,
+  translitFontSize,
+} from '@/lib/games/word-layout';
 import { gameAudio } from '@/lib/games/audio-synth';
 import { persistGameCompletion } from '@/lib/games/game-service';
 import { GameHUD } from './GameHUD';
@@ -27,11 +37,64 @@ interface FloatingWordNode {
   isMatched: boolean;
   isShaking: boolean;
   shakeFrames: number;
+  /** Measured on first draw, because it needs a 2D context. Cleared whenever the card is re-laid out. */
+  fit?: WordTextFit;
+}
+
+interface WordTextFit {
+  arabicSize: number;
+  translitSize: number;
+  translit: string;
+  showTranslit: boolean;
+}
+
+const ARABIC_FONT_STACK = '"Amiri", "Scheherazade New", "Traditional Arabic", serif';
+
+/**
+ * Measures the font sizes (and the transliteration) that actually fit a card.
+ *
+ * Arabic words vary a lot in length, and `fillText` paints straight past the card edge, so the
+ * size is stepped down until the word fits. Run once per card, not per frame.
+ */
+function fitWordText(ctx: CanvasRenderingContext2D, node: FloatingWordNode): WordTextFit {
+  let arabicSize = arabicFontSize(node.height);
+  ctx.font = `bold ${arabicSize}px ${ARABIC_FONT_STACK}`;
+  while (arabicSize > 11 && ctx.measureText(node.arabic).width > node.width - 18) {
+    arabicSize -= 1;
+    ctx.font = `bold ${arabicSize}px ${ARABIC_FONT_STACK}`;
+  }
+
+  const showTranslit = shouldShowTranslit(node.height);
+  let translitSize = translitFontSize(node.height);
+  let translit = node.transliteration;
+  if (showTranslit) {
+    ctx.font = `500 ${translitSize}px sans-serif`;
+    while (translitSize > 7 && ctx.measureText(translit).width > node.width - 14) {
+      translitSize -= 1;
+      ctx.font = `500 ${translitSize}px sans-serif`;
+    }
+    // Past the size floor a long transliteration is clipped rather than left to bleed off the card.
+    while (translit.length > 4 && ctx.measureText(translit).width > node.width - 14) {
+      translit = `${translit.slice(0, -2)}…`;
+    }
+  }
+
+  return { arabicSize, translitSize, translit, showTranslit };
 }
 
 export const AyahAssemblyCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // The canvas is behind the loading gate below, so on the component's first render it does not
+  // exist yet and a render loop started there would attach to a null ref and never draw. This
+  // flag flips when the canvas node actually attaches (and back to false when it detaches, which
+  // a surah switch does), so the loop below starts against a real element.
+  const [canvasReady, setCanvasReady] = useState<boolean>(false);
+  const attachCanvas = useCallback((node: HTMLCanvasElement | null) => {
+    canvasRef.current = node;
+    setCanvasReady(node !== null);
+  }, []);
   
   // Game Configuration & State
   const [selectedSurah, setSelectedSurah] = useState<number>(1);
@@ -48,7 +111,17 @@ export const AyahAssemblyCanvas: React.FC = () => {
   // Verses of the selected Surah, fetched live from the same verified provider the reader uses.
   const [surahVerses, setSurahVerses] = useState<GameVerse[]>([]);
   const [isLoadingSurah, setIsLoadingSurah] = useState<boolean>(true);
+  const [surahError, setSurahError] = useState<string | null>(null);
+  /** Bumped by "Try Again" to re-run the load effect below. */
+  const [reloadToken, setReloadToken] = useState<number>(0);
   const currentVerse: GameVerse | undefined = surahVerses[currentAyahIndex] || surahVerses[0];
+
+  // The stage is sized by the surah's longest ayah, so a dense surah gets a taller board and the
+  // height stays put as the player moves between verses. The canvas reads its own height off the
+  // container, so this is the single source of truth for both.
+  const stageHeight = stageHeightForWordCount(
+    surahVerses.reduce((max, verse) => Math.max(max, verse.words.length), 0)
+  );
 
   // Sequence tracking: index of the next word expected (1-based)
   const [expectedWordIndex, setExpectedWordIndex] = useState<number>(1);
@@ -67,15 +140,26 @@ export const AyahAssemblyCanvas: React.FC = () => {
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the previous surah's verses while the async fetch for the new one is in flight
     setIsLoadingSurah(true);
-    getSurahGameVerses(selectedSurah).then((verses) => {
-      if (!active) return;
-      setSurahVerses(verses);
-      setIsLoadingSurah(false);
-    });
+    setSurahError(null);
+    getSurahGameVerses(selectedSurah)
+      .then((verses) => {
+        if (!active) return;
+        setSurahVerses(verses);
+        setIsLoadingSurah(false);
+      })
+      .catch((error: unknown) => {
+        // The provider throws `QuranUnavailableError` rather than substituting text. Unhandled,
+        // that rejection left `isLoadingSurah` true for good — the "Loading Surah N…" placeholder
+        // sat over a dead game with no way to retry.
+        if (!active) return;
+        console.error(`Failed to load surah ${selectedSurah} for Ayah Assembly:`, error);
+        setSurahError(`Surah ${selectedSurah} could not be loaded from the Quran provider.`);
+        setIsLoadingSurah(false);
+      });
     return () => {
       active = false;
     };
-  }, [selectedSurah]);
+  }, [selectedSurah, reloadToken]);
 
   // Timer loop
   useEffect(() => {
@@ -90,23 +174,35 @@ export const AyahAssemblyCanvas: React.FC = () => {
   const initNodesForVerse = useCallback((verse: GameVerse) => {
     if (!containerRef.current) return;
     const container = containerRef.current;
-    const width = container.clientWidth || 800;
-    const height = 460;
+    const stageWidth = container.clientWidth || 800;
+    const stageHeightPx = container.clientHeight || STAGE_HEIGHT;
 
     const words = [...verse.words];
     // Shuffle words for floating layout
     const shuffled = [...words].sort(() => Math.random() - 0.5);
 
-    const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(words.length * 1.5))));
-    const rows = Math.ceil(words.length / cols);
-    const cellW = (width - 120) / cols;
-    const cellH = (height - 180) / rows;
+    const grid = planWordGrid(stageWidth, stageHeightPx, words.length);
+    // Everything outside the drift range is jitter headroom; cards stay inside their own cell.
+    const slackX = Math.max(0, (grid.cellW - grid.cardW) / 2 - DRIFT_X);
+    const slackY = Math.max(0, (grid.cellH - grid.cardH) / 2 - DRIFT_Y);
 
     const newNodes: FloatingWordNode[] = shuffled.map((w, idx) => {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const baseX = 60 + col * cellW + cellW / 2 + (Math.random() - 0.5) * 30;
-      const baseY = 50 + row * cellH + cellH / 2 + (Math.random() - 0.5) * 20;
+      const col = idx % grid.cols;
+      const row = Math.floor(idx / grid.cols);
+      // A short last row is centred rather than left-aligned.
+      const itemsInRow = Math.min(grid.cols, words.length - row * grid.cols);
+      const rowOffset = (grid.cols * grid.cellW - itemsInRow * grid.cellW) / 2;
+      const baseX =
+        grid.padX +
+        rowOffset +
+        col * grid.cellW +
+        grid.cellW / 2 +
+        (Math.random() - 0.5) * 2 * Math.min(14, slackX);
+      const baseY =
+        grid.padY +
+        row * grid.cellH +
+        grid.cellH / 2 +
+        (Math.random() - 0.5) * 2 * Math.min(10, slackY);
 
       return {
         id: `word-${verse.ayahNumber}-${w.wordIndex}`,
@@ -120,8 +216,8 @@ export const AyahAssemblyCanvas: React.FC = () => {
         baseY,
         vx: (Math.random() - 0.5) * 0.4,
         vy: (Math.random() - 0.5) * 0.4,
-        width: 110,
-        height: 52,
+        width: grid.cardW,
+        height: grid.cardH,
         phase: Math.random() * Math.PI * 2,
         speed: 0.02 + Math.random() * 0.02,
         isMatched: false,
@@ -154,7 +250,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
     const render = () => {
       if (!isRunning) return;
       const width = container.clientWidth || 800;
-      const height = 460;
+      const height = container.clientHeight || STAGE_HEIGHT;
 
       const setup = CanvasEngine.setupHiDPI(canvas, width, height);
       if (!setup) return;
@@ -199,10 +295,10 @@ export const AyahAssemblyCanvas: React.FC = () => {
         const node = nodes[i];
         if (!node || node.isMatched) continue;
 
-        // Orbital floating physics
+        // Orbital floating physics. The layout reserves exactly this much clearance per side.
         node.phase += node.speed;
-        const driftX = Math.sin(node.phase) * 12;
-        const driftY = Math.cos(node.phase * 0.8) * 9;
+        const driftX = Math.sin(node.phase) * DRIFT_X;
+        const driftY = Math.cos(node.phase * 0.8) * DRIFT_Y;
         node.x = node.baseX + driftX;
         node.y = node.baseY + driftY;
 
@@ -235,35 +331,43 @@ export const AyahAssemblyCanvas: React.FC = () => {
           renderY - node.height / 2,
           node.width,
           node.height,
-          14,
+          Math.min(14, node.height * 0.28),
           true,
           true
         );
 
         ctx.shadowColor = 'transparent';
 
-        // Word Index Tag (small badge)
+        // Word Index Tag (small badge). It deliberately carries no number: the order is the puzzle.
+        const badgeRadius = Math.min(9, node.height * 0.16);
         ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
         ctx.beginPath();
-        ctx.arc(renderX - node.width / 2 + 16, renderY - node.height / 2 + 16, 9, 0, Math.PI * 2);
+        ctx.arc(
+          renderX - node.width / 2 + badgeRadius + 6,
+          renderY - node.height / 2 + badgeRadius + 6,
+          badgeRadius,
+          0,
+          Math.PI * 2
+        );
         ctx.fill();
 
-        ctx.fillStyle = '#059669';
-        ctx.font = 'bold 10px monospace';
+        if (!node.fit) node.fit = fitWordText(ctx, node);
+        const fit = node.fit;
+
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
 
         // Arabic Word Text
         ctx.fillStyle = '#0F172A';
-        ctx.font = 'bold 22px "Amiri", "Scheherazade New", "Traditional Arabic", serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(node.arabic, renderX + 4, renderY - 4);
+        ctx.font = `bold ${fit.arabicSize}px ${ARABIC_FONT_STACK}`;
+        ctx.fillText(node.arabic, renderX, fit.showTranslit ? renderY - node.height * 0.14 : renderY);
 
         // Transliteration Text
-        ctx.fillStyle = '#64748B';
-        ctx.font = '500 10px sans-serif';
-        ctx.fillText(node.transliteration, renderX + 4, renderY + 16);
+        if (fit.showTranslit) {
+          ctx.fillStyle = '#64748B';
+          ctx.font = `500 ${fit.translitSize}px sans-serif`;
+          ctx.fillText(fit.translit, renderX, renderY + node.height * 0.26);
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(render);
@@ -277,7 +381,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, []);
+  }, [canvasReady]);
 
   // Handle word click/tap hit detection
   const handleCanvasInteraction = (clientX: number, clientY: number) => {
@@ -428,11 +532,36 @@ export const AyahAssemblyCanvas: React.FC = () => {
     if (surahVerses[0]) initNodesForVerse(surahVerses[0]);
   };
 
-  if (isLoadingSurah || !currentVerse) {
+  if (isLoadingSurah) {
     return (
-      <div className="w-full h-[460px] flex items-center justify-center gap-2 rounded-2xl border border-border bg-slate-950/90 text-slate-300 text-sm font-semibold">
+      <div
+        className="w-full flex items-center justify-center gap-2 rounded-2xl border border-border bg-slate-950/90 text-slate-300 text-sm font-semibold"
+        style={{ height: stageHeight }}
+      >
         <Loader2 className="w-4 h-4 animate-spin" />
         <span>Loading Surah {selectedSurah}…</span>
+      </div>
+    );
+  }
+
+  // A load that finished without verses is a dead end too, so it gets the same way out.
+  if (surahError || !currentVerse) {
+    return (
+      <div
+        className="w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-slate-950/90 px-6 text-center"
+        style={{ height: stageHeight }}
+      >
+        <span className="text-sm font-semibold text-rose-300">
+          {surahError ?? `Surah ${selectedSurah} returned no verses to assemble.`}
+        </span>
+        <button
+          type="button"
+          onClick={() => setReloadToken((prev) => prev + 1)}
+          className="px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-primary/20 hover:opacity-90 transition-opacity"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Try Again</span>
+        </button>
       </div>
     );
   }
@@ -486,7 +615,8 @@ export const AyahAssemblyCanvas: React.FC = () => {
       {/* Main 2D Canvas Stage */}
       <div
         ref={containerRef}
-        className="relative w-full h-[460px] rounded-2xl overflow-hidden border border-border bg-slate-950/90 shadow-inner select-none cursor-pointer"
+        className="relative w-full rounded-2xl overflow-hidden border border-border bg-slate-950/90 shadow-inner select-none cursor-pointer"
+        style={{ height: stageHeight }}
         onClick={(e) => handleCanvasInteraction(e.clientX, e.clientY)}
         onTouchStart={(e) => {
           const touch = e.touches[0];
@@ -495,7 +625,7 @@ export const AyahAssemblyCanvas: React.FC = () => {
           }
         }}
       >
-        <canvas ref={canvasRef} className="w-full h-full block" />
+        <canvas ref={attachCanvas} className="w-full h-full block" />
 
         {/* Assembled Ayah Display Banner (Bottom Tray) */}
         <div className="absolute bottom-4 left-4 right-4 p-3.5 rounded-xl bg-card/90 backdrop-blur-md border border-border shadow-lg flex flex-col items-center gap-1">
