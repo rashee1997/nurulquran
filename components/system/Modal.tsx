@@ -12,8 +12,8 @@ interface ModalProps {
   /** Rendered inside the header next to the label; leave undefined for a plain title. */
   title?: React.ReactNode;
   children: React.ReactNode;
-  /** Sheet variant: docks to the viewport edge (used by drawers). */
-  variant?: 'centered' | 'sheet-right';
+  /** Sheet variant: docks to the viewport edge (used by drawers and the reader's Tafseer sheet). */
+  variant?: 'centered' | 'sheet-right' | 'sheet-bottom';
   /** Hide the built-in header (custom header inside content). */
   hideHeader?: boolean;
   /** Extra class on the scrollable content pane. */
@@ -107,12 +107,23 @@ export const Modal: React.FC<ModalProps> = ({
   const position =
     variant === 'sheet-right'
       ? 'fixed inset-y-0 right-0 h-full w-full sm:w-[440px] max-h-none rounded-none rounded-l-2xl border-l animate-in slide-in-from-right duration-200'
-      : 'relative w-full max-w-lg max-h-[85vh] rounded-2xl animate-in fade-in zoom-in-95 duration-200';
+      : variant === 'sheet-bottom'
+        ? // Bottom sheet: full width and edge-docked on small screens, a centred dialog from
+          // `sm` up, where a bottom sheet would waste vertical space. One entrance animation is
+          // used at every width — stacking a second `animate-in` at `sm` would leave two
+          // competing sets of enter variables on the same element. It is a transform/opacity
+          // animation, so it stays on the compositor.
+          'relative w-full max-h-[92vh] rounded-t-3xl border-t animate-in slide-in-from-bottom duration-200 sm:max-w-5xl sm:rounded-2xl sm:border'
+        : 'relative w-full max-w-lg max-h-[85vh] rounded-2xl animate-in fade-in zoom-in-95 duration-200';
 
   return createPortal(
     <div
       className={`fixed inset-0 z-100 flex bg-black/40 backdrop-blur-xs animate-in fade-in duration-150 ${
-        variant === 'sheet-right' ? 'justify-end p-0' : 'items-center justify-center p-4'
+        variant === 'sheet-right'
+          ? 'justify-end p-0'
+          : variant === 'sheet-bottom'
+            ? 'items-end justify-center p-0 sm:items-center sm:p-4'
+            : 'items-center justify-center p-4'
       }`}
       onClick={onClose}
       role="presentation"

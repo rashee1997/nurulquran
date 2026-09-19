@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from 'ai';
 import ReactMarkdown from 'react-markdown';
@@ -9,6 +9,7 @@ import { Sparkles, Send, Bot, User, BookOpen, RotateCcw, Languages } from 'lucid
 import { db } from '@/lib/db';
 import Link from 'next/link';
 import { Modal } from '@/components/system/Modal';
+import { useAiTutor } from './tutor-bridge';
 import { VerseCard, WordAnalysisCard } from './ToolInvocationCards';
 
 /**
@@ -153,12 +154,15 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose }) => {
     }
   }, [messages]);
 
-  const submit = (text: string): void => {
-    const trimmed = text.trim();
-    if (!trimmed || isLoading) return;
-    setDraft('');
-    void sendMessage({ text: trimmed + LANGUAGE_INSTRUCTION[language] });
-  };
+  const submit = useCallback(
+    (text: string): void => {
+      const trimmed = text.trim();
+      if (!trimmed || isLoading) return;
+      setDraft('');
+      void sendMessage({ text: trimmed + LANGUAGE_INSTRUCTION[language] });
+    },
+    [isLoading, language, sendMessage]
+  );
 
   const retryLast = (): void => {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
@@ -168,12 +172,50 @@ export const TutorPanel: React.FC<TutorPanelProps> = ({ isOpen, onClose }) => {
     void sendMessage({ text: extractText(lastUser) });
   };
 
-  const quickPrompts = [
-    'Explain the tafseer and context of Surah Al-Fatihah, Ayah 1',
-    'What are the Tajweed rules in Surah Al-Ikhlas?',
-    'Give me a Tamil explanation for Surah Al-Kawthar',
-    'Break down the root words of Ayat al-Kursi (2:255)',
-  ];
+  /*
+   * Verse-specific prompt from the reader: when an ayah's Ask-the-tutor click queued a
+   * prompt through the bridge, auto-submit it exactly once per open. This is what replaces
+   * the old behaviour where the drawer ignored the queued prompt and showed four static
+   * sample questions about unrelated surahs. `promptKey` (not the prompt text) is the
+   * dependency, so clicking the same ayah twice re-fires.
+   */
+  const { queuedPrompt, verseContext, promptKey, consumePrompt } = useAiTutor();
+  const lastConsumedKeyRef = useRef(0);
+  const queuedSubmitRef = useRef<((text: string) => void) | null>(null);
+  useEffect(() => {
+    queuedSubmitRef.current = submit;
+  }, [submit]);
+  useEffect(() => {
+    if (!isOpen || queuedPrompt === null || promptKey === lastConsumedKeyRef.current) return;
+    lastConsumedKeyRef.current = promptKey;
+    consumePrompt();
+    queuedSubmitRef.current?.(queuedPrompt);
+  }, [isOpen, queuedPrompt, promptKey, consumePrompt]);
+
+  /*
+   * Suggested questions follow the verse the learner came from. The reader passes verse
+   * coordinates through the bridge, so the four prompts below are generated for *that* ayah —
+   * replacing the previous four hardcoded questions about Al-Fatihah, Al-Ikhlas, Al-Kawthar
+   * and Ayat al-Kursi that appeared no matter which verse was clicked.
+   */
+  const quickPrompts = useMemo(() => {
+    if (!verseContext) {
+      return [
+        'Give me an overview of Surah Al-Fatihah and its themes',
+        'What are the Tajweed rules in Surah Al-Ikhlas?',
+        'Explain the story behind Ayat al-Kursi (2:255)',
+        'What does the Quran say about patience and prayer?',
+      ];
+    }
+    const { surah, ayah, surahName } = verseContext;
+    const ref = `${surahName} (${surah}:${ayah})`;
+    return [
+      `Explain the tafseer and context of ${ref}`,
+      `What do the root words in ${ref} reveal about its meaning?`,
+      `Tell me the story behind the revelation of ${ref}`,
+      `Give me a Tamil explanation of ${ref}`,
+    ];
+  }, [verseContext]);
 
   return (
     <Modal

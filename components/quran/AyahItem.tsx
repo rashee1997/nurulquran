@@ -25,6 +25,14 @@ interface AyahItemProps {
   onWordClick: (word: QuranWord) => void;
   onMemorizeToggle: (verse: Verse) => void;
   onAskAi: (verse: Verse) => void;
+  /**
+   * Opens the Tafseer storytelling dialog over the reader. When absent the row falls back to a
+   * plain link to the full lesson route, so the row still works anywhere the dialog is not
+   * wired up (for example, a future surface that renders ayahs without the reader shell).
+   */
+  onOpenTafsir?: (verse: Verse) => void;
+  /** True while the Tafseer dialog is showing this ayah. */
+  isTafsirOpen?: boolean;
   onOpenMutashabihat?: (entry: MutashabihEntry) => void;
   /** Bookmark state and handler; omitted when the surrounding view has no library. */
   isBookmarked?: boolean;
@@ -52,6 +60,8 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
   onWordClick,
   onMemorizeToggle,
   onAskAi,
+  onOpenTafsir,
+  isTafsirOpen = false,
   onOpenMutashabihat,
   isBookmarked = false,
   onToggleBookmark,
@@ -118,9 +128,11 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
     <div
       id={`ayah-item-${verse.surah}-${verse.ayah}`}
       className={`p-5 rounded-2xl border transition-colors duration-200 ${
-        isCurrentAudio
-          ? 'bg-primary-subtle border-primary shadow-md ring-1 ring-primary/40'
-          : 'bg-card border-border hover:border-border-strong'
+        isTafsirOpen
+          ? 'bg-secondary-subtle border-secondary shadow-md ring-2 ring-secondary/40'
+          : isCurrentAudio
+            ? 'bg-primary-subtle border-primary shadow-md ring-1 ring-primary/40'
+            : 'bg-card border-border hover:border-border-strong'
       }`}
     >
       {/* Top action bar for the Ayah */}
@@ -215,14 +227,31 @@ const AyahItemCard: React.FC<AyahItemProps> = ({
             </button>
           )}
 
-          <Link
-            href={`/lessons/tafsir/${verse.surah}/${verse.ayah}`}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-surface-hover transition-colors"
-            aria-label={`Open the Tafseer lesson for ayah ${verse.surah}:${verse.ayah}`}
-            title={`Tafseer lesson for ${verse.surah}:${verse.ayah} — commentary, storyteller, reflection`}
-          >
-            <BookOpen className="w-4 h-4" aria-hidden="true" />
-          </Link>
+          {onOpenTafsir ? (
+            <button
+              type="button"
+              onClick={() => onOpenTafsir(verse)}
+              aria-pressed={isTafsirOpen}
+              className={`p-1.5 rounded-lg transition-colors ${
+                isTafsirOpen
+                  ? 'text-secondary-strong bg-secondary-subtle'
+                  : 'text-muted-foreground hover:text-secondary-strong hover:bg-surface-hover'
+              }`}
+              aria-label={`View Tafseer for ayah ${verse.surah}:${verse.ayah}`}
+              title={`View Tafseer for ${verse.surah}:${verse.ayah} — commentary, storyteller, reflection`}
+            >
+              <BookOpen className="w-4 h-4" aria-hidden="true" />
+            </button>
+          ) : (
+            <Link
+              href={`/lessons/tafsir/${verse.surah}/${verse.ayah}`}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-surface-hover transition-colors"
+              aria-label={`Open the Tafseer lesson for ayah ${verse.surah}:${verse.ayah}`}
+              title={`Tafseer lesson for ${verse.surah}:${verse.ayah} — commentary, storyteller, reflection`}
+            >
+              <BookOpen className="w-4 h-4" aria-hidden="true" />
+            </Link>
+          )}
 
           <button
             type="button"

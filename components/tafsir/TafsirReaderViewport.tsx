@@ -3,7 +3,10 @@
 import React, { useRef, useState } from 'react';
 import {
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   CloudOff,
+  Columns2,
   Database,
   Globe,
   History,
@@ -13,17 +16,18 @@ import {
   Play,
   Quote,
 } from 'lucide-react';
+import { TafsirProse } from './TafsirProse';
 import type {
   TafsirEntry,
-  TafsirLanguage,
   TafsirLessonSegment,
   TafsirProvenance,
+  TafsirViewMode,
 } from '@/lib/tafsir/types';
 
 interface TafsirReaderViewportProps {
   segment: TafsirLessonSegment | null;
-  language: TafsirLanguage;
-  onLanguageChange: (language: TafsirLanguage) => void;
+  view: TafsirViewMode;
+  onViewChange: (view: TafsirViewMode) => void;
   loading: boolean;
   failedEditions: readonly string[];
 }
@@ -49,10 +53,17 @@ const PROVENANCE_BADGE: Record<
   },
 };
 
-const LANGUAGE_META: Record<TafsirLanguage, { label: string; longLabel: string; htmlLang: string }> = {
-  en: { label: 'EN', longLabel: 'English', htmlLang: 'en' },
-  ta: { label: 'தமிழ்', longLabel: 'Tamil', htmlLang: 'ta' },
+const VIEW_OPTIONS: Record<
+  TafsirViewMode,
+  { label: string; longLabel: string; icon: React.ElementType; scriptClass: string }
+> = {
+  en: { label: 'EN', longLabel: 'English', icon: Languages, scriptClass: '' },
+  ta: { label: 'தமிழ்', longLabel: 'Tamil', icon: Languages, scriptClass: 'font-tamil' },
+  bilingual: { label: 'Both', longLabel: 'Bilingual', icon: Columns2, scriptClass: '' },
 };
+
+/** Commentaries longer than this open collapsed, so the abridged lesson stays the default read. */
+const LONG_TEXT_CHARS = 4_000;
 
 /**
  * One language's commentary panel.
@@ -66,14 +77,36 @@ const LANGUAGE_META: Record<TafsirLanguage, { label: string; longLabel: string; 
  *  - `lang` is set so the browser picks correct fonts, line breaking and hyphenation for
  *    Tamil rather than guessing from the surrounding Latin text.
  */
-const TafsirPanel: React.FC<{ entry: TafsirEntry; isPrimary: boolean }> = ({ entry, isPrimary }) => {
+const TafsirPanel: React.FC<{ entry: TafsirEntry; verseKey: string; isPrimary: boolean }> = ({
+  entry,
+  verseKey,
+  isPrimary,
+}) => {
   const badge = PROVENANCE_BADGE[entry.provenance];
   const BadgeIcon = badge.icon;
   const isMissing = entry.provenance === 'unavailable' || entry.text.trim().length === 0;
+  const isLong = entry.text.length > LONG_TEXT_CHARS;
+
+  /*
+   * Collapse state is keyed to the verse it was chosen for.
+   *
+   * The panel sits at a stable position in the tree, so React keeps the instance across an
+   * ayah change and a plain `useState(!isLong)` would be frozen at whatever the *first*
+   * ayah needed: opening a short ayah first left a 51 KB Ibn Kathir passage fully expanded,
+   * and opening a long one first hid a short abridged commentary behind a "show the full
+   * commentary" teaser that mislabelled it. Storing the key beside the value and comparing
+   * during render is React's documented way to adjust state when a prop changes — no effect,
+   * so no extra commit and no cascading render.
+   */
+  const [collapseChoice, setCollapseChoice] = useState<{ verseKey: string; expanded: boolean } | null>(
+    null
+  );
+  const expanded = collapseChoice?.verseKey === verseKey ? collapseChoice.expanded : !isLong;
+  const setExpanded = (value: boolean): void => setCollapseChoice({ verseKey, expanded: value });
 
   return (
     <article
-      lang={LANGUAGE_META[entry.language].htmlLang}
+      lang={entry.language === 'ta' ? 'ta' : 'en'}
       translate="no"
       className={`notranslate flex flex-col rounded-2xl border bg-card overflow-hidden ${
         isPrimary ? 'border-primary/40 shadow-xs' : 'border-border'
@@ -101,14 +134,35 @@ const TafsirPanel: React.FC<{ entry: TafsirEntry; isPrimary: boolean }> = ({ ent
             This edition has no entry for this ayah. The Arabic verse and its translation are
             still shown above, and the other language may still carry commentary.
           </p>
+        ) : expanded ? (
+          <TafsirProse text={entry.text} language={entry.language === 'ta' ? 'ta' : 'en'} />
         ) : (
-          <div
-            className={`text-[0.95rem] text-foreground whitespace-pre-line max-w-[65ch] ${
-              entry.language === 'ta' ? 'font-tamil leading-[1.9]' : 'leading-[1.75]'
-            }`}
-          >
-            {entry.text}
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This is the full classical commentary — {Math.ceil(entry.text.length / 1000)}k
+              characters for this ayah. It is longer than the abridged lesson and opens expanded
+              only on request so the lesson stays readable at a glance.
+            </p>
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-subtle text-primary-strong text-[11px] font-bold hover:bg-primary/15 transition-colors"
+            >
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+              Show the full commentary
+            </button>
           </div>
+        )}
+
+        {expanded && isLong && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="mt-4 inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronUp className="w-3 h-3" aria-hidden="true" />
+            Collapse the deep-dive
+          </button>
         )}
       </div>
     </article>
@@ -116,19 +170,24 @@ const TafsirPanel: React.FC<{ entry: TafsirEntry; isPrimary: boolean }> = ({ ent
 };
 
 /**
- * The lesson reading surface: verified Arabic, both translations, and both commentaries.
+ * The lesson reading surface: verified Arabic, both translations, and the commentary panels.
  *
  * Layout notes:
- *  - The language toggle switches which panel is *emphasised*, and which one is shown at all
- *    below `lg`. Both panels exist in the DOM in the same slots at every breakpoint, so
- *    toggling changes no element's size class and cannot produce a layout shift.
- *  - While loading, the panel grid keeps its reserved height so the page does not jump when
- *    the exegesis arrives.
+ *  - The verse header uses one declared line-height (`leading-[2.4]`). It previously carried
+ *    both a class and an inline `style={{ lineHeight: 2.2 }}`; the inline value won, the class
+ *    was dead, and 2.2 is below what stacked Uthmani diacritics in Amiri Quran need — which is
+ *    how the marks on a tall letterform get clipped.
+ *  - The skeleton reserves the same section heights the loaded lesson occupies, so the swap
+ *    from loading to ready does not move the page. It cannot predict the *commentary's*
+ *    height (2 KB and 51 KB are both valid for the same ayah), so the panel grid also carries
+ *    a floor height and the reading column keeps a fixed measure.
+ *  - Switching view mode is a user action, so the resulting height change is expected; it is
+ *    kept to the panels themselves rather than being allowed to collapse the whole page.
  */
 export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
   segment,
-  language,
-  onLanguageChange,
+  view,
+  onViewChange,
   loading,
   failedEditions,
 }) => {
@@ -150,27 +209,63 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
   };
 
   if (!segment) {
+    if (!loading) {
+      return (
+        <div className="rounded-2xl border border-border bg-card p-8 min-h-[420px] flex flex-col items-center justify-center gap-3 text-center">
+          <BookOpen className="w-6 h-6 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm font-semibold text-foreground">No lesson loaded</p>
+        </div>
+      );
+    }
+
     return (
-      <div className="rounded-2xl border border-border bg-card p-8 min-h-[420px] flex flex-col items-center justify-center gap-3 text-center">
-        {loading ? (
-          <>
-            <Loader2 className="w-6 h-6 text-primary animate-spin" aria-hidden="true" />
-            <p className="text-sm font-semibold text-foreground">Assembling this lesson…</p>
-            <p className="text-xs text-muted-foreground">
-              Reading the verified verse and its commentary.
-            </p>
-          </>
-        ) : (
-          <>
-            <BookOpen className="w-6 h-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-semibold text-foreground">No lesson loaded</p>
-          </>
-        )}
+      <div className="flex flex-col gap-5" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Assembling this lesson…</span>
+
+        {/* Verse panel. */}
+        <div className="rounded-2xl border border-hero-border bg-hero-bg p-5 sm:p-7 min-h-[232px] flex flex-col items-center justify-center gap-4">
+          <div className="h-8 w-3/4 rounded-lg bg-hero-card-bg animate-pulse" />
+          <div className="h-12 w-full max-w-md rounded-lg bg-hero-card-bg animate-pulse" />
+          <div className="h-9 w-44 rounded-full bg-hero-card-bg animate-pulse" />
+        </div>
+
+        {/* Translations. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-h-[96px]">
+          <div className="rounded-xl border border-border bg-card px-4 py-3.5 space-y-2">
+            <div className="h-3 w-24 rounded bg-surface-muted animate-pulse" />
+            <div className="h-4 w-full rounded bg-surface-muted animate-pulse" />
+            <div className="h-4 w-4/5 rounded bg-surface-muted animate-pulse" />
+          </div>
+          <div className="rounded-xl border border-border bg-card px-4 py-3.5 space-y-2">
+            <div className="h-3 w-28 rounded bg-surface-muted animate-pulse" />
+            <div className="h-4 w-full rounded bg-surface-muted animate-pulse" />
+            <div className="h-4 w-4/5 rounded bg-surface-muted animate-pulse" />
+          </div>
+        </div>
+
+        {/* Commentary grid — same floor height as the real one. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[220px]">
+          {[0, 1].map((column) => (
+            <div key={column} className="rounded-2xl border border-border bg-card p-5 space-y-3">
+              <div className="h-3 w-40 rounded bg-surface-muted animate-pulse" />
+              <div className="h-4 w-full rounded bg-surface-muted animate-pulse" />
+              <div className="h-4 w-11/12 rounded bg-surface-muted animate-pulse" />
+              <div className="h-4 w-4/5 rounded bg-surface-muted animate-pulse" />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground min-h-[20px]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+          <span>Reading the verified verse and its commentary…</span>
+        </div>
       </div>
     );
   }
 
   const hasAsbab = Boolean(segment.asbab && segment.asbab.text.trim().length > 0);
+  const panels: readonly ('en' | 'ta')[] = view === 'bilingual' ? ['en', 'ta'] : [view];
+  const verseKey = `${segment.surah}:${segment.ayah}`;
 
   return (
     <div className="flex flex-col gap-5">
@@ -201,11 +296,15 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
             </div>
           </div>
 
+          {/*
+            One line-height, declared once. Amiri Quran stacks diacritics above and below the
+            baseline, so the mark needs the full 2.4 line box to avoid clipping on a tall
+            letterform; the value is never overridden inline.
+          */}
           <p
             className="font-arabic text-[1.7rem] sm:text-4xl leading-[2.4] text-hero-fg text-center"
             dir="rtl"
             lang="ar"
-            style={{ lineHeight: 2.2 }}
           >
             {segment.textUthmani}
           </p>
@@ -242,16 +341,11 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
 
       {/* Both translations, always visible: they are short by design. */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div
-          translate="no"
-          className="notranslate rounded-xl border border-border bg-card px-4 py-3.5"
-        >
+        <div translate="no" className="notranslate rounded-xl border border-border bg-card px-4 py-3.5">
           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
             English translation
           </p>
-          <p className="text-sm text-foreground leading-[1.75]">
-            {segment.translationEn || '—'}
-          </p>
+          <p className="text-sm text-foreground leading-[1.75]">{segment.translationEn || '—'}</p>
         </div>
         <div
           lang="ta"
@@ -279,16 +373,14 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
               Occasion of revelation (Asbab al-Nuzul)
             </h2>
           </div>
-          <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
-            {segment.asbab.text}
-          </p>
+          <TafsirProse text={segment.asbab.text} language="en" />
           <p className="text-[10px] text-muted-foreground mt-2.5">
             Source: {segment.asbab.editionName}
           </p>
         </section>
       )}
 
-      {/* Language emphasis toggle. */}
+      {/* View mode selector. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Languages className="w-4 h-4 text-primary" aria-hidden="true" />
@@ -296,26 +388,30 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
         </div>
 
         <div
-          role="group"
-          aria-label="Choose the language to read"
+          role="radiogroup"
+          aria-label="Choose which commentary to read"
           className="inline-flex items-center p-1 rounded-xl bg-surface-muted border border-border"
         >
-          {(['en', 'ta'] as const).map((code) => {
-            const isActive = language === code;
+          {(['en', 'ta', 'bilingual'] as const).map((code) => {
+            const option = VIEW_OPTIONS[code];
+            const OptionIcon = option.icon;
+            const isActive = view === code;
             return (
               <button
                 key={code}
                 type="button"
-                onClick={() => onLanguageChange(code)}
-                aria-pressed={isActive}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onViewChange(code)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground'
-                } ${code === 'ta' ? 'font-tamil' : ''}`}
+                } ${option.scriptClass}`}
               >
-                {LANGUAGE_META[code].label}
-                <span className="sr-only"> — {LANGUAGE_META[code].longLabel} commentary</span>
+                <OptionIcon className="w-3 h-3" aria-hidden="true" />
+                {option.label}
+                <span className="sr-only"> — {option.longLabel} commentary</span>
               </button>
             );
           })}
@@ -336,23 +432,19 @@ export const TafsirReaderViewport: React.FC<TafsirReaderViewportProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[220px]">
-        {(['en', 'ta'] as const).map((code) => {
-          const entry = segment.tafsir[code];
-          const isEmphasised = language === code;
-          return (
-            <div
-              key={code}
-              className={
-                // Below lg the non-selected language is hidden, which is a display change on an
-                // element of unchanged size — no reflow of the sibling panel.
-                isEmphasised ? 'block' : 'hidden lg:block'
-              }
-            >
-              <TafsirPanel entry={entry} isPrimary={isEmphasised} />
-            </div>
-          );
-        })}
+      <div
+        className={`grid gap-4 min-h-[220px] ${
+          view === 'bilingual' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
+        }`}
+      >
+        {panels.map((code) => (
+          <TafsirPanel
+            key={code}
+            entry={segment.tafsir[code]}
+            verseKey={verseKey}
+            isPrimary={view === 'bilingual' ? code === 'en' : true}
+          />
+        ))}
       </div>
 
       <p className="flex items-start gap-2 text-[11px] text-muted-foreground leading-relaxed">

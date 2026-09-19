@@ -8,9 +8,26 @@
    ========================================================================== */
 
 @theme {
-  --font-arabic: 'Amiri Quran', 'Scheherazade New', 'Noto Sans Arabic', serif;
-  --font-tamil: 'Noto Sans Tamil', sans-serif;
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  /*
+     Script font stacks.
+
+     The downloadable faces above are loaded from Google Fonts over the network. This app is
+     an offline-capable PWA, so the network copy is not guaranteed to be there: in an
+     air-gapped or offline session the browser falls back to whatever the OS ships. A stack
+     that ends at a generic `serif`/`sans-serif` can land on a font with no Tamil coverage at
+     all, which is exactly how Tamil renders as tofu boxes and how Uthmani diacritics lose
+     their positioning.
+
+     Each stack therefore names the real platform fonts for the script before the generic
+     family: `Nirmala UI`/`Latha`/`Tamil MN` cover Windows and macOS Tamil, and
+     `Traditional Arabic`/`Al Bayan`/`Geeza Pro`/`Noto Naskh Arabic` cover Windows, iOS and
+     Android Arabic. The generic family is the last resort, not the second choice.
+  */
+  --font-arabic: 'Amiri Quran', 'Scheherazade New', 'Noto Naskh Arabic', 'Noto Sans Arabic',
+    'Traditional Arabic', 'Al Bayan', 'Geeza Pro', serif;
+  --font-tamil: 'Noto Sans Tamil', 'Noto Sans Tamil UI', 'Nirmala UI', 'Latha',
+    'Tamil Sangam MN', 'Tamil MN', 'InaiMathi', sans-serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', 'Noto Sans', sans-serif;
 
   /* Base Canvas & Typography */
   --color-background: var(--background);

@@ -36,7 +36,11 @@ interface QuranReaderProps {
   chapter: Chapter;
   verses: Verse[];
   verseProgressMap?: Record<string, VerseProgress>;
-  onOpenAiTutor?: (contextPrompt?: string) => void;
+  onOpenAiTutor?: (contextPrompt?: string, verse?: Verse) => void;
+  /** Opens the Tafseer storytelling dialog over the reader, without navigating away. */
+  onOpenTafsir?: (verse: Verse) => void;
+  /** The ayah the Tafseer dialog is currently showing, kept highlighted behind it. */
+  activeTafsirAyah?: number | null;
 }
 
 export const QuranReader: React.FC<QuranReaderProps> = ({
@@ -44,6 +48,8 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   verses,
   verseProgressMap,
   onOpenAiTutor,
+  onOpenTafsir,
+  activeTafsirAyah = null,
 }) => {
   const [viewMode, setViewMode] = useState<'continuous' | 'mushaf'>('continuous');
   const [selectedWord, setSelectedWord] = useState<QuranWord | null>(null);
@@ -292,11 +298,14 @@ export const QuranReader: React.FC<QuranReaderProps> = ({
   const handleAskAi = useCallback(
     (verse: Verse): void => {
       if (!onOpenAiTutor) return;
-      onOpenAiTutor(`Please explain Surah ${chapter.nameSimple} (${verse.surah}:${verse.ayah}) in detail:
+      onOpenAiTutor(
+        `Please explain Surah ${chapter.nameSimple} (${verse.surah}:${verse.ayah}) in detail:
 Arabic: "${verse.textUthmani}"
 English: "${verse.translationEn}"
 Tamil: "${verse.translationTa}"
-Explain the root words, linguistic context, and practical spiritual reflections.`);
+Explain the root words, linguistic context, and practical spiritual reflections.`,
+        verse
+      );
     },
     [chapter.nameSimple, onOpenAiTutor]
   );
@@ -601,6 +610,8 @@ Explain the root words, linguistic context, and practical spiritual reflections.
                 onWordClick={handleWordClick}
                 onMemorizeToggle={handleMemorizeToggle}
                 onAskAi={handleAskAi}
+                onOpenTafsir={onOpenTafsir}
+                isTafsirOpen={activeTafsirAyah === verse.ayah}
                 onOpenMutashabihat={handleOpenMutashabihat}
                 isBookmarked={bookmarkedAyahs.has(verse.ayah)}
                 onToggleBookmark={handleToggleBookmark}

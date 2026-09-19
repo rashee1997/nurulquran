@@ -74,6 +74,21 @@ export type TafsirProvenance = 'network' | 'cache' | 'unavailable';
 
 export type TafsirLanguage = 'en' | 'ta';
 
+/**
+ * How the reader is viewing the commentary: one language, or both side by side.
+ *
+ * This is deliberately separate from `TafsirLanguage`. `TafsirLanguage` is the *primary*
+ * language used for the Live storyteller's code-switching and for grading a reflection, and
+ * it must stay a single value — a session cannot speak two registers at once. The view mode
+ * is purely a presentation choice and may be bilingual.
+ */
+export type TafsirViewMode = 'en' | 'ta' | 'bilingual';
+
+/** The primary language implied by a view mode; bilingual reads as English. */
+export function primaryLanguage(view: TafsirViewMode): TafsirLanguage {
+  return view === 'ta' ? 'ta' : 'en';
+}
+
 /** One language's exegesis for one ayah. */
 export interface TafsirEntry {
   language: TafsirLanguage;

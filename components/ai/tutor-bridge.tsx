@@ -10,8 +10,16 @@ interface AiTutorContextValue {
    * panel, so a repeated click on the same ayah still re-triggers the message.
    */
   queuedPrompt: string | null;
+  /**
+   * Coordinates of the scripture the queued prompt is about, when the trigger came from a
+   * verse (the reader, the Mushaf view). Lets the drawer's suggested questions be about the
+   * verse the learner is actually reading instead of four hardcoded sample surahs.
+   */
+  verseContext: { surah: number; ayah: number; surahName: string } | null;
+  /** Monotonic key that increments with every queued prompt. */
+  promptKey: number;
   /** Opens the drawer; with a prompt, queues it for auto-submit. */
-  open: (prompt?: string) => void;
+  open: (prompt?: string, verseContext?: AiTutorContextValue['verseContext']) => void;
   close: () => void;
   /** Marks the queued prompt consumed so a close/reopen does not resend it. */
   consumePrompt: () => void;
@@ -31,26 +39,31 @@ const AiTutorContext = createContext<AiTutorContextValue | null>(null);
 export const AiTutorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
+  const [verseContext, setVerseContext] = useState<AiTutorContextValue['verseContext']>(null);
   // Monotonic key so a second click with the *same* prompt re-fires the consume effect.
   const promptKeyRef = useRef(0);
   const [promptKey, setPromptKey] = useState(0);
 
-  const open = useCallback((prompt?: string): void => {
-    if (prompt && prompt.trim().length > 0) {
-      promptKeyRef.current += 1;
-      setPromptKey(promptKeyRef.current);
-      setQueuedPrompt(prompt.trim());
-    }
-    setIsOpen(true);
-  }, []);
+  const open = useCallback(
+    (prompt?: string, context?: AiTutorContextValue['verseContext']): void => {
+      if (prompt && prompt.trim().length > 0) {
+        promptKeyRef.current += 1;
+        setPromptKey(promptKeyRef.current);
+        setQueuedPrompt(prompt.trim());
+        setVerseContext(context ?? null);
+      }
+      setIsOpen(true);
+    },
+    []
+  );
 
   const close = useCallback((): void => setIsOpen(false), []);
 
   const consumePrompt = useCallback((): void => setQueuedPrompt(null), []);
 
   const value = useMemo<AiTutorContextValue>(
-    () => ({ isOpen, queuedPrompt, promptKey, open, close, consumePrompt }),
-    [isOpen, queuedPrompt, promptKey, open, close, consumePrompt]
+    () => ({ isOpen, queuedPrompt, verseContext, promptKey, open, close, consumePrompt }),
+    [isOpen, queuedPrompt, verseContext, promptKey, open, close, consumePrompt]
   );
 
   return <AiTutorContext.Provider value={value}>{children}</AiTutorContext.Provider>;

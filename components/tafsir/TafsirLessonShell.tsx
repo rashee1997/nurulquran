@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useSyncExternalStore } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
@@ -10,55 +10,13 @@ import { TafsirNavigator } from './TafsirNavigator';
 import { GeminiLiveStorytellerBar } from './GeminiLiveStorytellerBar';
 import { InteractiveReflectionBlock } from './InteractiveReflectionBlock';
 import { useTafsirLesson } from '@/hooks/use-tafsir-lesson';
+import { useTafsirView } from '@/hooks/use-tafsir-view';
 import { useGeminiLiveTafsir } from '@/hooks/use-gemini-live-tafsir';
 import type { LessonVerse } from '@/lib/tafsir/lesson';
-import type { TafsirLanguage } from '@/lib/tafsir/types';
 
 interface TafsirLessonShellProps {
   verse: LessonVerse;
   voiceId?: string;
-}
-
-const LANGUAGE_STORAGE_KEY = 'tafsir-language';
-/** Notifies this tab's own subscribers; the `storage` event only fires in other tabs. */
-const LANGUAGE_CHANGE_EVENT = 'tafsir-language-change';
-
-function isTafsirLanguage(value: string | null): value is TafsirLanguage {
-  return value === 'en' || value === 'ta';
-}
-
-/**
- * Subscribes to the saved language preference.
- *
- * Mirrors `hooks/use-theme`: reading storage through `useSyncExternalStore` gives the server
- * a definite snapshot (English) and swaps to the stored value only after hydration, so the
- * first paint cannot mismatch — and no effect has to call `setState`, which would be a
- * cascading render on every mount.
- */
-function subscribeToLanguage(callback: () => void): () => void {
-  if (typeof window === 'undefined') return () => {};
-  window.addEventListener('storage', callback);
-  window.addEventListener(LANGUAGE_CHANGE_EVENT, callback);
-  return () => {
-    window.removeEventListener('storage', callback);
-    window.removeEventListener(LANGUAGE_CHANGE_EVENT, callback);
-  };
-}
-
-function getLanguageSnapshot(): TafsirLanguage {
-  if (typeof window === 'undefined') return 'en';
-  try {
-    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isTafsirLanguage(stored) ? stored : 'en';
-  } catch {
-    // Storage can be blocked entirely (private mode, hardened settings); English is a safe
-    // default and nothing else depends on persistence.
-    return 'en';
-  }
-}
-
-function getLanguageServerSnapshot(): TafsirLanguage {
-  return 'en';
 }
 
 /**
@@ -74,20 +32,13 @@ function getLanguageServerSnapshot(): TafsirLanguage {
  * a chapter needs no network at all.
  */
 export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voiceId }) => {
-  const language = useSyncExternalStore(
-    subscribeToLanguage,
-    getLanguageSnapshot,
-    getLanguageServerSnapshot
-  );
-
-  const changeLanguage = useCallback((next: TafsirLanguage): void => {
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-    } catch {
-      /* storage unavailable — the choice simply does not persist */
-    }
-    window.dispatchEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail: next }));
-  }, []);
+  /**
+   * The saved reading view is shared with the in-reader dialog (`hooks/use-tafsir-view`), so a
+   * child who chose Tamil while tapping an ayah in the reader gets Tamil in the full lesson
+   * too. `language` is the single register the Live storyteller speaks and a reflection is
+   * graded in; `view` may additionally be bilingual.
+   */
+  const { view, setView, language } = useTafsirView();
 
   const { segment, failedEditions, state, error, reload } = useTafsirLesson(verse);
 
@@ -180,8 +131,8 @@ export const TafsirLessonShell: React.FC<TafsirLessonShellProps> = ({ verse, voi
 
       <TafsirReaderViewport
         segment={segment}
-        language={language}
-        onLanguageChange={changeLanguage}
+        view={view}
+        onViewChange={setView}
         loading={isLoading}
         failedEditions={failedEditions}
       />

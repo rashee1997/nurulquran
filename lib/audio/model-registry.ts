@@ -10,8 +10,9 @@
  * error instead of silently switching voices.
  *
  * The budget invariant is enforced per-variant at selection time, so no user choice can exceed
- * the 180 MB ceiling.
+ * the 220 MB ceiling.
  */
+
 
 export interface ModelAsset {
   /** Stable id used as the IndexedDB key and in worker messages. */
@@ -28,8 +29,17 @@ export interface ModelAsset {
   fileName: string;
 }
 
-/** Hard ceiling on the total bytes this subsystem may persist in IndexedDB. */
-export const MODEL_BUDGET_BYTES = 180 * 1024 * 1024;
+/**
+ * Hard ceiling on the total bytes this variant may require, checked before any download starts.
+ *
+ * Raised from 180 MB after a measured audit: the Balanced variant's exact byte sum is
+ * 180.3 MB (VAD 2.24 + Whisper encoder 10.1 + decoder 50.02 + Tamil Rasa 63.51 + English
+ * Lessac int8 63.20 + two JSON configs), which the old ceiling rejected — `ensureVariantDownloaded`
+ * threw "exceeds the 180 MB budget" before a single byte was fetched, so downloads aborted
+ * instantly for *every* variant. 220 MB keeps ~40 MB of headroom above the largest variant
+ * while still capping abuse of the storage quota.
+ */
+export const MODEL_BUDGET_BYTES = 220 * 1024 * 1024;
 
 const HF = 'https://huggingface.co';
 
@@ -173,7 +183,7 @@ export interface ModelVariant {
 
 /**
  * The three user-selectable variants. `balanced` is the Settings default: Tamil Rasa + English
- * int8 Lessac at 163.4 MB. The alternates swap one voice each and remain inside the budget.
+ * int8 Lessac at 180.3 MB. The alternates swap one voice each and remain inside the budget.
  */
 export const MODEL_VARIANTS: Record<CoachModelVariant, ModelVariant> = {
   balanced: {
